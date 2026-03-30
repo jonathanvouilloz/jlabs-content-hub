@@ -24,6 +24,7 @@
       --orange: #d97706;
       --red: #dc2626;
       --purple: #7c3aed;
+      --linkedin: #0a66c2;
     }
 
     body {
@@ -35,7 +36,7 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Modal PAT ── */
+    /* -- Modal PAT -- */
     .modal-overlay {
       position: fixed; inset: 0;
       background: rgba(0, 0, 0, 0.3);
@@ -71,10 +72,10 @@
     .modal button:hover { background: var(--accent-hover); color: #fff; }
     .modal .error-msg { color: var(--red); font-size: 12px; margin-bottom: 12px; display: none; }
 
-    /* ── Layout ── */
+    /* -- Layout -- */
     .app { display: flex; height: 100vh; }
 
-    /* ── Sidebar ── */
+    /* -- Sidebar -- */
     .sidebar {
       width: 260px; min-width: 260px; background: var(--bg-secondary);
       border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
@@ -105,7 +106,7 @@
     .sidebar-footer a { color: var(--accent); cursor: pointer; text-decoration: none; }
     .sidebar-footer a:hover { text-decoration: underline; }
 
-    /* ── Main ── */
+    /* -- Main -- */
     .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
     .main-header {
@@ -113,6 +114,8 @@
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }
     .main-header h2 { font-size: 16px; font-weight: 600; white-space: nowrap; }
+
+    .header-right { display: flex; align-items: center; gap: 10px; }
 
     .search-box {
       max-width: 300px; flex: 1; padding: 8px 14px; background: var(--bg-secondary);
@@ -122,7 +125,17 @@
     .search-box:focus { outline: none; border-color: var(--accent); }
     .search-box::placeholder { color: var(--text-muted); }
 
-    /* ── Tab bar ── */
+    /* -- View toggle -- */
+    .view-toggle { display: flex; gap: 2px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+    .view-toggle-btn {
+      padding: 5px 8px; border: none; background: none; border-radius: 6px;
+      cursor: pointer; font-size: 14px; color: var(--text-muted); transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; line-height: 1;
+    }
+    .view-toggle-btn:hover { color: var(--text); }
+    .view-toggle-btn.active { background: var(--bg); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+    /* -- Tab bar -- */
     .tab-bar {
       display: flex; padding: 0 24px; border-bottom: 1px solid var(--border);
     }
@@ -135,7 +148,7 @@
     .tab-btn:hover { color: var(--text); }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-    /* ── Content area ── */
+    /* -- Content area -- */
     .content-area { flex: 1; overflow-y: auto; padding: 0; }
 
     .section-header {
@@ -150,7 +163,7 @@
     .section-published .card { opacity: 0.6; }
     .section-published .card:hover { opacity: 1; }
 
-    /* ── Cards ── */
+    /* -- Cards -- */
     .card {
       background: var(--bg-secondary); border: 1px solid var(--border);
       border-radius: 10px; margin-bottom: 10px; transition: border-color 0.2s, opacity 0.2s;
@@ -177,6 +190,7 @@
     .type-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 4px; }
     .type-badge-article { color: var(--accent); background: rgba(37, 99, 235, 0.08); }
     .type-badge-gmb { color: #ea4335; background: rgba(234, 67, 53, 0.08); }
+    .type-badge-linkedin { color: #0a66c2; background: rgba(10, 102, 194, 0.08); }
 
     .card-dates { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
     .card-dates .sep { color: var(--border); }
@@ -204,7 +218,7 @@
     .card-body { display: none; padding: 0 18px 18px; border-top: 1px solid var(--border); }
     .card.open .card-body { display: block; }
 
-    /* ── Markdown content ── */
+    /* -- Markdown content -- */
     .card-body .markdown-content {
       padding-top: 20px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       font-size: 15px; line-height: 1.75; color: var(--text); max-width: 720px;
@@ -235,7 +249,7 @@
     .markdown-content th, .markdown-content td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; font-size: 14px; }
     .markdown-content th { background: var(--bg-tertiary); font-family: 'Inter', sans-serif; font-weight: 600; }
 
-    /* ── GMB layout ── */
+    /* -- GMB layout -- */
     .gmb-layout {
       display: flex; gap: 0; height: 100%;
     }
@@ -280,6 +294,21 @@
     .gmb-type-badge {
       font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
       color: #ea4335; background: rgba(234, 67, 53, 0.08);
+    }
+
+    /* GMB month separator */
+    .gmb-month-separator td {
+      background: var(--bg-tertiary); font-weight: 600; font-size: 12px;
+      color: var(--text); padding: 10px 12px; cursor: default; border-bottom: 1px solid var(--border);
+    }
+    .gmb-month-separator:hover { background: var(--bg-tertiary) !important; }
+    .gmb-month-separator .month-status {
+      font-weight: 400; color: var(--text-muted); font-size: 11px;
+    }
+
+    /* GMB file publish row */
+    .gmb-file-publish-row td {
+      padding: 6px 12px; background: var(--bg-secondary); border-bottom: 2px solid var(--border);
     }
 
     /* GMB Preview */
@@ -331,7 +360,100 @@
     }
     .gmb-preview-image-prompt strong { color: var(--text); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; display: block; margin-bottom: 6px; }
 
-    /* ── Loading / Error / Empty ── */
+    /* -- Kanban view -- */
+    .kanban-container { display: flex; gap: 20px; padding: 20px 24px; height: 100%; overflow-x: auto; }
+    .kanban-column { flex: 1; min-width: 320px; display: flex; flex-direction: column; }
+    .kanban-column-header {
+      font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); padding: 0 0 12px; border-bottom: 2px solid var(--border);
+      margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .kanban-column-header .col-count {
+      background: var(--bg-secondary); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 400;
+    }
+    .kanban-cards { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 20px; }
+
+    .kanban-card {
+      background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; cursor: pointer; transition: border-color 0.15s;
+    }
+    .kanban-card:hover { border-color: var(--accent); }
+    .kanban-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+    .kanban-card-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+    .kanban-card-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .kanban-card-bottom { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .kanban-card-info { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .kanban-detail-panel {
+      border-top: 1px solid var(--border); padding: 20px 24px; max-height: 45%;
+      overflow-y: auto; background: var(--bg-secondary);
+    }
+    .kanban-detail-panel .detail-header {
+      display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;
+    }
+    .kanban-detail-panel .detail-header h3 { font-size: 16px; font-weight: 600; }
+    .kanban-detail-close { border: none; background: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 4px 8px; }
+    .kanban-detail-close:hover { color: var(--text); }
+
+    /* -- Calendar view -- */
+    .calendar-container { padding: 20px 24px; height: 100%; display: flex; flex-direction: column; }
+    .calendar-nav {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .calendar-nav-btn {
+      border: 1px solid var(--border); background: var(--bg); border-radius: 6px;
+      padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 13px;
+      color: var(--text); transition: all 0.15s;
+    }
+    .calendar-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .calendar-nav-title { font-size: 15px; font-weight: 600; }
+
+    .calendar-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+      background: var(--border); border: 1px solid var(--border); border-radius: 8px;
+      overflow: hidden; flex: 1;
+    }
+    .calendar-day-header {
+      background: var(--bg-secondary); padding: 8px; text-align: center;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+    .calendar-day {
+      background: var(--bg); padding: 6px; min-height: 80px; cursor: pointer;
+      transition: background 0.1s; position: relative; overflow: hidden;
+    }
+    .calendar-day:hover { background: var(--bg-secondary); }
+    .calendar-day.today { background: rgba(37, 99, 235, 0.04); }
+    .calendar-day.other-month { opacity: 0.35; }
+    .calendar-day.selected { background: rgba(37, 99, 235, 0.08); }
+    .calendar-day-num { font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 4px; }
+    .calendar-day.today .calendar-day-num { color: var(--accent); font-weight: 700; }
+
+    .calendar-dots { display: flex; flex-wrap: wrap; gap: 3px; }
+    .calendar-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .calendar-dot.article { background: var(--accent); }
+    .calendar-dot.gmb { background: #ea4335; }
+    .calendar-dot.linkedin { background: var(--linkedin); }
+    .calendar-dot.published { box-shadow: inset 0 0 0 2px var(--green); }
+
+    .calendar-pill {
+      font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-top: 2px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;
+    }
+    .calendar-pill.article { background: rgba(37, 99, 235, 0.1); color: var(--accent); }
+    .calendar-pill.gmb { background: rgba(234, 67, 53, 0.1); color: #ea4335; }
+    .calendar-pill.linkedin { background: rgba(10, 102, 194, 0.1); color: var(--linkedin); }
+
+    .calendar-day-detail {
+      border-top: 1px solid var(--border); padding: 16px 24px; max-height: 40%;
+      overflow-y: auto; background: var(--bg-secondary);
+    }
+    .calendar-day-detail h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+
+    /* -- Loading / Error / Empty -- */
     .loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 14px; }
     .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 12px; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -356,7 +478,14 @@
   <div class="main">
     <div class="main-header">
       <h2 id="main-title">Pipeline</h2>
-      <input id="search" class="search-box" type="text" placeholder="Rechercher...">
+      <div class="header-right">
+        <input id="search" class="search-box" type="text" placeholder="Rechercher...">
+        <div class="view-toggle" id="view-toggle">
+          <button class="view-toggle-btn" data-view="kanban" title="Kanban">&#9638;</button>
+          <button class="view-toggle-btn" data-view="calendar" title="Calendrier">&#9635;</button>
+          <button class="view-toggle-btn" data-view="list" title="Liste">&#9776;</button>
+        </div>
+      </div>
     </div>
     <div class="tab-bar" id="tab-bar"></div>
     <div id="content" class="content-area">
@@ -380,26 +509,31 @@
 </div>
 
 <script>
-// ══════════════════════════════════════════
+// =============================================
 // Configuration
-// ══════════════════════════════════════════
+// =============================================
 const GITHUB_OWNER = 'jonathanvouilloz';
 const GITHUB_REPO  = 'jlabs-content-hub';
 
-// ══════════════════════════════════════════
+// =============================================
 // State
-// ══════════════════════════════════════════
+// =============================================
 let articles = [];
 let activeProject = '__pipeline';
 let activeTab = 'articles';
 let expandedCard = null;
-let selectedGmbPost = null; // index of selected GMB post for preview
+let selectedGmbPost = null;
 let meta = {};
 let metaSha = null;
+let viewMode = localStorage.getItem('jlabs_view') || 'kanban';
+let kanbanDetailItem = null;
+let calendarYear = new Date().getFullYear();
+let calendarMonth = new Date().getMonth();
+let selectedCalendarDay = null;
 
-// ══════════════════════════════════════════
+// =============================================
 // DOM refs
-// ══════════════════════════════════════════
+// =============================================
 const $modal     = document.getElementById('pat-modal');
 const $patInput  = document.getElementById('pat-input');
 const $patSubmit = document.getElementById('pat-submit');
@@ -410,10 +544,11 @@ const $search    = document.getElementById('search');
 const $title     = document.getElementById('main-title');
 const $tabBar    = document.getElementById('tab-bar');
 const $resetPat  = document.getElementById('reset-pat');
+const $viewToggle = document.getElementById('view-toggle');
 
-// ══════════════════════════════════════════
+// =============================================
 // PAT management
-// ══════════════════════════════════════════
+// =============================================
 function getPat() { return localStorage.getItem('jlabs_gh_pat'); }
 function setPat(token) { localStorage.setItem('jlabs_gh_pat', token); }
 function clearPat() { localStorage.removeItem('jlabs_gh_pat'); }
@@ -437,9 +572,33 @@ $patSubmit.addEventListener('click', async () => {
 $patInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $patSubmit.click(); });
 $resetPat.addEventListener('click', () => { clearPat(); showModal(); });
 
-// ══════════════════════════════════════════
+// =============================================
+// View toggle
+// =============================================
+function updateViewToggle() {
+  $viewToggle.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === viewMode);
+  });
+}
+
+$viewToggle.querySelectorAll('.view-toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    viewMode = btn.dataset.view;
+    localStorage.setItem('jlabs_view', viewMode);
+    updateViewToggle();
+    kanbanDetailItem = null;
+    selectedCalendarDay = null;
+    expandedCard = null;
+    renderTabBar();
+    renderContent();
+  });
+});
+
+updateViewToggle();
+
+// =============================================
 // GitHub API
-// ══════════════════════════════════════════
+// =============================================
 async function ghFetch(url) {
   const pat = getPat();
   const res = await fetch(url, {
@@ -465,13 +624,13 @@ function decodeBase64Utf8(b64) {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-// ── Path parsing helper ──
+// -- Path parsing helper --
 function parseContentPath(path) {
   const parts = path.split('/');
-  // Expected: {project}/articles/{drafts|published/YYYY/MM}/{file}.md
-  //        or {project}/gmb/{drafts|published/YYYY/MM}/{file}.json
   const project = parts[0];
-  const contentType = parts[1] === 'gmb' ? 'gmb' : 'article';
+  let contentType = 'article';
+  if (parts[1] === 'gmb') contentType = 'gmb';
+  else if (parts[1] === 'linkedin') contentType = 'linkedin';
   const isDraft = parts[2] === 'drafts';
   const filename = parts[parts.length - 1];
   const slug = filename.replace(/\.(md|json)$/, '');
@@ -489,7 +648,10 @@ async function fetchTree() {
   const gmbFiles = data.tree
     .filter(f => f.type === 'blob' && f.path.endsWith('.json'))
     .filter(f => /\/gmb\//.test(f.path));
-  return { mdFiles, gmbFiles };
+  const linkedinFiles = data.tree
+    .filter(f => f.type === 'blob' && f.path.endsWith('.md'))
+    .filter(f => /\/linkedin\//.test(f.path));
+  return { mdFiles, gmbFiles, linkedinFiles };
 }
 
 async function fetchFileContent(path) {
@@ -499,9 +661,9 @@ async function fetchFileContent(path) {
   return decodeBase64Utf8(data.content);
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // _meta.json management
-// ══════════════════════════════════════════
+// =============================================
 const META_PATH = '_meta.json';
 
 async function fetchMeta() {
@@ -544,7 +706,8 @@ async function togglePublished(item) {
 
   if (wasPublished) {
     // Unpublish: move from published/YYYY/MM/ to drafts/
-    const newPath = `${parsed.project}/${parsed.contentType === 'gmb' ? 'gmb' : 'articles'}/drafts/${parsed.filename}`;
+    const folder = parsed.contentType === 'gmb' ? 'gmb' : parsed.contentType === 'linkedin' ? 'linkedin' : 'articles';
+    const newPath = `${parsed.project}/${folder}/drafts/${parsed.filename}`;
     await moveFileOnGitHub(item.path, newPath);
     delete entry.published;
     delete entry.publishedAt;
@@ -562,7 +725,8 @@ async function togglePublished(item) {
       year = dm ? dm[1] : new Date().getFullYear().toString();
       month = dm ? dm[2] : String(new Date().getMonth() + 1).padStart(2, '0');
     }
-    const newPath = `${parsed.project}/${parsed.contentType === 'gmb' ? 'gmb' : 'articles'}/published/${year}/${month}/${parsed.filename}`;
+    const folder = parsed.contentType === 'gmb' ? 'gmb' : parsed.contentType === 'linkedin' ? 'linkedin' : 'articles';
+    const newPath = `${parsed.project}/${folder}/published/${year}/${month}/${parsed.filename}`;
     await moveFileOnGitHub(item.path, newPath);
     entry.published = true;
     entry.publishedAt = new Date().toISOString().split('T')[0];
@@ -615,11 +779,11 @@ function ensureAddedAt() {
   return dirty;
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Frontmatter parsing
-// ══════════════════════════════════════════
+// =============================================
 function parseFrontmatter(content) {
-  const fm = { title: '', date: '', tags: [], status: '', description: '', body: content };
+  const fm = { title: '', date: '', tags: [], status: '', description: '', body: content, type: '', day: '', article_slug: '' };
   if (!content.startsWith('---')) return fm;
   const end = content.indexOf('---', 3);
   if (end === -1) return fm;
@@ -636,6 +800,9 @@ function parseFrontmatter(content) {
     else if (key === 'date' || key === 'pubdate') fm.date = val;
     else if (key === 'status') fm.status = val.toLowerCase();
     else if (key === 'description') fm.description = val;
+    else if (key === 'type') fm.type = val;
+    else if (key === 'day') fm.day = val;
+    else if (key === 'article_slug') fm.article_slug = val;
     else if (key === 'tags') {
       val = val.replace(/^\[/, '').replace(/\]$/, '');
       fm.tags = val.split(',').map(t => t.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
@@ -644,15 +811,15 @@ function parseFrontmatter(content) {
   return fm;
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Data loading
-// ══════════════════════════════════════════
+// =============================================
 async function loadData() {
   $content.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement...</div>';
 
   try {
     const [tree] = await Promise.all([fetchTree(), fetchMeta()]);
-    const { mdFiles, gmbFiles } = tree;
+    const { mdFiles, gmbFiles, linkedinFiles } = tree;
 
     const mdItems = mdFiles.map(file => {
       const parsed = parseContentPath(file.path);
@@ -669,7 +836,12 @@ async function loadData() {
       };
     });
 
-    articles = [...mdItems, ...gmbItems];
+    const linkedinItems = linkedinFiles.map(file => {
+      const parsed = parseContentPath(file.path);
+      return { path: file.path, project: parsed.project, type: 'linkedin', stableKey: parsed.stableKey, isDraft: parsed.isDraft, frontmatter: null, content: null, gmbData: null };
+    });
+
+    articles = [...mdItems, ...gmbItems, ...linkedinItems];
 
     const batchSize = 10;
     for (let i = 0; i < articles.length; i += batchSize) {
@@ -678,7 +850,7 @@ async function loadData() {
         try {
           const raw = await fetchFileContent(item.path);
           item.content = raw;
-          if (item.type === 'article') {
+          if (item.type === 'article' || item.type === 'linkedin') {
             item.frontmatter = parseFrontmatter(raw);
           } else {
             const json = JSON.parse(raw);
@@ -688,7 +860,7 @@ async function loadData() {
           }
         } catch (e) {
           if (e.message === 'auth') throw e;
-          if (item.type === 'article') {
+          if (item.type === 'article' || item.type === 'linkedin') {
             item.frontmatter = { title: item.path.split('/').pop().replace('.md', ''), date: '', tags: [], status: '', description: '', body: '' };
           } else {
             item.gmbData = [];
@@ -718,17 +890,19 @@ async function loadData() {
   }
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Sidebar
-// ══════════════════════════════════════════
+// =============================================
 function renderSidebar() {
   const unpublishedCount = articles.filter(a => a.isDraft).length;
 
   const projectMap = new Map();
   for (const a of articles) {
-    if (!projectMap.has(a.project)) projectMap.set(a.project, { articles: 0, gmb: 0 });
+    if (!projectMap.has(a.project)) projectMap.set(a.project, { articles: 0, gmb: 0, linkedin: 0 });
     const p = projectMap.get(a.project);
-    if (a.type === 'article') p.articles++; else p.gmb++;
+    if (a.type === 'article') p.articles++;
+    else if (a.type === 'gmb') p.gmb++;
+    else if (a.type === 'linkedin') p.linkedin++;
   }
 
   let html = `<li class="${activeProject === '__pipeline' ? 'active' : ''}" data-project="__pipeline">
@@ -741,6 +915,7 @@ function renderSidebar() {
     const parts = [];
     if (counts.articles) parts.push(`${counts.articles} article${counts.articles > 1 ? 's' : ''}`);
     if (counts.gmb) parts.push(`${counts.gmb} GMB`);
+    if (counts.linkedin) parts.push(`${counts.linkedin} LinkedIn`);
 
     html += `<li class="${activeProject === name ? 'active' : ''}" data-project="${name}">
       <div>
@@ -756,6 +931,8 @@ function renderSidebar() {
     li.addEventListener('click', () => {
       activeProject = li.dataset.project;
       expandedCard = null;
+      kanbanDetailItem = null;
+      selectedCalendarDay = null;
       renderSidebar();
       renderTabBar();
       renderContent();
@@ -763,13 +940,18 @@ function renderSidebar() {
   });
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Tab bar
-// ══════════════════════════════════════════
+// =============================================
 function renderTabBar() {
-  if (activeProject === '__pipeline') {
+  // Tabs only appear in LIST view when viewing a specific project
+  if (activeProject === '__pipeline' || viewMode !== 'list') {
     $tabBar.style.display = 'none';
-    $title.textContent = 'Pipeline';
+    if (activeProject === '__pipeline') {
+      $title.textContent = 'Pipeline';
+    } else {
+      $title.textContent = activeProject === '_root' ? 'Racine' : activeProject;
+    }
     return;
   }
 
@@ -778,11 +960,13 @@ function renderTabBar() {
   const projectItems = articles.filter(a => a.project === activeProject);
   const artCount = projectItems.filter(a => a.type === 'article').length;
   const gmbCount = projectItems.filter(a => a.type === 'gmb').length;
+  const linkedinCount = projectItems.filter(a => a.type === 'linkedin').length;
 
   $tabBar.style.display = 'flex';
   $tabBar.innerHTML = `
     <button class="tab-btn ${activeTab === 'articles' ? 'active' : ''}" data-tab="articles">Articles (${artCount})</button>
     <button class="tab-btn ${activeTab === 'gmb' ? 'active' : ''}" data-tab="gmb">Posts GMB (${gmbCount})</button>
+    <button class="tab-btn ${activeTab === 'linkedin' ? 'active' : ''}" data-tab="linkedin">LinkedIn (${linkedinCount})</button>
   `;
 
   $tabBar.querySelectorAll('.tab-btn').forEach(btn => {
@@ -795,14 +979,14 @@ function renderTabBar() {
   });
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Content rendering
-// ══════════════════════════════════════════
+// =============================================
 function getCardDates(item) {
   const entry = meta[item.stableKey] || {};
   const parts = [];
 
-  if (item.type === 'article' && item.frontmatter?.date) {
+  if ((item.type === 'article' || item.type === 'linkedin') && item.frontmatter?.date) {
     parts.push(escapeHtml(item.frontmatter.date));
   } else if (item.type === 'gmb' && item.gmbData?.length) {
     const dates = item.gmbData.map(p => p.scheduled_at?.split('T')[0]).filter(Boolean).sort();
@@ -815,6 +999,12 @@ function getCardDates(item) {
   return parts.length ? `<div class="card-dates">${parts.join('<span class="sep"> · </span>')}</div>` : '';
 }
 
+function getTypeBadgeHtml(type) {
+  if (type === 'gmb') return '<span class="type-badge type-badge-gmb">GMB</span>';
+  if (type === 'linkedin') return '<span class="type-badge type-badge-linkedin">LinkedIn</span>';
+  return '<span class="type-badge type-badge-article">Article</span>';
+}
+
 function renderCard(item, showProject) {
   const fm = item.frontmatter || {};
   const title = fm.title || item.path.split('/').pop().replace('.md', '');
@@ -822,9 +1012,7 @@ function renderCard(item, showProject) {
   const isGmb = item.type === 'gmb';
   const isPublished = !item.isDraft;
 
-  const typeBadge = isGmb
-    ? '<span class="type-badge type-badge-gmb">GMB</span>'
-    : '<span class="type-badge type-badge-article">Article</span>';
+  const typeBadge = getTypeBadgeHtml(item.type);
 
   return `<div class="card ${isOpen ? 'open' : ''}" data-path="${item.path}" data-type="${item.type}">
     <div class="card-header">
@@ -842,7 +1030,7 @@ function renderCard(item, showProject) {
         <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${item.path}" title="${isPublished ? 'Publie le ' + (meta[item.stableKey]?.publishedAt || '') : 'Marquer comme publie'}">
           <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
         </button>
-        <span class="card-chevron">▶</span>
+        <span class="card-chevron">&#9654;</span>
       </div>
     </div>
     <div class="card-body">
@@ -860,11 +1048,33 @@ function renderSection(title, items, showProject, cssClass) {
 }
 
 function renderContent() {
+  if (viewMode === 'kanban') {
+    renderKanbanView();
+    return;
+  }
+  if (viewMode === 'calendar') {
+    renderCalendarView();
+    return;
+  }
+  // List view
+  renderListView();
+}
+
+// =============================================
+// LIST VIEW (existing behavior)
+// =============================================
+function renderListView() {
   const query = $search.value.toLowerCase().trim();
 
-  // GMB tab in project view → special 2-column layout
+  // GMB tab in project view -> special 2-column layout
   if (activeProject !== '__pipeline' && activeTab === 'gmb') {
     renderGmbView(query);
+    return;
+  }
+
+  // LinkedIn tab in project view -> card list
+  if (activeProject !== '__pipeline' && activeTab === 'linkedin') {
+    renderLinkedinListView(query);
     return;
   }
 
@@ -906,44 +1116,110 @@ function renderContent() {
   bindCardEvents();
 }
 
+function renderLinkedinListView(query) {
+  let filtered = articles.filter(a => a.project === activeProject && a.type === 'linkedin');
+
+  if (query) {
+    filtered = filtered.filter(a => {
+      const t = (a.frontmatter?.title || a.path).toLowerCase();
+      return t.includes(query);
+    });
+  }
+
+  if (filtered.length === 0) {
+    $content.innerHTML = '<div class="empty-state"><p>Aucun post LinkedIn.</p></div>';
+    return;
+  }
+
+  const unpublished = filtered.filter(a => a.isDraft);
+  const published = filtered.filter(a => !a.isDraft);
+
+  let html = '';
+  html += renderSection('A publier', unpublished, false, '');
+  html += renderSection('Publies', published, false, 'section-published');
+
+  $content.innerHTML = html;
+  bindCardEvents();
+}
+
+// =============================================
+// GMB VIEW (2-column layout)
+// =============================================
 function renderGmbView(query) {
-  // Collect all GMB posts from all GMB files for this project
   const gmbItems = articles.filter(a => a.project === activeProject && a.type === 'gmb');
-  let allPosts = [];
+
+  // Group posts by source file, with month info
+  const MONTH_NAMES = ['Janvier','Fevrier','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Decembre'];
+
+  // Build groups: each group = one GMB file
+  const groups = [];
   for (const item of gmbItems) {
     if (!item.gmbData) continue;
-    for (let i = 0; i < item.gmbData.length; i++) {
-      allPosts.push({ ...item.gmbData[i], _index: allPosts.length, _filePath: item.path });
+    const dateMatch = item.path.match(/(\d{4})-(\d{2})/);
+    const year = dateMatch ? dateMatch[1] : '????';
+    const monthNum = dateMatch ? parseInt(dateMatch[2], 10) : 0;
+    const monthName = monthNum >= 1 && monthNum <= 12 ? MONTH_NAMES[monthNum - 1] : '??';
+    const posts = item.gmbData.map((p, i) => ({ ...p, _index: i, _filePath: item.path }));
+    groups.push({
+      item,
+      label: `${monthName} ${year}`,
+      postCount: posts.length,
+      isDraft: item.isDraft,
+      posts: posts,
+    });
+  }
+
+  // Flatten posts while keeping group separators
+  let allPosts = [];
+  const separatorIndices = []; // indices in allPosts where separators go
+  for (const g of groups) {
+    let gposts = g.posts;
+    if (query) {
+      gposts = gposts.filter(p => (p.content || '').toLowerCase().includes(query));
     }
+    gposts.sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
+    if (gposts.length === 0) continue;
+    separatorIndices.push({ index: allPosts.length, label: g.label, count: gposts.length, isDraft: g.isDraft, filePath: g.item.path });
+    allPosts = allPosts.concat(gposts);
   }
-
-  // Filter by search
-  if (query) {
-    allPosts = allPosts.filter(p => (p.content || '').toLowerCase().includes(query));
-  }
-
-  // Sort by scheduled_at
-  allPosts.sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
 
   if (allPosts.length === 0) {
     $content.innerHTML = '<div class="empty-state"><p>Aucun post GMB.</p></div>';
     return;
   }
 
-  // Ensure selectedGmbPost is valid
   if (selectedGmbPost === null || selectedGmbPost >= allPosts.length) selectedGmbPost = 0;
 
-  // Build table
+  // Build table with month separators and per-file publish buttons
   let tableHtml = `<table class="gmb-table">
     <thead><tr>
       <th>#</th><th>Date</th><th>Type</th><th>Contenu</th><th>CTA</th>
     </tr></thead><tbody>`;
 
+  let displayNum = 0;
   for (let i = 0; i < allPosts.length; i++) {
+    // Check if a separator goes here
+    const sep = separatorIndices.find(s => s.index === i);
+    if (sep) {
+      const statusLabel = sep.isDraft ? 'draft' : 'publie';
+      tableHtml += `<tr class="gmb-month-separator"><td colspan="5">${escapeHtml(sep.label)} (${sep.count} post${sep.count > 1 ? 's' : ''}) <span class="month-status">— ${statusLabel}</span></td></tr>`;
+
+      // Per-file publish button row
+      const gmbFile = articles.find(a => a.path === sep.filePath);
+      if (gmbFile) {
+        const isPublished = !gmbFile.isDraft;
+        tableHtml += `<tr class="gmb-file-publish-row"><td colspan="5">
+          <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${gmbFile.path}">
+            <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
+          </button>
+        </td></tr>`;
+      }
+    }
     const p = allPosts[i];
+    displayNum++;
     const date = p.scheduled_at ? p.scheduled_at.split('T')[0] : '';
     tableHtml += `<tr class="${i === selectedGmbPost ? 'active' : ''}" data-idx="${i}">
-      <td class="cell-num">${i + 1}</td>
+      <td class="cell-num">${displayNum}</td>
       <td class="cell-date">${date}</td>
       <td class="cell-type"><span class="gmb-type-badge">${escapeHtml(p.type || '')}</span></td>
       <td class="cell-content">${escapeHtml(p.content || '')}</td>
@@ -956,38 +1232,26 @@ function renderGmbView(query) {
   const sp = allPosts[selectedGmbPost];
   const previewHtml = renderGmbPreview(sp);
 
-  // Publish button for the GMB file
-  const gmbFile = gmbItems[0];
-  const gmbIsPublished = gmbFile ? !gmbFile.isDraft : false;
-  const publishBtnHtml = gmbFile ? `
-    <button class="publish-btn ${gmbIsPublished ? 'is-published' : ''}" data-path="${gmbFile.path}" style="margin-bottom:16px">
-      <span class="dot"></span>${gmbIsPublished ? 'Publie' : 'Non publie'}
-    </button>` : '';
-
   $content.innerHTML = `<div class="gmb-layout">
     <div class="gmb-table-col">${tableHtml}</div>
     <div class="gmb-preview-col">
-      ${publishBtnHtml}
       <div class="gmb-preview-header"><h3>Preview</h3><span style="font-size:12px;color:var(--text-muted)">Post ${selectedGmbPost + 1}/${allPosts.length}</span></div>
       <div id="gmb-preview">${previewHtml}</div>
     </div>
   </div>`;
 
-  // Table row click → update preview
+  // Table row click -> update preview
   $content.querySelectorAll('.gmb-table tr[data-idx]').forEach(tr => {
     tr.addEventListener('click', () => {
       selectedGmbPost = parseInt(tr.dataset.idx);
-      // Update active row
-      $content.querySelectorAll('.gmb-table tr').forEach(r => r.classList.remove('active'));
+      $content.querySelectorAll('.gmb-table tr[data-idx]').forEach(r => r.classList.remove('active'));
       tr.classList.add('active');
-      // Update preview
       document.getElementById('gmb-preview').innerHTML = renderGmbPreview(allPosts[selectedGmbPost]);
-      // Update counter
       $content.querySelector('.gmb-preview-header span').textContent = `Post ${selectedGmbPost + 1}/${allPosts.length}`;
     });
   });
 
-  // Publish btn
+  // Publish btns
   $content.querySelectorAll('.publish-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -1031,41 +1295,141 @@ function renderGmbPreview(post) {
   ${hasImagePrompt ? `<div class="gmb-preview-image-prompt"><strong>Prompt image</strong>${escapeHtml(post.image_prompt || post.image?.prompt || '')}</div>` : ''}`;
 }
 
-function bindCardEvents() {
-  $content.querySelectorAll('.card-chevron').forEach(chevron => {
-    chevron.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const card = chevron.closest('.card');
-      const path = card.dataset.path;
+// =============================================
+// KANBAN VIEW
+// =============================================
+function renderKanbanView() {
+  const query = $search.value.toLowerCase().trim();
 
-      if (expandedCard === path) {
-        expandedCard = null;
-        card.classList.remove('open');
-        card.querySelector('.card-body').style.display = 'none';
-      } else {
-        if (expandedCard) {
-          const prev = $content.querySelector(`.card[data-path="${CSS.escape(expandedCard)}"]`);
-          if (prev) { prev.classList.remove('open'); prev.querySelector('.card-body').style.display = 'none'; }
-        }
-        expandedCard = path;
-        card.classList.add('open');
-        const body = card.querySelector('.card-body');
-        const item = articles.find(a => a.path === path);
-        if (item?.type === 'article') {
-          body.querySelector('.markdown-content').innerHTML = renderMarkdown(item?.frontmatter?.body || '');
-        }
-        body.style.display = 'block';
+  let filtered = getFilteredAllTypes(query);
+
+  const drafts = filtered.filter(a => a.isDraft);
+  const published = filtered.filter(a => !a.isDraft);
+
+  let html = `<div class="kanban-container">
+    <div class="kanban-column">
+      <div class="kanban-column-header">Drafts <span class="col-count">${drafts.length}</span></div>
+      <div class="kanban-cards">${drafts.map(item => renderKanbanCard(item)).join('') || '<div class="empty-state"><p>Aucun draft</p></div>'}</div>
+    </div>
+    <div class="kanban-column">
+      <div class="kanban-column-header">Publies <span class="col-count">${published.length}</span></div>
+      <div class="kanban-cards">${published.map(item => renderKanbanCard(item)).join('') || '<div class="empty-state"><p>Aucun publie</p></div>'}</div>
+    </div>
+  </div>`;
+
+  // Detail panel
+  if (kanbanDetailItem) {
+    html += renderKanbanDetailPanel(kanbanDetailItem);
+  }
+
+  $content.innerHTML = html;
+  bindKanbanEvents();
+}
+
+function getFilteredAllTypes(query) {
+  let filtered;
+  if (activeProject === '__pipeline') {
+    filtered = articles.slice(); // all items
+  } else {
+    filtered = articles.filter(a => a.project === activeProject);
+  }
+
+  if (query) {
+    filtered = filtered.filter(a => {
+      const t = (a.frontmatter?.title || a.path).toLowerCase();
+      const d = (a.frontmatter?.description || '').toLowerCase();
+      return t.includes(query) || d.includes(query);
+    });
+  }
+
+  return filtered;
+}
+
+function renderKanbanCard(item) {
+  const fm = item.frontmatter || {};
+  const title = fm.title || item.path.split('/').pop().replace(/\.(md|json)$/, '');
+  const typeBadge = getTypeBadgeHtml(item.type);
+  const projectLabel = item.project === '_root' ? 'Racine' : item.project;
+  const isPublished = !item.isDraft;
+  const isActive = kanbanDetailItem && kanbanDetailItem.path === item.path;
+  const dateStr = fm.date || '';
+  const tagsStr = (fm.tags || []).join(', ');
+
+  return `<div class="kanban-card ${isActive ? 'active' : ''}" data-path="${item.path}">
+    <div class="kanban-card-top">
+      ${typeBadge}
+      <span class="card-project">${escapeHtml(projectLabel)}</span>
+    </div>
+    <div class="kanban-card-title">${escapeHtml(title)}</div>
+    <div class="kanban-card-bottom">
+      <span class="kanban-card-info">${dateStr ? escapeHtml(dateStr) : ''}${tagsStr ? ' · ' + escapeHtml(tagsStr) : ''}</span>
+      <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${item.path}">
+        <span class="dot"></span>${isPublished ? 'Publie' : 'Publier'}
+      </button>
+    </div>
+  </div>`;
+}
+
+function renderKanbanDetailPanel(item) {
+  const fm = item.frontmatter || {};
+  const title = fm.title || item.path.split('/').pop().replace(/\.(md|json)$/, '');
+  const typeBadge = getTypeBadgeHtml(item.type);
+  let bodyHtml = '';
+  if (item.type === 'gmb' && item.gmbData) {
+    bodyHtml = `<p style="color:var(--text-muted);font-size:13px">${item.gmbData.length} posts</p>`;
+    if (item.gmbData.length > 0) {
+      bodyHtml += '<div style="margin-top:12px">';
+      for (const p of item.gmbData.slice(0, 5)) {
+        bodyHtml += `<div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;font-size:13px">${escapeHtml((p.content || '').substring(0, 150))}${(p.content||'').length > 150 ? '...' : ''}</div>`;
       }
+      if (item.gmbData.length > 5) bodyHtml += `<p style="color:var(--text-muted);font-size:12px">+${item.gmbData.length - 5} autres posts</p>`;
+      bodyHtml += '</div>';
+    }
+  } else {
+    bodyHtml = `<div class="markdown-content">${renderMarkdown(fm.body || '')}</div>`;
+  }
+
+  return `<div class="kanban-detail-panel">
+    <div class="detail-header">
+      <div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">${typeBadge} <span class="card-project">${escapeHtml(item.project)}</span></div>
+        <h3>${escapeHtml(title)}</h3>
+        ${fm.description ? `<div class="card-description" style="margin-top:4px">${escapeHtml(fm.description)}</div>` : ''}
+        ${fm.date ? `<div class="card-dates" style="margin-top:4px">${escapeHtml(fm.date)}</div>` : ''}
+      </div>
+      <button class="kanban-detail-close" title="Fermer">&#10005;</button>
+    </div>
+    ${bodyHtml}
+  </div>`;
+}
+
+function bindKanbanEvents() {
+  // Card click -> show detail
+  $content.querySelectorAll('.kanban-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.publish-btn')) return;
+      const path = card.dataset.path;
+      const item = articles.find(a => a.path === path);
+      if (!item) return;
+      if (kanbanDetailItem && kanbanDetailItem.path === path) {
+        kanbanDetailItem = null;
+      } else {
+        kanbanDetailItem = item;
+      }
+      renderKanbanView();
     });
   });
 
-  $content.querySelectorAll('.card-header').forEach(header => {
-    header.addEventListener('click', (e) => {
-      if (e.target.closest('.publish-btn') || e.target.closest('.card-actions')) return;
-      header.querySelector('.card-chevron').click();
+  // Close detail
+  const closeBtn = $content.querySelector('.kanban-detail-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      kanbanDetailItem = null;
+      renderKanbanView();
     });
-  });
+  }
 
+  // Publish buttons
   $content.querySelectorAll('.publish-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -1087,9 +1451,232 @@ function bindCardEvents() {
   });
 }
 
-// ══════════════════════════════════════════
+// =============================================
+// CALENDAR VIEW
+// =============================================
+function renderCalendarView() {
+  const query = $search.value.toLowerCase().trim();
+  const filtered = getFilteredAllTypes(query);
+
+  const MONTH_NAMES = ['Janvier','Fevrier','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Decembre'];
+  const DAY_NAMES = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+  // Build a map: dateStr -> [items]
+  const dateMap = {};
+
+  for (const item of filtered) {
+    if (item.type === 'gmb' && item.gmbData) {
+      for (const p of item.gmbData) {
+        const d = p.scheduled_at?.split('T')[0];
+        if (d) {
+          if (!dateMap[d]) dateMap[d] = [];
+          dateMap[d].push({ item, post: p, type: 'gmb', isPublished: !item.isDraft });
+        }
+      }
+    } else if (item.frontmatter?.date) {
+      const d = item.frontmatter.date.split('T')[0];
+      if (d) {
+        if (!dateMap[d]) dateMap[d] = [];
+        dateMap[d].push({ item, post: null, type: item.type, isPublished: !item.isDraft });
+      }
+    }
+  }
+
+  // Calendar math
+  const firstDay = new Date(calendarYear, calendarMonth, 1);
+  const lastDay = new Date(calendarYear, calendarMonth + 1, 0);
+  // Monday=0, Sunday=6
+  let startDow = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = lastDay.getDate();
+  const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  // Nav
+  let html = `<div class="calendar-container">
+    <div class="calendar-nav">
+      <button class="calendar-nav-btn" id="cal-prev">&lt;</button>
+      <span class="calendar-nav-title">${MONTH_NAMES[calendarMonth]} ${calendarYear}</span>
+      <button class="calendar-nav-btn" id="cal-next">&gt;</button>
+    </div>
+    <div class="calendar-grid">`;
+
+  // Day headers
+  for (const d of DAY_NAMES) {
+    html += `<div class="calendar-day-header">${d}</div>`;
+  }
+
+  // Day cells
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - startDow + 1;
+    const isOther = dayNum < 1 || dayNum > daysInMonth;
+
+    let cellDate = '';
+    let displayNum = '';
+    if (!isOther) {
+      cellDate = `${calendarYear}-${String(calendarMonth+1).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+      displayNum = dayNum;
+    } else {
+      // Show adjacent month days
+      const adjDate = new Date(calendarYear, calendarMonth, dayNum);
+      cellDate = `${adjDate.getFullYear()}-${String(adjDate.getMonth()+1).padStart(2,'0')}-${String(adjDate.getDate()).padStart(2,'0')}`;
+      displayNum = adjDate.getDate();
+    }
+
+    const isToday = cellDate === todayStr;
+    const isSelected = cellDate === selectedCalendarDay;
+    const entries = dateMap[cellDate] || [];
+
+    let dotsHtml = '';
+    if (entries.length > 0) {
+      dotsHtml = '<div class="calendar-dots">';
+      // Show up to 6 dots, then indicate more
+      const shown = entries.slice(0, 6);
+      for (const e of shown) {
+        dotsHtml += `<span class="calendar-dot ${e.type}${e.isPublished ? ' published' : ''}"></span>`;
+      }
+      if (entries.length > 6) {
+        dotsHtml += `<span style="font-size:9px;color:var(--text-muted)">+${entries.length - 6}</span>`;
+      }
+      dotsHtml += '</div>';
+      // Show first 2 pills
+      for (const e of entries.slice(0, 2)) {
+        const label = e.post ? (e.post.type || 'GMB') : (e.item.frontmatter?.title || '').substring(0, 20);
+        dotsHtml += `<span class="calendar-pill ${e.type}">${escapeHtml(label)}</span>`;
+      }
+    }
+
+    html += `<div class="calendar-day${isOther ? ' other-month' : ''}${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}" data-date="${cellDate}">
+      <div class="calendar-day-num">${displayNum}</div>
+      ${dotsHtml}
+    </div>`;
+  }
+
+  html += '</div></div>';
+
+  // Day detail below calendar
+  if (selectedCalendarDay && dateMap[selectedCalendarDay]) {
+    const dayEntries = dateMap[selectedCalendarDay];
+    html += `<div class="calendar-day-detail">
+      <h3>${selectedCalendarDay} — ${dayEntries.length} contenu${dayEntries.length > 1 ? 's' : ''}</h3>
+      <div class="section-cards">`;
+    for (const e of dayEntries) {
+      if (e.post) {
+        // GMB post inline
+        const p = e.post;
+        html += `<div class="card" style="margin-bottom:8px">
+          <div class="card-header" style="cursor:default">
+            <div>
+              <div class="card-title">${escapeHtml(p.title || p.type || 'Post GMB')}</div>
+              <div class="card-meta">${getTypeBadgeHtml('gmb')} <span class="card-project">${escapeHtml(e.item.project)}</span></div>
+              <div class="card-description">${escapeHtml((p.content || '').substring(0, 200))}</div>
+            </div>
+          </div>
+        </div>`;
+      } else {
+        html += renderCard(e.item, true);
+      }
+    }
+    html += '</div></div>';
+  }
+
+  $content.innerHTML = html;
+
+  // Bind nav
+  document.getElementById('cal-prev')?.addEventListener('click', () => {
+    calendarMonth--;
+    if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+    selectedCalendarDay = null;
+    renderCalendarView();
+  });
+  document.getElementById('cal-next')?.addEventListener('click', () => {
+    calendarMonth++;
+    if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+    selectedCalendarDay = null;
+    renderCalendarView();
+  });
+
+  // Bind day click
+  $content.querySelectorAll('.calendar-day').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const date = cell.dataset.date;
+      if (selectedCalendarDay === date) {
+        selectedCalendarDay = null;
+      } else {
+        selectedCalendarDay = date;
+      }
+      renderCalendarView();
+    });
+  });
+
+  // Bind card events for detail section
+  bindCardEvents();
+}
+
+// =============================================
+// Card events (shared by list + calendar detail)
+// =============================================
+function bindCardEvents() {
+  $content.querySelectorAll('.card-chevron').forEach(chevron => {
+    chevron.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = chevron.closest('.card');
+      const path = card.dataset.path;
+
+      if (expandedCard === path) {
+        expandedCard = null;
+        card.classList.remove('open');
+        card.querySelector('.card-body').style.display = 'none';
+      } else {
+        if (expandedCard) {
+          const prev = $content.querySelector(`.card[data-path="${CSS.escape(expandedCard)}"]`);
+          if (prev) { prev.classList.remove('open'); prev.querySelector('.card-body').style.display = 'none'; }
+        }
+        expandedCard = path;
+        card.classList.add('open');
+        const body = card.querySelector('.card-body');
+        const item = articles.find(a => a.path === path);
+        if (item?.type === 'article' || item?.type === 'linkedin') {
+          body.querySelector('.markdown-content').innerHTML = renderMarkdown(item?.frontmatter?.body || '');
+        }
+        body.style.display = 'block';
+      }
+    });
+  });
+
+  $content.querySelectorAll('.card-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.publish-btn') || e.target.closest('.card-actions')) return;
+      const chevron = header.querySelector('.card-chevron');
+      if (chevron) chevron.click();
+    });
+  });
+
+  $content.querySelectorAll('.card .publish-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.path;
+      const item = articles.find(a => a.path === path);
+      if (!item) return;
+      btn.classList.add('saving');
+      btn.textContent = '...';
+      try {
+        await togglePublished(item);
+        item.isDraft = !item.isDraft;
+        await loadData();
+      } catch (err) {
+        btn.classList.remove('saving');
+        btn.innerHTML = '<span class="dot"></span>Erreur';
+        alert(err.message);
+      }
+    });
+  });
+}
+
+// =============================================
 // Renderers
-// ══════════════════════════════════════════
+// =============================================
 function renderMarkdown(md) {
   try { return marked.parse(md); }
   catch { return `<pre>${escapeHtml(md)}</pre>`; }
@@ -1102,17 +1689,19 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// ══════════════════════════════════════════
+// =============================================
 // Search
-// ══════════════════════════════════════════
+// =============================================
 $search.addEventListener('input', () => {
   expandedCard = null;
+  kanbanDetailItem = null;
+  selectedCalendarDay = null;
   renderContent();
 });
 
-// ══════════════════════════════════════════
+// =============================================
 // Init
-// ══════════════════════════════════════════
+// =============================================
 (async function init() {
   if (!getPat()) {
     showModal();
