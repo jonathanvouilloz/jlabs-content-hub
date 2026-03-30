@@ -4,37 +4,42 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JLabs Content Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #1c2128;
-      --border: #30363d;
-      --text: #e6edf3;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-hover: #79c0ff;
-      --green: #3fb950;
-      --orange: #d29922;
-      --red: #f85149;
-      --purple: #bc8cff;
+      --bg: #ffffff;
+      --bg-secondary: #f8f9fa;
+      --bg-tertiary: #f0f1f3;
+      --border: #e1e4e8;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --green: #16a34a;
+      --orange: #d97706;
+      --red: #dc2626;
+      --purple: #7c3aed;
     }
 
     body {
-      font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg);
       color: var(--text);
       height: 100vh;
       overflow: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* ── Modal PAT ── */
     .modal-overlay {
       position: fixed; inset: 0;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(4px);
       display: flex; align-items: center; justify-content: center;
       z-index: 1000;
     }
@@ -48,381 +53,296 @@
       max-width: 90vw;
     }
 
-    .modal h2 {
-      font-size: 18px;
-      margin-bottom: 8px;
-      color: var(--accent);
-    }
-
-    .modal p {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 20px;
-      line-height: 1.5;
-    }
+    .modal h2 { font-size: 18px; margin-bottom: 8px; color: var(--accent); }
+    .modal p { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5; }
 
     .modal input {
-      width: 100%;
-      padding: 10px 14px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 14px;
-      margin-bottom: 16px;
+      width: 100%; padding: 10px 14px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-family: inherit; font-size: 14px; margin-bottom: 16px;
     }
-
-    .modal input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
+    .modal input:focus { outline: none; border-color: var(--accent); }
 
     .modal button {
-      width: 100%;
-      padding: 10px;
-      background: var(--accent);
-      color: var(--bg);
-      border: none;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; padding: 10px; background: var(--accent); color: var(--bg);
+      border: none; border-radius: 8px; font-family: inherit; font-size: 14px;
+      font-weight: 600; cursor: pointer; transition: background 0.2s;
     }
-
-    .modal button:hover { background: var(--accent-hover); }
-
-    .modal .error-msg {
-      color: var(--red);
-      font-size: 12px;
-      margin-bottom: 12px;
-      display: none;
-    }
+    .modal button:hover { background: var(--accent-hover); color: #fff; }
+    .modal .error-msg { color: var(--red); font-size: 12px; margin-bottom: 12px; display: none; }
 
     /* ── Layout ── */
-    .app {
-      display: flex;
-      height: 100vh;
-    }
-
-    /* ── Header ── */
-    .header {
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .header h1 {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--accent);
-      letter-spacing: 0.5px;
-    }
-
-    .header h1 span { color: var(--text-muted); font-weight: 400; }
+    .app { display: flex; height: 100vh; }
 
     /* ── Sidebar ── */
     .sidebar {
-      width: 260px;
-      min-width: 260px;
-      background: var(--bg-secondary);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      width: 260px; min-width: 260px; background: var(--bg-secondary);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
     }
 
-    .sidebar-list {
-      list-style: none;
-      padding: 8px;
-      overflow-y: auto;
-      flex: 1;
-    }
+    .sidebar .header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar .header h1 { font-size: 14px; font-weight: 600; color: var(--accent); letter-spacing: 0.5px; }
+    .sidebar .header h1 span { color: var(--text-muted); font-weight: 400; }
+
+    .sidebar-list { list-style: none; padding: 8px; overflow-y: auto; flex: 1; }
 
     .sidebar-list li {
-      padding: 10px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 13px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      transition: background 0.15s;
-      color: var(--text-muted);
+      padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+      display: flex; justify-content: space-between; align-items: center;
+      transition: background 0.15s; color: var(--text-muted);
     }
-
     .sidebar-list li:hover { background: var(--bg-tertiary); color: var(--text); }
     .sidebar-list li.active { background: var(--bg-tertiary); color: var(--accent); }
 
     .sidebar-list .count {
-      background: var(--bg);
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 11px;
-      color: var(--text-muted);
+      background: var(--bg); padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; color: var(--text-muted);
     }
 
-    .sidebar-footer {
-      padding: 12px 16px;
-      border-top: 1px solid var(--border);
-      font-size: 11px;
-      color: var(--text-muted);
-    }
+    .sidebar-count-detail { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-    .sidebar-footer a {
-      color: var(--accent);
-      cursor: pointer;
-      text-decoration: none;
-    }
-
+    .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+    .sidebar-footer a { color: var(--accent); cursor: pointer; text-decoration: none; }
     .sidebar-footer a:hover { text-decoration: underline; }
 
     /* ── Main ── */
-    .main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-    .toolbar {
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 16px;
+    .main-header {
+      padding: 16px 24px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }
+    .main-header h2 { font-size: 16px; font-weight: 600; white-space: nowrap; }
 
     .search-box {
-      flex: 1;
-      padding: 8px 14px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
+      max-width: 300px; flex: 1; padding: 8px 14px; background: var(--bg-secondary);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-family: inherit; font-size: 13px;
     }
-
     .search-box:focus { outline: none; border-color: var(--accent); }
     .search-box::placeholder { color: var(--text-muted); }
 
-    .stats {
-      font-size: 12px;
-      color: var(--text-muted);
-      white-space: nowrap;
+    /* ── Tab bar ── */
+    .tab-bar {
+      display: flex; padding: 0 24px; border-bottom: 1px solid var(--border);
     }
 
-    /* ── Articles ── */
-    .articles {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 24px;
+    .tab-btn {
+      padding: 10px 20px; border: none; border-bottom: 2px solid transparent;
+      background: none; color: var(--text-muted); font-family: inherit; font-size: 13px;
+      cursor: pointer; transition: all 0.15s;
     }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
+    /* ── Content area ── */
+    .content-area { flex: 1; overflow-y: auto; padding: 0; }
+
+    .section-header {
+      padding: 16px 24px 8px; font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-header .section-count { font-weight: 400; }
+
+    .section-cards { padding: 0 24px 16px; }
+
+    .section-published .card { opacity: 0.6; }
+    .section-published .card:hover { opacity: 1; }
+
+    /* ── Cards ── */
     .card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      margin-bottom: 12px;
-      transition: border-color 0.2s;
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 10px; margin-bottom: 10px; transition: border-color 0.2s, opacity 0.2s;
     }
-
     .card:hover { border-color: var(--accent); }
 
     .card-header {
-      padding: 16px 20px;
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
+      padding: 14px 18px; cursor: pointer; display: flex;
+      justify-content: space-between; align-items: flex-start; gap: 14px;
     }
 
-    .card-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
+    .card-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
 
-    .card-meta {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .card-date {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
+    .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .card-date { font-size: 12px; color: var(--text-muted); }
 
     .card-project {
-      font-size: 11px;
-      color: var(--purple);
-      background: rgba(188, 140, 255, 0.1);
-      padding: 2px 8px;
-      border-radius: 4px;
+      font-size: 11px; color: var(--purple); background: rgba(124, 58, 237, 0.08);
+      padding: 2px 8px; border-radius: 4px;
     }
 
-    .tag {
-      font-size: 11px;
-      color: var(--accent);
-      background: rgba(88, 166, 255, 0.1);
-      padding: 2px 8px;
-      border-radius: 4px;
+    .tag { font-size: 11px; color: var(--accent); background: rgba(37, 99, 235, 0.08); padding: 2px 8px; border-radius: 4px; }
+
+    .type-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 4px; }
+    .type-badge-article { color: var(--accent); background: rgba(37, 99, 235, 0.08); }
+    .type-badge-gmb { color: #ea4335; background: rgba(234, 67, 53, 0.08); }
+
+    .card-dates { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .card-dates .sep { color: var(--border); }
+    .card-dates .date-published { color: var(--green); }
+
+    .card-description { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+    .card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-top: 2px; }
+
+    .publish-btn {
+      display: flex; align-items: center; gap: 5px; padding: 4px 10px;
+      border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
+      color: var(--text-muted); font-family: inherit; font-size: 11px; font-weight: 500;
+      cursor: pointer; transition: all 0.2s; white-space: nowrap;
     }
+    .publish-btn:hover { border-color: var(--green); color: var(--green); }
+    .publish-btn.is-published { border-color: var(--green); background: rgba(22, 163, 74, 0.08); color: var(--green); }
+    .publish-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background 0.2s; }
+    .publish-btn.is-published .dot { background: var(--green); }
+    .publish-btn.saving { opacity: 0.5; pointer-events: none; }
 
-    .status {
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 600;
-    }
-
-    .status-published { color: var(--green); background: rgba(63, 185, 80, 0.1); }
-    .status-draft { color: var(--orange); background: rgba(210, 153, 34, 0.1); }
-    .status-review { color: var(--purple); background: rgba(188, 140, 255, 0.1); }
-
-    .card-description {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 6px;
-      line-height: 1.4;
-    }
-
-    .card-chevron {
-      color: var(--text-muted);
-      font-size: 14px;
-      transition: transform 0.2s;
-      flex-shrink: 0;
-      margin-top: 4px;
-    }
-
+    .card-chevron { color: var(--text-muted); font-size: 14px; transition: transform 0.2s; flex-shrink: 0; }
     .card.open .card-chevron { transform: rotate(90deg); }
 
-    .card-body {
-      display: none;
-      padding: 0 20px 20px;
-      border-top: 1px solid var(--border);
-      margin-top: 0;
-    }
-
+    .card-body { display: none; padding: 0 18px 18px; border-top: 1px solid var(--border); }
     .card.open .card-body { display: block; }
 
+    /* ── Markdown content ── */
     .card-body .markdown-content {
-      padding-top: 16px;
-      font-size: 14px;
-      line-height: 1.7;
-      color: var(--text);
+      padding-top: 20px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px; line-height: 1.75; color: var(--text); max-width: 720px;
     }
 
     .markdown-content h1, .markdown-content h2, .markdown-content h3 {
-      color: var(--accent);
-      margin: 20px 0 10px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text); margin: 28px 0 12px; font-weight: 600;
     }
-
-    .markdown-content h1 { font-size: 20px; }
-    .markdown-content h2 { font-size: 17px; }
-    .markdown-content h3 { font-size: 15px; }
-
-    .markdown-content p { margin: 10px 0; }
+    .markdown-content h1 { font-size: 22px; }
+    .markdown-content h2 { font-size: 18px; }
+    .markdown-content h3 { font-size: 16px; }
+    .markdown-content p { margin: 12px 0; }
 
     .markdown-content code {
-      background: var(--bg);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 14px;
     }
-
-    .markdown-content pre {
-      background: var(--bg);
-      padding: 16px;
-      border-radius: 8px;
-      overflow-x: auto;
-      margin: 12px 0;
-    }
-
-    .markdown-content pre code {
-      background: none;
-      padding: 0;
-    }
-
-    .markdown-content a { color: var(--accent); }
-    .markdown-content ul, .markdown-content ol { padding-left: 24px; margin: 10px 0; }
-    .markdown-content li { margin: 4px 0; }
-
-    .markdown-content blockquote {
-      border-left: 3px solid var(--accent);
-      padding-left: 16px;
-      color: var(--text-muted);
-      margin: 12px 0;
-    }
-
+    .markdown-content pre { background: #1e293b; color: #e2e8f0; padding: 18px; border-radius: 8px; overflow-x: auto; margin: 16px 0; }
+    .markdown-content pre code { background: none; padding: 0; color: inherit; }
+    .markdown-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .markdown-content a:hover { color: var(--accent-hover); }
+    .markdown-content ul, .markdown-content ol { padding-left: 24px; margin: 12px 0; }
+    .markdown-content li { margin: 6px 0; }
+    .markdown-content blockquote { border-left: 3px solid var(--accent); padding-left: 20px; color: var(--text-muted); margin: 16px 0; font-style: italic; }
     .markdown-content img { max-width: 100%; border-radius: 8px; }
+    .markdown-content table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .markdown-content th, .markdown-content td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; font-size: 14px; }
+    .markdown-content th { background: var(--bg-tertiary); font-family: 'Inter', sans-serif; font-weight: 600; }
 
-    .markdown-content table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 12px 0;
+    /* ── GMB layout ── */
+    .gmb-layout {
+      display: flex; gap: 0; height: 100%;
     }
 
-    .markdown-content th, .markdown-content td {
-      padding: 8px 12px;
-      border: 1px solid var(--border);
-      text-align: left;
-      font-size: 13px;
+    .gmb-table-col {
+      flex: 1; min-width: 0; overflow-y: auto; border-right: 1px solid var(--border);
     }
 
-    .markdown-content th { background: var(--bg-tertiary); }
-
-    /* ── Loading / Error ── */
-    .loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: var(--text-muted);
-      font-size: 14px;
+    .gmb-preview-col {
+      flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px;
     }
 
-    .spinner {
-      width: 20px; height: 20px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-right: 12px;
+    .gmb-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
     }
 
+    .gmb-table th {
+      padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+      background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 1;
+    }
+
+    .gmb-table td {
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      vertical-align: top; font-size: 12px;
+    }
+
+    .gmb-table tr { cursor: pointer; transition: background 0.1s; }
+    .gmb-table tr:hover { background: var(--bg-secondary); }
+    .gmb-table tr.active { background: rgba(37, 99, 235, 0.06); }
+
+    .gmb-table .cell-num { font-weight: 600; color: var(--text-muted); width: 40px; }
+    .gmb-table .cell-date { white-space: nowrap; color: var(--text-muted); width: 100px; }
+    .gmb-table .cell-type { width: 90px; }
+    .gmb-table .cell-content {
+      color: var(--text); max-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .gmb-table .cell-cta { color: var(--accent); font-size: 11px; width: 100px; }
+
+    .gmb-type-badge {
+      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+      color: #ea4335; background: rgba(234, 67, 53, 0.08);
+    }
+
+    /* GMB Preview */
+    .gmb-preview-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: var(--text-muted); font-size: 13px;
+    }
+
+    .gmb-preview-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .gmb-preview-header h3 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .gmb-preview-card {
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+    }
+
+    .gmb-preview-body { padding: 16px; }
+
+    .gmb-preview-body .gmb-preview-type {
+      font-size: 11px; font-weight: 600; color: #ea4335;
+      margin-bottom: 8px; text-transform: uppercase;
+    }
+
+    .gmb-preview-body .gmb-preview-title {
+      font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--text);
+    }
+
+    .gmb-preview-body .gmb-preview-text {
+      font-size: 14px; line-height: 1.7; color: var(--text); white-space: pre-wrap;
+    }
+
+    .gmb-preview-footer {
+      padding: 12px 16px; border-top: 1px solid var(--border);
+      display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--text-muted);
+    }
+
+    .gmb-preview-footer .gmb-pf-cta {
+      color: var(--accent); font-weight: 500;
+    }
+
+    .gmb-preview-footer .gmb-pf-date { }
+
+    .gmb-preview-image-prompt {
+      margin-top: 16px; padding: 12px; background: var(--bg-tertiary);
+      border-radius: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.5;
+    }
+    .gmb-preview-image-prompt strong { color: var(--text); font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; display: block; margin-bottom: 6px; }
+
+    /* ── Loading / Error / Empty ── */
+    .loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 14px; }
+    .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 12px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    .error-banner {
-      background: rgba(248, 81, 73, 0.1);
-      border: 1px solid var(--red);
-      color: var(--red);
-      padding: 12px 20px;
-      margin: 20px 24px;
-      border-radius: 8px;
-      font-size: 13px;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
-      color: var(--text-muted);
-    }
-
-    .empty-state .icon { font-size: 36px; margin-bottom: 16px; }
+    .error-banner { background: rgba(220, 38, 38, 0.06); border: 1px solid var(--red); color: var(--red); padding: 12px 20px; margin: 20px 24px; border-radius: 8px; font-size: 13px; }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
     .empty-state p { font-size: 14px; }
   </style>
 </head>
 <body>
 
 <div id="app" class="app">
-  <!-- Sidebar -->
   <aside class="sidebar">
     <div class="header">
       <h1>JLabs <span>Content Hub</span></h1>
@@ -433,19 +353,18 @@
     </div>
   </aside>
 
-  <!-- Main -->
   <div class="main">
-    <div class="toolbar">
-      <input id="search" class="search-box" type="text" placeholder="Rechercher un article...">
-      <span id="stats" class="stats"></span>
+    <div class="main-header">
+      <h2 id="main-title">Pipeline</h2>
+      <input id="search" class="search-box" type="text" placeholder="Rechercher...">
     </div>
-    <div id="articles" class="articles">
+    <div class="tab-bar" id="tab-bar"></div>
+    <div id="content" class="content-area">
       <div class="loading"><div class="spinner"></div>Chargement...</div>
     </div>
   </div>
 </div>
 
-<!-- Modal PAT -->
 <div id="pat-modal" class="modal-overlay" style="display:none">
   <div class="modal">
     <h2>GitHub Personal Access Token</h2>
@@ -462,7 +381,7 @@
 
 <script>
 // ══════════════════════════════════════════
-// Configuration — remplacer par vos valeurs
+// Configuration
 // ══════════════════════════════════════════
 const GITHUB_OWNER = 'jonathanvouilloz';
 const GITHUB_REPO  = 'jlabs-content-hub';
@@ -471,9 +390,12 @@ const GITHUB_REPO  = 'jlabs-content-hub';
 // State
 // ══════════════════════════════════════════
 let articles = [];
-let projects = [];
-let activeProject = null; // null = tous
+let activeProject = '__pipeline';
+let activeTab = 'articles';
 let expandedCard = null;
+let selectedGmbPost = null; // index of selected GMB post for preview
+let meta = {};
+let metaSha = null;
 
 // ══════════════════════════════════════════
 // DOM refs
@@ -483,9 +405,10 @@ const $patInput  = document.getElementById('pat-input');
 const $patSubmit = document.getElementById('pat-submit');
 const $patError  = document.getElementById('pat-error');
 const $sidebar   = document.getElementById('sidebar-list');
-const $articles  = document.getElementById('articles');
+const $content   = document.getElementById('content');
 const $search    = document.getElementById('search');
-const $stats     = document.getElementById('stats');
+const $title     = document.getElementById('main-title');
+const $tabBar    = document.getElementById('tab-bar');
 const $resetPat  = document.getElementById('reset-pat');
 
 // ══════════════════════════════════════════
@@ -497,16 +420,11 @@ function clearPat() { localStorage.removeItem('jlabs_gh_pat'); }
 
 function showModal(errorMsg) {
   $modal.style.display = 'flex';
-  if (errorMsg) {
-    $patError.textContent = errorMsg;
-    $patError.style.display = 'block';
-  } else {
-    $patError.style.display = 'none';
-  }
+  if (errorMsg) { $patError.textContent = errorMsg; $patError.style.display = 'block'; }
+  else { $patError.style.display = 'none'; }
   $patInput.value = '';
   $patInput.focus();
 }
-
 function hideModal() { $modal.style.display = 'none'; }
 
 $patSubmit.addEventListener('click', async () => {
@@ -516,15 +434,8 @@ $patSubmit.addEventListener('click', async () => {
   hideModal();
   await loadData();
 });
-
-$patInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') $patSubmit.click();
-});
-
-$resetPat.addEventListener('click', () => {
-  clearPat();
-  showModal();
-});
+$patInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $patSubmit.click(); });
+$resetPat.addEventListener('click', () => { clearPat(); showModal(); });
 
 // ══════════════════════════════════════════
 // GitHub API
@@ -532,41 +443,113 @@ $resetPat.addEventListener('click', () => {
 async function ghFetch(url) {
   const pat = getPat();
   const res = await fetch(url, {
-    headers: {
-      Authorization: `token ${pat}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json' },
   });
-
   if (res.status === 401 || res.status === 403) {
     const data = await res.json().catch(() => ({}));
     if (res.status === 403 && data.message && data.message.includes('rate limit')) {
-      throw new Error('Rate limit GitHub atteint. Attendez quelques minutes avant de recharger.');
+      throw new Error('Rate limit GitHub atteint. Attendez quelques minutes.');
     }
     clearPat();
     showModal('Token invalide ou expire. Veuillez en saisir un nouveau.');
     throw new Error('auth');
   }
-
   if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
   return res.json();
+}
+
+function decodeBase64Utf8(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
 }
 
 async function fetchTree() {
   const data = await ghFetch(
     `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/main?recursive=1`
   );
-  return data.tree
+  const mdFiles = data.tree
     .filter(f => f.type === 'blob' && f.path.endsWith('.md'))
     .filter(f => !f.path.startsWith('dashboard/'))
     .filter(f => f.path !== 'README.md');
+  const gmbFiles = data.tree
+    .filter(f => f.type === 'blob' && /gmb[-_].*\.json$/.test(f.path))
+    .filter(f => f.path !== '_meta.json');
+  return { mdFiles, gmbFiles };
 }
 
 async function fetchFileContent(path) {
   const data = await ghFetch(
     `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(path)}`
   );
-  return atob(data.content);
+  return decodeBase64Utf8(data.content);
+}
+
+// ══════════════════════════════════════════
+// _meta.json management
+// ══════════════════════════════════════════
+const META_PATH = '_meta.json';
+
+async function fetchMeta() {
+  try {
+    const pat = getPat();
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${META_PATH}`,
+      { headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json' } }
+    );
+    if (res.status === 404) { meta = {}; metaSha = null; return; }
+    if (!res.ok) throw new Error('meta fetch failed');
+    const data = await res.json();
+    metaSha = data.sha;
+    meta = JSON.parse(decodeBase64Utf8(data.content));
+  } catch (e) {
+    if (e.message === 'meta fetch failed') throw e;
+    meta = {};
+    metaSha = null;
+  }
+}
+
+async function saveMeta() {
+  const pat = getPat();
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(meta, null, 2))));
+  const body = { message: '[hub] update _meta.json', content };
+  if (metaSha) body.sha = metaSha;
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${META_PATH}`,
+    { method: 'PUT', headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  );
+  if (!res.ok) throw new Error('Erreur lors de la sauvegarde du statut.');
+  const data = await res.json();
+  metaSha = data.content.sha;
+}
+
+async function togglePublished(path) {
+  const entry = meta[path] || {};
+  if (entry.published) {
+    delete entry.published;
+    delete entry.publishedAt;
+  } else {
+    entry.published = true;
+    entry.publishedAt = new Date().toISOString().split('T')[0];
+  }
+  meta[path] = entry;
+  await saveMeta();
+}
+
+function ensureAddedAt() {
+  let dirty = false;
+  const today = new Date().toISOString().split('T')[0];
+  for (const item of articles) {
+    if (!meta[item.path]) {
+      meta[item.path] = { addedAt: today };
+      dirty = true;
+    } else if (!meta[item.path].addedAt) {
+      meta[item.path].addedAt = today;
+      dirty = true;
+    }
+  }
+  return dirty;
 }
 
 // ══════════════════════════════════════════
@@ -574,37 +557,27 @@ async function fetchFileContent(path) {
 // ══════════════════════════════════════════
 function parseFrontmatter(content) {
   const fm = { title: '', date: '', tags: [], status: '', description: '', body: content };
-
   if (!content.startsWith('---')) return fm;
-
   const end = content.indexOf('---', 3);
   if (end === -1) return fm;
-
   const yamlBlock = content.substring(3, end).trim();
   fm.body = content.substring(end + 3).trim();
-
   for (const line of yamlBlock.split('\n')) {
     const sep = line.indexOf(':');
     if (sep === -1) continue;
     const key = line.substring(0, sep).trim().toLowerCase();
     let val = line.substring(sep + 1).trim();
-
-    // Remove surrounding quotes
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
       val = val.slice(1, -1);
-    }
-
     if (key === 'title') fm.title = val;
     else if (key === 'date') fm.date = val;
     else if (key === 'status') fm.status = val.toLowerCase();
     else if (key === 'description') fm.description = val;
     else if (key === 'tags') {
-      // Handle [tag1, tag2] or tag1, tag2
       val = val.replace(/^\[/, '').replace(/\]$/, '');
       fm.tags = val.split(',').map(t => t.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
     }
   }
-
   return fm;
 }
 
@@ -612,75 +585,107 @@ function parseFrontmatter(content) {
 // Data loading
 // ══════════════════════════════════════════
 async function loadData() {
-  $articles.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement...</div>';
+  $content.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement...</div>';
 
   try {
-    const tree = await fetchTree();
+    const [tree] = await Promise.all([fetchTree(), fetchMeta()]);
+    const { mdFiles, gmbFiles } = tree;
 
-    articles = tree.map(file => {
+    const mdItems = mdFiles.map(file => {
       const parts = file.path.split('/');
       const project = parts.length > 1 ? parts[0] : '_root';
-      return { path: file.path, project, sha: file.sha, frontmatter: null, content: null };
+      return { path: file.path, project, type: 'article', frontmatter: null, content: null, gmbData: null };
     });
 
-    // Extract unique projects sorted
-    const projectSet = new Map();
-    articles.forEach(a => {
-      projectSet.set(a.project, (projectSet.get(a.project) || 0) + 1);
+    const gmbItems = gmbFiles.map(file => {
+      const parts = file.path.split('/');
+      const project = parts.length > 1 ? parts[0] : '_root';
+      const dateMatch = file.path.match(/(\d{4}-\d{2}-\d{2})/);
+      return {
+        path: file.path, project, type: 'gmb',
+        frontmatter: { title: '', date: dateMatch ? dateMatch[1] : '', tags: [], status: '', description: '', body: '' },
+        content: null, gmbData: null,
+      };
     });
-    projects = Array.from(projectSet.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]));
 
-    // Fetch content for all articles (in batches to avoid rate limits)
+    articles = [...mdItems, ...gmbItems];
+
     const batchSize = 10;
     for (let i = 0; i < articles.length; i += batchSize) {
       const batch = articles.slice(i, i + batchSize);
-      await Promise.all(batch.map(async (article) => {
+      await Promise.all(batch.map(async (item) => {
         try {
-          const raw = await fetchFileContent(article.path);
-          const fm = parseFrontmatter(raw);
-          article.frontmatter = fm;
-          article.content = raw;
+          const raw = await fetchFileContent(item.path);
+          item.content = raw;
+          if (item.type === 'article') {
+            item.frontmatter = parseFrontmatter(raw);
+          } else {
+            const json = JSON.parse(raw);
+            const posts = json.posts || json;
+            item.gmbData = Array.isArray(posts) ? posts : [];
+            item.frontmatter.title = `GMB — ${item.project} (${item.gmbData.length} posts)`;
+          }
         } catch (e) {
           if (e.message === 'auth') throw e;
-          article.frontmatter = {
-            title: article.path.split('/').pop().replace('.md', ''),
-            date: '', tags: [], status: '', description: '',
-            body: ''
-          };
+          if (item.type === 'article') {
+            item.frontmatter = { title: item.path.split('/').pop().replace('.md', ''), date: '', tags: [], status: '', description: '', body: '' };
+          } else {
+            item.gmbData = [];
+            item.frontmatter.title = item.path.split('/').pop();
+          }
         }
       }));
     }
 
-    // Sort by date descending
     articles.sort((a, b) => {
       const da = a.frontmatter?.date || '';
       const db = b.frontmatter?.date || '';
       return db.localeCompare(da);
     });
 
+    if (ensureAddedAt()) {
+      await saveMeta();
+    }
+
     renderSidebar();
-    renderArticles();
+    renderTabBar();
+    renderContent();
 
   } catch (e) {
     if (e.message === 'auth') return;
-    $articles.innerHTML = `<div class="error-banner">${e.message}</div>`;
+    $content.innerHTML = `<div class="error-banner">${e.message}</div>`;
   }
 }
 
 // ══════════════════════════════════════════
-// Rendering
+// Sidebar
 // ══════════════════════════════════════════
 function renderSidebar() {
-  const total = articles.length;
-  let html = `<li class="${activeProject === null ? 'active' : ''}" data-project="__all">
-    <span>Tous</span><span class="count">${total}</span>
+  const unpublishedCount = articles.filter(a => !meta[a.path]?.published).length;
+
+  const projectMap = new Map();
+  for (const a of articles) {
+    if (!projectMap.has(a.project)) projectMap.set(a.project, { articles: 0, gmb: 0 });
+    const p = projectMap.get(a.project);
+    if (a.type === 'article') p.articles++; else p.gmb++;
+  }
+
+  let html = `<li class="${activeProject === '__pipeline' ? 'active' : ''}" data-project="__pipeline">
+    <span>Pipeline</span><span class="count">${unpublishedCount}</span>
   </li>`;
 
-  for (const [name, count] of projects) {
+  const sorted = Array.from(projectMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [name, counts] of sorted) {
     const label = name === '_root' ? 'Racine' : name;
+    const parts = [];
+    if (counts.articles) parts.push(`${counts.articles} article${counts.articles > 1 ? 's' : ''}`);
+    if (counts.gmb) parts.push(`${counts.gmb} GMB`);
+
     html += `<li class="${activeProject === name ? 'active' : ''}" data-project="${name}">
-      <span>${label}</span><span class="count">${count}</span>
+      <div>
+        <div>${escapeHtml(label)}</div>
+        ${parts.length ? `<div class="sidebar-count-detail">${parts.join(', ')}</div>` : ''}
+      </div>
     </li>`;
   }
 
@@ -688,77 +693,286 @@ function renderSidebar() {
 
   $sidebar.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => {
-      const p = li.dataset.project;
-      activeProject = p === '__all' ? null : p;
+      activeProject = li.dataset.project;
       expandedCard = null;
       renderSidebar();
-      renderArticles();
+      renderTabBar();
+      renderContent();
     });
   });
 }
 
-function getFilteredArticles() {
-  const query = $search.value.toLowerCase().trim();
-  return articles.filter(a => {
-    if (activeProject && a.project !== activeProject) return false;
-    if (query) {
-      const title = (a.frontmatter?.title || a.path).toLowerCase();
-      if (!title.includes(query)) return false;
-    }
-    return true;
+// ══════════════════════════════════════════
+// Tab bar
+// ══════════════════════════════════════════
+function renderTabBar() {
+  if (activeProject === '__pipeline') {
+    $tabBar.style.display = 'none';
+    $title.textContent = 'Pipeline';
+    return;
+  }
+
+  $title.textContent = activeProject === '_root' ? 'Racine' : activeProject;
+
+  const projectItems = articles.filter(a => a.project === activeProject);
+  const artCount = projectItems.filter(a => a.type === 'article').length;
+  const gmbCount = projectItems.filter(a => a.type === 'gmb').length;
+
+  $tabBar.style.display = 'flex';
+  $tabBar.innerHTML = `
+    <button class="tab-btn ${activeTab === 'articles' ? 'active' : ''}" data-tab="articles">Articles (${artCount})</button>
+    <button class="tab-btn ${activeTab === 'gmb' ? 'active' : ''}" data-tab="gmb">Posts GMB (${gmbCount})</button>
+  `;
+
+  $tabBar.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.tab;
+      expandedCard = null;
+      renderTabBar();
+      renderContent();
+    });
   });
 }
 
-function renderArticles() {
-  const filtered = getFilteredArticles();
-  $stats.textContent = `${filtered.length} article${filtered.length !== 1 ? 's' : ''}`;
+// ══════════════════════════════════════════
+// Content rendering
+// ══════════════════════════════════════════
+function getCardDates(item) {
+  const entry = meta[item.path] || {};
+  const parts = [];
+
+  if (item.type === 'article' && item.frontmatter?.date) {
+    parts.push(escapeHtml(item.frontmatter.date));
+  } else if (item.type === 'gmb' && item.gmbData?.length) {
+    const dates = item.gmbData.map(p => p.scheduled_at?.split('T')[0]).filter(Boolean).sort();
+    if (dates.length) parts.push(`${dates[0]} → ${dates[dates.length - 1]}`);
+  }
+
+  if (entry.addedAt) parts.push(`Ajoute le ${entry.addedAt}`);
+  if (entry.published && entry.publishedAt) parts.push(`<span class="date-published">Publie le ${entry.publishedAt}</span>`);
+
+  return parts.length ? `<div class="card-dates">${parts.join('<span class="sep"> · </span>')}</div>` : '';
+}
+
+function renderCard(item, showProject) {
+  const fm = item.frontmatter || {};
+  const title = fm.title || item.path.split('/').pop().replace('.md', '');
+  const isOpen = expandedCard === item.path;
+  const isGmb = item.type === 'gmb';
+  const isPublished = meta[item.path]?.published;
+
+  const typeBadge = isGmb
+    ? '<span class="type-badge type-badge-gmb">GMB</span>'
+    : '<span class="type-badge type-badge-article">Article</span>';
+
+  return `<div class="card ${isOpen ? 'open' : ''}" data-path="${item.path}" data-type="${item.type}">
+    <div class="card-header">
+      <div>
+        <div class="card-title">${escapeHtml(title)}</div>
+        <div class="card-meta">
+          ${typeBadge}
+          ${showProject ? `<span class="card-project">${escapeHtml(item.project === '_root' ? 'Racine' : item.project)}</span>` : ''}
+          ${(fm.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+        </div>
+        ${getCardDates(item)}
+        ${fm.description ? `<div class="card-description">${escapeHtml(fm.description)}</div>` : ''}
+      </div>
+      <div class="card-actions">
+        <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${item.path}" title="${isPublished ? 'Publie le ' + (meta[item.path]?.publishedAt || '') : 'Marquer comme publie'}">
+          <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
+        </button>
+        <span class="card-chevron">▶</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="markdown-content">${isOpen && !isGmb ? renderMarkdown(fm.body || '') : (isGmb ? `<p style="color:var(--text-muted);font-size:13px">${(item.gmbData||[]).length} posts — ouvrir l'onglet GMB pour voir le detail</p>` : '')}</div>
+    </div>
+  </div>`;
+}
+
+function renderSection(title, items, showProject, cssClass) {
+  if (items.length === 0) return '';
+  return `<div class="${cssClass || ''}">
+    <div class="section-header">${title} <span class="section-count">(${items.length})</span></div>
+    <div class="section-cards">${items.map(item => renderCard(item, showProject)).join('')}</div>
+  </div>`;
+}
+
+function renderContent() {
+  const query = $search.value.toLowerCase().trim();
+
+  // GMB tab in project view → special 2-column layout
+  if (activeProject !== '__pipeline' && activeTab === 'gmb') {
+    renderGmbView(query);
+    return;
+  }
+
+  let filtered;
+  let showProject;
+
+  if (activeProject === '__pipeline') {
+    filtered = articles.filter(a => !meta[a.path]?.published);
+    showProject = true;
+  } else {
+    filtered = articles.filter(a => a.project === activeProject && a.type === 'article');
+    showProject = false;
+  }
+
+  if (query) {
+    filtered = filtered.filter(a => {
+      const t = (a.frontmatter?.title || a.path).toLowerCase();
+      return t.includes(query);
+    });
+  }
 
   if (filtered.length === 0) {
-    $articles.innerHTML = `
-      <div class="empty-state">
-        <div class="icon">📄</div>
-        <p>Aucun article trouve.</p>
-      </div>`;
+    $content.innerHTML = `<div class="empty-state"><p>Aucun contenu${activeProject === '__pipeline' ? ' en attente' : ''}.</p></div>`;
     return;
   }
 
   let html = '';
-  for (const article of filtered) {
-    const fm = article.frontmatter || {};
-    const title = fm.title || article.path.split('/').pop().replace('.md', '');
-    const isOpen = expandedCard === article.path;
 
-    let statusClass = '';
-    if (fm.status === 'published' || fm.status === 'publie') statusClass = 'status-published';
-    else if (fm.status === 'draft' || fm.status === 'brouillon') statusClass = 'status-draft';
-    else if (fm.status === 'review') statusClass = 'status-review';
-    else if (fm.status) statusClass = 'status-draft';
-
-    html += `<div class="card ${isOpen ? 'open' : ''}" data-path="${article.path}">
-      <div class="card-header">
-        <div>
-          <div class="card-title">${escapeHtml(title)}</div>
-          <div class="card-meta">
-            ${fm.date ? `<span class="card-date">${escapeHtml(fm.date)}</span>` : ''}
-            <span class="card-project">${escapeHtml(article.project === '_root' ? 'Racine' : article.project)}</span>
-            ${fm.status ? `<span class="status ${statusClass}">${escapeHtml(fm.status)}</span>` : ''}
-            ${fm.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
-          </div>
-          ${fm.description ? `<div class="card-description">${escapeHtml(fm.description)}</div>` : ''}
-        </div>
-        <span class="card-chevron">▶</span>
-      </div>
-      <div class="card-body">
-        <div class="markdown-content">${isOpen ? renderMarkdown(fm.body || '') : ''}</div>
-      </div>
-    </div>`;
+  if (activeProject === '__pipeline') {
+    html = `<div class="section-cards" style="padding-top:16px">${filtered.map(item => renderCard(item, true)).join('')}</div>`;
+  } else {
+    const unpublished = filtered.filter(a => !meta[a.path]?.published);
+    const published = filtered.filter(a => meta[a.path]?.published);
+    html += renderSection('A publier', unpublished, false, '');
+    html += renderSection('Publies', published, false, 'section-published');
   }
 
-  $articles.innerHTML = html;
+  $content.innerHTML = html;
+  bindCardEvents();
+}
 
-  $articles.querySelectorAll('.card-header').forEach(header => {
-    header.addEventListener('click', () => {
-      const card = header.parentElement;
+function renderGmbView(query) {
+  // Collect all GMB posts from all GMB files for this project
+  const gmbItems = articles.filter(a => a.project === activeProject && a.type === 'gmb');
+  let allPosts = [];
+  for (const item of gmbItems) {
+    if (!item.gmbData) continue;
+    for (let i = 0; i < item.gmbData.length; i++) {
+      allPosts.push({ ...item.gmbData[i], _index: allPosts.length, _filePath: item.path });
+    }
+  }
+
+  // Filter by search
+  if (query) {
+    allPosts = allPosts.filter(p => (p.content || '').toLowerCase().includes(query));
+  }
+
+  // Sort by scheduled_at
+  allPosts.sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
+
+  if (allPosts.length === 0) {
+    $content.innerHTML = '<div class="empty-state"><p>Aucun post GMB.</p></div>';
+    return;
+  }
+
+  // Ensure selectedGmbPost is valid
+  if (selectedGmbPost === null || selectedGmbPost >= allPosts.length) selectedGmbPost = 0;
+
+  // Build table
+  let tableHtml = `<table class="gmb-table">
+    <thead><tr>
+      <th>#</th><th>Date</th><th>Type</th><th>Contenu</th><th>CTA</th>
+    </tr></thead><tbody>`;
+
+  for (let i = 0; i < allPosts.length; i++) {
+    const p = allPosts[i];
+    const date = p.scheduled_at ? p.scheduled_at.split('T')[0] : '';
+    tableHtml += `<tr class="${i === selectedGmbPost ? 'active' : ''}" data-idx="${i}">
+      <td class="cell-num">${i + 1}</td>
+      <td class="cell-date">${date}</td>
+      <td class="cell-type"><span class="gmb-type-badge">${escapeHtml(p.type || '')}</span></td>
+      <td class="cell-content">${escapeHtml(p.content || '')}</td>
+      <td class="cell-cta">${escapeHtml(p.cta?.action || '')}</td>
+    </tr>`;
+  }
+  tableHtml += '</tbody></table>';
+
+  // Build preview
+  const sp = allPosts[selectedGmbPost];
+  const previewHtml = renderGmbPreview(sp);
+
+  // Publish button for the GMB file
+  const filePath = gmbItems[0]?.path;
+  const isPublished = filePath ? meta[filePath]?.published : false;
+  const publishBtnHtml = filePath ? `
+    <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${filePath}" style="margin-bottom:16px">
+      <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
+    </button>` : '';
+
+  $content.innerHTML = `<div class="gmb-layout">
+    <div class="gmb-table-col">${tableHtml}</div>
+    <div class="gmb-preview-col">
+      ${publishBtnHtml}
+      <div class="gmb-preview-header"><h3>Preview</h3><span style="font-size:12px;color:var(--text-muted)">Post ${selectedGmbPost + 1}/${allPosts.length}</span></div>
+      <div id="gmb-preview">${previewHtml}</div>
+    </div>
+  </div>`;
+
+  // Table row click → update preview
+  $content.querySelectorAll('.gmb-table tr[data-idx]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      selectedGmbPost = parseInt(tr.dataset.idx);
+      // Update active row
+      $content.querySelectorAll('.gmb-table tr').forEach(r => r.classList.remove('active'));
+      tr.classList.add('active');
+      // Update preview
+      document.getElementById('gmb-preview').innerHTML = renderGmbPreview(allPosts[selectedGmbPost]);
+      // Update counter
+      $content.querySelector('.gmb-preview-header span').textContent = `Post ${selectedGmbPost + 1}/${allPosts.length}`;
+    });
+  });
+
+  // Publish btn
+  $content.querySelectorAll('.publish-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.path;
+      btn.classList.add('saving');
+      btn.textContent = '...';
+      try {
+        await togglePublished(path);
+        renderSidebar();
+        renderContent();
+      } catch (err) {
+        btn.classList.remove('saving');
+        btn.innerHTML = '<span class="dot"></span>Erreur';
+        alert(err.message);
+      }
+    });
+  });
+}
+
+function renderGmbPreview(post) {
+  if (!post) return '<div class="gmb-preview-empty">Selectionnez un post</div>';
+  const date = post.scheduled_at ? post.scheduled_at.split('T')[0] : '';
+  const time = post.scheduled_at ? post.scheduled_at.split('T')[1]?.substring(0, 5) : '';
+  const hasImagePrompt = post.image_prompt || post.image?.prompt;
+  const imageText = post.image_text || post.image?.text || '';
+
+  return `<div class="gmb-preview-card">
+    <div class="gmb-preview-body">
+      <div class="gmb-preview-type">${escapeHtml(post.type || '')}</div>
+      ${post.title ? `<div class="gmb-preview-title">${escapeHtml(post.title)}</div>` : ''}
+      <div class="gmb-preview-text">${escapeHtml(post.content || '')}</div>
+    </div>
+    <div class="gmb-preview-footer">
+      ${date ? `<span class="gmb-pf-date">${date}${time ? ' a ' + time : ''}</span>` : ''}
+      ${post.cta ? `<span class="gmb-pf-cta">${escapeHtml(post.cta.action || '')}${post.cta.url ? ' → ' + escapeHtml(post.cta.url) : ''}</span>` : ''}
+    </div>
+  </div>
+  ${imageText ? `<div class="gmb-preview-image-prompt"><strong>Texte image</strong>${escapeHtml(imageText)}</div>` : ''}
+  ${hasImagePrompt ? `<div class="gmb-preview-image-prompt"><strong>Prompt image</strong>${escapeHtml(post.image_prompt || post.image?.prompt || '')}</div>` : ''}`;
+}
+
+function bindCardEvents() {
+  $content.querySelectorAll('.card-chevron').forEach(chevron => {
+    chevron.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = chevron.closest('.card');
       const path = card.dataset.path;
 
       if (expandedCard === path) {
@@ -766,29 +980,56 @@ function renderArticles() {
         card.classList.remove('open');
         card.querySelector('.card-body').style.display = 'none';
       } else {
-        // Close previously open card
         if (expandedCard) {
-          const prev = $articles.querySelector(`.card[data-path="${CSS.escape(expandedCard)}"]`);
-          if (prev) {
-            prev.classList.remove('open');
-            prev.querySelector('.card-body').style.display = 'none';
-          }
+          const prev = $content.querySelector(`.card[data-path="${CSS.escape(expandedCard)}"]`);
+          if (prev) { prev.classList.remove('open'); prev.querySelector('.card-body').style.display = 'none'; }
         }
         expandedCard = path;
         card.classList.add('open');
         const body = card.querySelector('.card-body');
-        const article = articles.find(a => a.path === path);
-        body.querySelector('.markdown-content').innerHTML = renderMarkdown(article?.frontmatter?.body || '');
+        const item = articles.find(a => a.path === path);
+        if (item?.type === 'article') {
+          body.querySelector('.markdown-content').innerHTML = renderMarkdown(item?.frontmatter?.body || '');
+        }
         body.style.display = 'block';
+      }
+    });
+  });
+
+  $content.querySelectorAll('.card-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.publish-btn') || e.target.closest('.card-actions')) return;
+      header.querySelector('.card-chevron').click();
+    });
+  });
+
+  $content.querySelectorAll('.publish-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.path;
+      btn.classList.add('saving');
+      btn.textContent = '...';
+      try {
+        await togglePublished(path);
+        renderSidebar();
+        renderContent();
+      } catch (err) {
+        btn.classList.remove('saving');
+        btn.innerHTML = '<span class="dot"></span>Erreur';
+        alert(err.message);
       }
     });
   });
 }
 
+// ══════════════════════════════════════════
+// Renderers
+// ══════════════════════════════════════════
 function renderMarkdown(md) {
   try { return marked.parse(md); }
   catch { return `<pre>${escapeHtml(md)}</pre>`; }
 }
+
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -801,7 +1042,7 @@ function escapeHtml(str) {
 // ══════════════════════════════════════════
 $search.addEventListener('input', () => {
   expandedCard = null;
-  renderArticles();
+  renderContent();
 });
 
 // ══════════════════════════════════════════
