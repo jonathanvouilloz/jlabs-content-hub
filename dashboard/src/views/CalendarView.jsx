@@ -47,8 +47,8 @@ export default function CalendarView() {
     if (item.type === 'article' || item.type === 'linkedin') {
       const date = item.frontmatter?.date || item.date
       addToDate(date, { item, type: item.type })
-    } else if (item.type === 'gmb' && item.posts) {
-      item.posts.forEach((post) => {
+    } else if (item.type === 'gmb' && item.gmbData) {
+      item.gmbData.forEach((post) => {
         addToDate(post.scheduled_at, {
           item,
           type: 'gmb',

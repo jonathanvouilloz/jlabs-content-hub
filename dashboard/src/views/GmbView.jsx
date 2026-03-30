@@ -8,19 +8,18 @@ export default function GmbView() {
   const isPipeline = activeProject === '__pipeline'
 
   // Get all GMB items for current project
-  let gmbItems = articles.filter((a) => a.type === 'gmb')
+  let gmbItems = articles.filter((a) => a.contentType === 'gmb')
   if (isPipeline) {
     gmbItems = gmbItems.filter((a) => a.isDraft)
   } else {
     gmbItems = gmbItems.filter((a) => a.project === activeProject)
   }
 
-  // Group by source file (each gmbItem is a file)
+  // Each gmbItem is a file with gmbData array of posts
   const groups = gmbItems.map((gmbItem) => {
-    const posts = (gmbItem.posts || []).map((post, idx) => ({
+    const posts = (gmbItem.gmbData || []).map((post, idx) => ({
       ...post,
       _index: idx,
-      _parentItem: gmbItem,
     }))
     return { gmbItem, posts }
   })
@@ -63,7 +62,7 @@ export default function GmbView() {
           >
             <Flex align="center" gap={2}>
               <Heading size="sm" color="gray.700">
-                {gmbItem.title || 'GMB'}
+                {gmbItem.frontmatter?.title || gmbItem.slug || 'GMB'}
               </Heading>
               <Badge colorPalette="gray" fontSize="xs">
                 {posts.length} post{posts.length > 1 ? 's' : ''}
@@ -116,7 +115,7 @@ export default function GmbView() {
                         <Text lineClamp={2}>{post.content || '\u2014'}</Text>
                       </Table.Cell>
                       <Table.Cell fontSize="xs" color="gray.500">
-                        {post.cta || '\u2014'}
+                        {post.cta?.action || '\u2014'}
                       </Table.Cell>
                     </Table.Row>
                   ))}

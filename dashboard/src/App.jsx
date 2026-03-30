@@ -19,7 +19,7 @@ function PipelineView({ search }) {
     const q = search.toLowerCase()
     items = items.filter(
       (a) =>
-        (a.title || '').toLowerCase().includes(q) ||
+        (a.frontmatter?.title || '').toLowerCase().includes(q) ||
         (a.frontmatter?.description || '').toLowerCase().includes(q)
     )
   }
@@ -36,7 +36,7 @@ function PipelineView({ search }) {
     <Box>
       {items.map((item) => (
         <Box
-          key={item.path || item.title}
+          key={item.path}
           border="1px solid"
           borderColor="gray.200"
           borderRadius={8}
@@ -48,7 +48,7 @@ function PipelineView({ search }) {
         >
           <Flex justify="space-between" align="center">
             <Text fontWeight={600} fontSize={14} lineClamp={1} flex={1} mr={2}>
-              {item.title}
+              {item.frontmatter?.title || item.slug || 'Sans titre'}
             </Text>
             <Text fontSize={12} color="gray.400">
               {item.type}

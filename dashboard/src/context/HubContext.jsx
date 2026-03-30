@@ -55,28 +55,32 @@ export function HubProvider({ children }) {
 
               if (file._type === 'gmb') {
                 const gmbData = JSON.parse(content)
-                const posts = Array.isArray(gmbData) ? gmbData : gmbData.posts || [gmbData]
-                return posts.map((post, idx) => ({
+                const posts = Array.isArray(gmbData) ? gmbData : gmbData.posts || []
+                const dateMatch = file.path.match(/(\d{4}-\d{2})/)
+                const dates = posts.map(p => p.scheduled_at?.split('T')[0]).filter(Boolean).sort()
+                return [{
                   path: file.path,
                   ...parsed,
+                  type: 'gmb',
                   contentType: 'gmb',
                   frontmatter: {
-                    title: post.title || post.topic || `Post ${idx + 1}`,
-                    date: post.date || post.publish_date || '',
-                    description: post.summary || post.text?.substring(0, 120) || '',
-                    tags: post.tags || [],
+                    title: `GMB — ${parsed.project} (${posts.length} posts)`,
+                    date: dateMatch ? dateMatch[1] : '',
+                    description: dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '',
+                    tags: [],
                     status: parsed.isDraft ? 'draft' : 'published',
-                    body: post.text || JSON.stringify(post, null, 2),
+                    body: '',
                   },
                   raw: content,
-                  gmbPost: post,
-                }))
+                  gmbData: posts,
+                }]
               }
 
               const frontmatter = parseFrontmatter(content)
               return [{
                 path: file.path,
                 ...parsed,
+                type: file._type,
                 frontmatter,
                 raw: content,
               }]
