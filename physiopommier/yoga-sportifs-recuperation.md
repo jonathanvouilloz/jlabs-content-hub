@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Anicée"
 tags: ["yoga", "sportifs", "récupération", "prévention blessures"]
 category: "Yoga"
+image:
+  src: "/blog/yoga-sportifs-recuperation/cover.jpg"
+  alt: "Sportif pratiquant une posture de yoga pour la récupération musculaire"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Yoga pour sportifs : récupération et prévention",
+        "description": "Le yoga améliore la récupération et prévient les blessures sportives. Vinyasa et yoga apaisant pour coureurs et athlètes à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/yoga-sportifs-recuperation",
+        "image": "https://physiopommier.ch/blog/yoga-sportifs-recuperation/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Le yoga aide-t-il à la récupération sportive ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Le Vinyasa offre une récupération active en relançant la circulation sanguine vers les muscles fatigués, avec une réduction des courbatures de 25 à 30 %. Le yoga apaisant agit sur le système nerveux pour accélérer la récupération passive."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Faut-il faire du yoga avant ou après le sport ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Avant l'effort : 5 à 10 minutes de mobilité articulaire dynamique, sans stretching statique prolongé. Après un effort modéré : quelques postures de Vinyasa. Après un effort intense : privilégiez le yoga apaisant pour la récupération passive."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quelles blessures le yoga peut-il aider à prévenir ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le yoga aide à prévenir les tendinopathies, les périostites tibiales, les lombalgies du coureur et les douleurs d'épaule du nageur ou du cycliste, en ciblant les causes : raideur, déséquilibre et manque de mobilité articulaire."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne constitue pas un avis médical. Si vous souffrez de douleurs ou de pathologies, consultez un professionnel de santé avant de commencer une nouvelle activité physique.*

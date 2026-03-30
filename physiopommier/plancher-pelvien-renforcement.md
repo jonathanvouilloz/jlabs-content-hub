@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Physio Pommier"
 tags: ["plancher pelvien", "renforcement", "pilates", "incontinence"]
 category: "Pilates"
+image:
+  src: "/blog/plancher-pelvien-renforcement/cover.jpg"
+  alt: "Exercice de renforcement du plancher pelvien sur tapis de Pilates"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Plancher pelvien : pourquoi et comment le renforcer",
+        "description": "Le plancher pelvien concerne tout le monde. Symptômes, exercices et rôle du Pilates. Conseils pratiques par des professionnels à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/plancher-pelvien-renforcement",
+        "image": "https://physiopommier.ch/blog/plancher-pelvien-renforcement/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quels sont les symptômes d'un plancher pelvien affaibli ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les signes principaux sont les fuites urinaires à l'effort (toux, éternuement, course), une sensation de pesanteur dans le bas-ventre, des envies pressantes et fréquentes d'uriner, et des douleurs pelviennes ou lombaires sans cause identifiée."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Comment faire les exercices de Kegel correctement ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Contractez les muscles que vous utiliseriez pour retenir l'urine, sans contracter les fessiers ni les abdominaux. Maintenez 5 à 10 secondes, relâchez le même temps, répétez 10 fois. Faites 3 séries par jour en respirant normalement."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Le Pilates aide-t-il à renforcer le plancher pelvien ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Chaque exercice de Pilates commence par l'activation du centre, qui inclut le plancher pelvien. Le renforcement se fait dans le cadre de mouvements fonctionnels, avec une respiration synchronisée qui renforce l'efficacité du travail périnéal."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour un diagnostic personnalisé.*

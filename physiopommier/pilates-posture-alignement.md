@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Elizaveta"
 tags: ["pilates", "posture", "alignement", "télétravail"]
 category: "Pilates"
+image:
+  src: "/blog/pilates-posture-alignement/cover.jpg"
+  alt: "Instructrice Pilates corrigeant l'alignement postural d'une participante"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Pilates et posture : retrouver votre alignement naturel",
+        "description": "Le Pilates corrige la posture en renforçant les muscles profonds et la conscience corporelle. Cours avec une ex-danseuse à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/pilates-posture-alignement",
+        "image": "https://physiopommier.ch/blog/pilates-posture-alignement/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Comment le Pilates corrige-t-il la posture ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le Pilates agit sur quatre mécanismes : le renforcement du centre (transverse, multifides, plancher pelvien), la mobilité vertébrale, la respiration latérale et la conscience corporelle. Ces mécanismes permettent au corps de retrouver sa position neutre sans effort conscient."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Le Pilates est-il adapté aux débutants souffrant de mauvaise posture ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Le Pilates postural ne demande ni souplesse préalable ni condition physique particulière. Les exercices se modifient en fonction de vos limites. Comptez quatre à six semaines de pratique régulière pour que le corps intègre les nouveaux schémas posturaux."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Le Pilates peut-il aider les douleurs liées au télétravail ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Rester assis 6 à 8 heures par jour raccourcit les fléchisseurs de hanche et affaiblit les extenseurs du dos. Le Pilates renforce les stabilisateurs profonds du tronc, remobilise la colonne vertébrale et développe des réflexes posturaux qui se transfèrent au bureau et au quotidien."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé avant de modifier votre pratique physique.*

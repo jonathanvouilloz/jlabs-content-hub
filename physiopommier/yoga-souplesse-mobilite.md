@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Anicée"
 tags: ["yoga", "souplesse", "mobilité", "débutant"]
 category: "Yoga"
+image:
+  src: "/blog/yoga-souplesse-mobilite/cover.jpg"
+  alt: "Personne pratiquant une posture de yoga pour améliorer sa souplesse"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Yoga et souplesse : retrouver votre mobilité à tout âge",
+        "description": "Pas besoin d'être souple pour faire du yoga. Le yoga développe la mobilité progressivement, à tout âge. Guide et cours à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/yoga-souplesse-mobilite",
+        "image": "https://physiopommier.ch/blog/yoga-souplesse-mobilite/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Faut-il être souple pour commencer le yoga ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Non. La souplesse n'est pas un prérequis du yoga, c'est sa conséquence. Les personnes raides sont celles qui tirent le plus de bénéfices de la pratique. Les postures se modifient avec des accessoires (blocs, sangles, couvertures)."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Combien de temps faut-il pour gagner en souplesse avec le yoga ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Avec 2 séances par semaine, vous sentirez moins de raideur dès les 2 premières semaines. Les améliorations deviennent mesurables entre 8 et 12 semaines. La souplesse diminue d'environ 10 % par décennie après 30 ans sans exercice, mais le yoga inverse cette tendance."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quelle est la différence entre souplesse et mobilité ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "La souplesse passive est l'amplitude atteinte avec une aide extérieure. La mobilité active est l'amplitude que vous contrôlez seul, avec vos propres muscles. Le yoga travaille les deux : les postures tenues développent la souplesse passive, les transitions contrôlées renforcent la mobilité articulaire."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne constitue pas un avis médical. Si vous souffrez de douleurs ou de pathologies, consultez un professionnel de santé avant de commencer une nouvelle activité physique.*

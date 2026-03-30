@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Anicée"
 tags: ["yoga", "sommeil", "relaxation", "bien-être"]
 category: "Yoga"
+image:
+  src: "/blog/yoga-sommeil-nuits-reparatrices/cover.jpg"
+  alt: "Femme pratiquant une posture de yoga relaxante avant le coucher"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Yoga et sommeil : retrouver des nuits réparatrices",
+        "description": "Le yoga améliore la qualité du sommeil en activant le système nerveux parasympathique. Techniques et conseils par Anicée à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/yoga-sommeil-nuits-reparatrices",
+        "image": "https://physiopommier.ch/blog/yoga-sommeil-nuits-reparatrices/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quel type de yoga pratiquer pour mieux dormir ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les styles doux sont les plus adaptés au sommeil : yoga restauratif, yoga Nidra et Hatha lent. Un Vinyasa dynamique en soirée risque de vous stimuler. Évitez de pratiquer un yoga dynamique moins de 30 minutes avant le coucher."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Combien de temps de yoga faut-il pour améliorer le sommeil ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Une routine de 15 minutes avant le coucher suffit pour constater des effets en quelques semaines. La régularité compte plus que la durée : quinze minutes chaque soir produisent davantage de résultats qu'une heure de yoga le dimanche."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Comment le yoga agit-il sur le sommeil ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le yoga réduit le cortisol et active le système nerveux parasympathique via la respiration lente, les postures tenues et la relaxation guidée. Cela ralentit le rythme cardiaque, baisse la pression artérielle et relâche les muscles, facilitant l'endormissement."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 # Yoga et sommeil : comment retrouver des nuits réparatrices

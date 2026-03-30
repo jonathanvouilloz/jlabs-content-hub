@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Physio Pommier"
 tags: ["pilates", "yoga", "comparatif", "bien-être"]
 category: "Pilates"
+image:
+  src: "/blog/pilates-vs-yoga/cover.jpg"
+  alt: "Cours de Pilates et de yoga côte à côte dans un studio lumineux"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Pilates ou yoga : lequel choisir ? Guide comparatif",
+        "description": "Pilates ou yoga ? Comparaison objective des bienfaits, différences et points communs. Conseils pour choisir selon vos objectifs.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/pilates-vs-yoga",
+        "image": "https://physiopommier.ch/blog/pilates-vs-yoga/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quelle est la différence entre Pilates et yoga ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le Pilates renforce les muscles profonds (abdominaux, dos, plancher pelvien) et améliore la posture. Le yoga développe la souplesse, la conscience corporelle et apaise le mental. Le Pilates cherche à renforcer, le yoga cherche à assouplir et à calmer."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Peut-on faire Pilates et yoga en même temps ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui, les deux disciplines sont complémentaires. Beaucoup de pratiquants font les deux dans la même semaine. Le Pilates construit la force et la stabilité du tronc, le yoga y ajoute la souplesse et le relâchement mental."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Pilates ou yoga pour le mal de dos ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Cela dépend de l'origine du problème. Un dos raide et tendu par des heures de bureau profitera du yoga. Un dos instable qui lâche au moindre faux mouvement profitera du Pilates. Un bilan avec un physiothérapeute permet de s'orienter."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne constitue pas un avis médical. Si vous souffrez de douleurs ou de pathologies, consultez un professionnel de santé avant de commencer une nouvelle activité physique.*

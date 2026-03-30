@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Anicée"
 tags: ["pranayama", "respiration", "yoga", "bien-être"]
 category: "Yoga"
+image:
+  src: "/blog/pranayama-techniques-respiration/cover.jpg"
+  alt: "Personne pratiquant la respiration alternée pranayama en position assise"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Pranayama : 5 techniques de respiration à pratiquer",
+        "description": "Découvrez 5 techniques de pranayama (respiration yogique) accessibles pour gérer le stress, dormir et vous concentrer. Guide pratique.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/pranayama-techniques-respiration",
+        "image": "https://physiopommier.ch/blog/pranayama-techniques-respiration/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Qu'est-ce que le pranayama ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le pranayama désigne l'ensemble des exercices de respiration codifiés dans la tradition du yoga. En sanskrit, prana signifie souffle vital et ayama signifie extension ou contrôle. Chaque technique suit un rythme et une mécanique précise pour produire un effet physiologique ciblé."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quelle technique de pranayama choisir pour débuter ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "La respiration carrée (Sama Vritti) ou la respiration alternée (Nadi Shodhana) sont les plus accessibles pour un débutant. Elles ne demandent ni contraction de la gorge ni rythme rapide. Commencez par 3 à 5 minutes par jour."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Le pranayama aide-t-il à gérer le stress ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. La recherche montre qu'une respiration lente à 6 cycles par minute active le nerf vague et réduit la fréquence cardiaque. L'expiration prolongée active le système parasympathique, ce qui calme le corps et réduit les marqueurs physiologiques du stress."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour un programme adapté à votre situation.*

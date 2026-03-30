@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Anicée"
 tags: ["yoga", "stress", "anxiété", "système nerveux"]
 category: "Yoga"
+image:
+  src: "/blog/yoga-stress-systeme-nerveux/cover.jpg"
+  alt: "Personne en posture de yoga apaisante pour réduire le stress"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Yoga et stress : apaiser votre système nerveux",
+        "description": "Le yoga réduit le cortisol et active le système parasympathique. Découvrez comment nos cours à Genève vous aident à gérer le stress.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/yoga-stress-systeme-nerveux",
+        "image": "https://physiopommier.ch/blog/yoga-stress-systeme-nerveux/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Comment le yoga réduit-il le stress ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le yoga agit par trois voies : la respiration lente stimule le nerf vague et active le parasympathique, les postures libèrent les tensions musculaires accumulées, et la pleine conscience interrompt le cycle des pensées anxieuses. Le cortisol diminue de 25 % après une séance."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quel type de yoga choisir contre le stress ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le Vinyasa et le Kundalini permettent de décharger le stress par le mouvement, idéal quand l'énergie nerveuse est élevée. Le Yoga Apaisant active directement le mode récupération, adapté en cas de fatigue nerveuse, troubles du sommeil ou burn-out."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Peut-on combiner Vinyasa et Yoga Apaisant le même soir ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Chez Physio Pommier, les deux cours se suivent le mardi soir : Vinyasa/Kundalini à 18h15 puis Yoga Apaisant à 19h30. Cette combinaison offre un cycle complet : décharge active du stress puis récupération en profondeur."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour un programme adapté à votre situation.*

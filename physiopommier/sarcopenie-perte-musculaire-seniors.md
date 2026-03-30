@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["seniors", "sarcopénie", "renforcement musculaire", "vieillissement"]
 category: "Santé des seniors"
+image:
+  src: "/blog/sarcopenie-perte-musculaire-seniors/cover.jpg"
+  alt: "Senior effectuant des exercices de renforcement musculaire avec un élastique"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Sarcopénie : comprendre et combattre la perte musculaire",
+        "description": "La sarcopénie touche 1 senior sur 3 après 60 ans. Causes, signes d'alerte et solutions concrètes par une physiothérapeute à Genève. Agissez maintenant.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/sarcopenie-perte-musculaire-seniors",
+        "image": "https://physiopommier.ch/blog/sarcopenie-perte-musculaire-seniors/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Qu'est-ce que la sarcopénie ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "La sarcopénie est une maladie musculaire liée à l'âge, définie comme une perte progressive de masse musculaire associée à une baisse de la force et de la performance physique. Elle touche jusqu'à 1 personne sur 3 après 60 ans."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quels sont les signes de la sarcopénie ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les signes d'alerte sont : difficulté à se lever d'une chaise sans les mains, fatigue inhabituelle après un effort courant, diminution de la vitesse de marche, chutes plus fréquentes, et difficulté à porter des courses ou ouvrir un bocal."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Peut-on inverser la perte musculaire après 60 ans ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Même à 80 ans, le muscle répond à l'entraînement. Le renforcement musculaire est le traitement de référence, avec des gains de force mesurables en 8 à 12 semaines. Il est recommandé de faire 2 à 3 séances par semaine, combinées à un apport en protéines suffisant."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé.*

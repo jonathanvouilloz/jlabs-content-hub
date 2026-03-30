@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Elizaveta"
 tags: ["pilates", "post-partum", "plancher pelvien", "maman bébé"]
 category: "Pilates"
+image:
+  src: "/blog/pilates-post-partum/cover.jpg"
+  alt: "Jeune maman pratiquant le Pilates avec son bébé en cours collectif"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Pilates post-partum : retrouver son corps après bébé",
+        "description": "Le Pilates aide à renforcer le plancher pelvien et les abdominaux après l'accouchement. Cours maman-bébé au Grand-Saconnex.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/pilates-post-partum",
+        "image": "https://physiopommier.ch/blog/pilates-post-partum/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quand reprendre le Pilates après l'accouchement ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Après la rééducation du plancher pelvien et avec le feu vert de votre sage-femme ou gynécologue : à partir de 6 à 8 semaines pour un accouchement par voie basse, 8 à 12 semaines pour une césarienne. Ces délais sont des repères, chaque femme reprend à son rythme."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Le Pilates aide-t-il à refermer un diastasis des grands droits ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Le Pilates renforce le transverse, le muscle profond qui rapproche les grands droits comme un corset naturel. Contrairement aux crunchs classiques qui aggravent l'écartement, le Pilates privilégie le gainage, les rotations contrôlées et la stabilisation du bassin."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Peut-on faire du Pilates avec son bébé ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Le cours Parent-Enfant chez Physio Pommier au Grand-Saconnex permet de pratiquer avec bébé chaque mercredi de 18h15 à 19h05. Les exercices sont adaptés à la réalité du post-partum et les bébés restent sur le tapis ou dans un transat."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez votre sage-femme, votre gynécologue ou un physiothérapeute avant de reprendre une activité physique après l'accouchement.*

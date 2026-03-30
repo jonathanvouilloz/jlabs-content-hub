@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["seniors", "ostéoporose", "renforcement osseux", "physiothérapie"]
 category: "Santé des seniors"
+image:
+  src: "/blog/osteoporose-physiotherapie-renforcement/cover.jpg"
+  alt: "Senior effectuant des exercices de renforcement osseux encadrés par une physiothérapeute"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Ostéoporose et physiothérapie : renforcer ses os en sécurité",
+        "description": "Découvrez comment la physiothérapie aide à renforcer vos os et prévenir les fractures liées à l'ostéoporose. Guide et conseils à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/osteoporose-physiotherapie-renforcement",
+        "image": "https://physiopommier.ch/blog/osteoporose-physiotherapie-renforcement/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quels exercices pratiquer avec l'ostéoporose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Trois piliers : exercices en charge (marche rapide, escaliers, danse), renforcement musculaire (poids du corps, bandes élastiques, haltères légères) et travail de l'équilibre (appui unipodal, marche talon-pointe). Un programme régulier peut augmenter la densité osseuse de 1 à 3 % par an."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quels exercices éviter en cas d'ostéoporose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les flexions avant du tronc sous charge (crunchs), les torsions brusques du rachis, les sauts depuis une hauteur et la course sur sol dur sans préparation. Pour chaque mouvement à risque, une alternative sûre existe : gainage sur les genoux, rotation lente, marche rapide sur sol souple."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Pourquoi l'exercice renforce les os en cas d'ostéoporose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les os se remodèlent en réponse aux contraintes mécaniques (mécano-transduction). Les exercices en charge activent les ostéoblastes, les cellules bâtisseuses de l'os, ce qui renforce la structure osseuse. L'IOF confirme qu'un programme régulier peut augmenter la densité osseuse de 1 à 3 % par an."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez votre médecin ou un professionnel de santé.*

@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["seniors", "autonomie", "maintien à domicile", "physiothérapie"]
 category: "Santé des seniors"
+image:
+  src: "/blog/autonomie-domicile-seniors-physiotherapie/cover.jpg"
+  alt: "Physiothérapeute accompagnant un senior à domicile pour maintenir son autonomie"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Autonomie à domicile après 70 ans : le rôle de la physiothérapie",
+        "description": "95 % des seniors souhaitent rester chez eux. Découvrez comment la physiothérapie préserve l'autonomie au quotidien. Guide pratique et solutions à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/autonomie-domicile-seniors-physiotherapie",
+        "image": "https://physiopommier.ch/blog/autonomie-domicile-seniors-physiotherapie/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Quels sont les signaux de perte d'autonomie chez un senior ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Les signaux incluent la difficulté à se lever sans les mains, la peur de sortir seul, les chutes répétées, la fatigue après un effort courant, le renoncement à des activités habituelles et le ralentissement de la marche. Ces marqueurs sont souvent réversibles si pris en charge tôt."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Comment la physiothérapie aide à maintenir l'autonomie à domicile ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le physiothérapeute réalise un bilan fonctionnel, propose un programme de renforcement ciblé, travaille les transferts du quotidien (se lever, se relever après une chute), réentraîne à la marche sécurisée et conseille des adaptations du domicile."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quelles capacités fonctionnelles entretenir après 70 ans ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Cinq capacités clés : se lever d'une chaise sans les mains, monter un étage sans essoufflement excessif, porter un sac de 5 kg sur 100 mètres, se baisser pour ramasser un objet au sol, et marcher 15 minutes sans douleur. Elles se travaillent à tout âge."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour évaluer la situation de votre proche.*

@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["arthrose", "exercice", "douleurs articulaires", "seniors"]
 category: "Santé des seniors"
+image:
+  src: "/blog/arthrose-exercice-soulager-douleurs/cover.jpg"
+  alt: "Personne souffrant d'arthrose pratiquant des exercices doux avec un physiothérapeute"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Arthrose et exercice : pourquoi bouger soulage vos douleurs",
+        "description": "L'exercice réduit les douleurs arthrosiques de 25 à 30 %. Quels mouvements adopter selon l'articulation touchée ? Conseils d'une physio à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/arthrose-exercice-soulager-douleurs",
+        "image": "https://physiopommier.ch/blog/arthrose-exercice-soulager-douleurs/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Faut-il bouger ou se reposer quand on a de l'arthrose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Il faut bouger. Le repos prolongé aggrave l'arthrose. EULAR et OARSI classent l'exercice en traitement de première intention, avant les médicaments. Un exercice modéré et régulier protège vos articulations mieux que le repos."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quel sport pratiquer avec de l'arthrose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Cela dépend de l'articulation touchée. Pour le genou : vélo et piscine. Pour la hanche : marche et Pilates. Pour les mains : mobilité douce et balle souple. Pour le dos : gainage adapté et stabilisation lombaire. La marche est bénéfique pour toutes les localisations."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quelle intensité d'exercice est acceptable avec l'arthrose ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "La douleur ne doit pas dépasser 3 à 4 sur 10 pendant l'effort et doit disparaître en 24 heures. Visez 3 à 5 séances de 20 à 30 minutes par semaine. Augmentez la durée ou l'intensité de 10 % par semaine maximum."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour un programme adapté à votre situation.*

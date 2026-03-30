@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Elizaveta"
 tags: ["pilates", "mal de dos", "renforcement", "colonne vertébrale"]
 category: "Pilates"
+image:
+  src: "/blog/pilates-mal-de-dos/cover.jpg"
+  alt: "Femme pratiquant un exercice de Pilates pour renforcer le dos en douceur"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Pilates et mal de dos : renforcer sa colonne en douceur",
+        "description": "Le Pilates cible les muscles profonds du dos pour soulager les douleurs lombaires. Conseils d'une instructrice certifiée à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/pilates-mal-de-dos",
+        "image": "https://physiopommier.ch/blog/pilates-mal-de-dos/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Le Pilates est-il efficace pour le mal de dos ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Le Pilates cible les muscles profonds (transverse, multifides, plancher pelvien) qui stabilisent la colonne vertébrale. Contrairement au renforcement en salle, il travaille sans charge lourde et par des mouvements lents et contrôlés, ce qui le rend particulièrement adapté aux douleurs dorsales."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Peut-on faire du Pilates avec une hernie discale ou une sciatique ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui, le Pilates est compatible avec une hernie discale et une sciatique. Le programme doit être ajusté : les flexions lombaires profondes et rotations forcées sont remplacées par des variantes plus douces comme les extensions contrôlées et le gainage isométrique."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Pilates ou yoga : lequel choisir pour le dos ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Si votre priorité est la stabilisation de la colonne et la réduction de la douleur, le Pilates est le choix le plus ciblé. Il renforce les muscles profonds sans charge lourde et améliore la mobilité vertébrale sans forcer les amplitudes. Le yoga apporte souplesse et relaxation mais certaines postures peuvent être mal tolérées en cas de hernie discale."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé pour un programme adapté à votre situation.*

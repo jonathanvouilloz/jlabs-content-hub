@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["seniors", "activité physique", "prévention", "APA"]
 category: "Santé des seniors"
+image:
+  src: "/blog/activite-physique-adaptee-seniors/cover.jpg"
+  alt: "Senior pratiquant une activité physique adaptée avec une physiothérapeute"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Activité physique adaptée après 65 ans : par où commencer ?",
+        "description": "Bienfaits de l'exercice adapté pour les seniors : recommandations OMS, conseils d'une physiothérapeute à Genève. Découvrez nos cours.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/activite-physique-adaptee-seniors",
+        "image": "https://physiopommier.ch/blog/activite-physique-adaptee-seniors/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Combien d'activité physique par semaine après 65 ans ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "L'OMS recommande 150 à 300 minutes d'endurance modérée par semaine, 2 séances de renforcement musculaire et 3 séances de travail de l'équilibre. Vous pouvez commencer par 10 minutes de marche par jour et augmenter progressivement."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quel type d'exercice choisir après 65 ans ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "L'activité physique adaptée repose sur quatre piliers : endurance (marche, vélo, natation), renforcement musculaire (poids du corps, élastiques), équilibre (appui unipodal, marche en ligne) et souplesse (étirements, yoga). Les combiner progressivement donne les meilleurs résultats."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Pourquoi un exercice supervisé par un physiothérapeute fait la différence ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Un physiothérapeute adapte chaque exercice à vos pathologies (arthrose, ostéoporose, problèmes cardiaques). Il corrige les gestes en temps réel et ajuste les charges et amplitudes au bon rythme, même en groupe."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé avant de commencer une activité physique.*

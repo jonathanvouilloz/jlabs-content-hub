@@ -5,6 +5,71 @@ pubDate: 2026-03-28
 author: "Virginie Donnet"
 tags: ["seniors", "peur de tomber", "confiance", "syndrome post-chute"]
 category: "Santé des seniors"
+image:
+  src: "/blog/peur-de-tomber-seniors-confiance/cover.jpg"
+  alt: "Senior marchant avec assurance dans un parc avec un physiothérapeute"
+schema: |
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Peur de tomber : comment retrouver confiance après 65 ans",
+        "description": "La peur de tomber touche 1 senior sur 3. Découvrez les causes du syndrome post-chute et 5 étapes pour retrouver confiance. Conseils d'une physio à Genève.",
+        "author": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Physio Pommier",
+          "url": "https://physiopommier.ch"
+        },
+        "datePublished": "2026-03-28",
+        "mainEntityOfPage": "https://physiopommier.ch/blog/peur-de-tomber-seniors-confiance",
+        "image": "https://physiopommier.ch/blog/peur-de-tomber-seniors-confiance/cover.jpg"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Qu'est-ce que le syndrome post-chute chez les seniors ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Le syndrome post-chute désigne l'ensemble des conséquences psychologiques et physiques qui suivent une chute. Il crée un cercle vicieux : peur, réduction des déplacements, perte musculaire, dégradation de l'équilibre, risque de chute accru."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Comment surmonter la peur de tomber après 65 ans ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Cinq étapes permettent de retrouver confiance : reconnaître et exprimer sa peur, s'exposer graduellement aux situations évitées, renforcer les muscles des jambes et du tronc, aménager son domicile et s'entourer de professionnels tout en maintenant un lien social."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quel est le rôle du physiothérapeute face à la peur de tomber ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Un physiothérapeute spécialisé réalise un bilan complet de l'équilibre et de la marche, identifie les peurs spécifiques, élabore un programme personnalisé avec des objectifs mesurables et assure une progression sécurisée en intégrant la dimension psychologique."
+            }
+          }
+        ]
+      },
+      {
+        "@type": "LocalBusiness",
+        "@id": "https://physiopommier.ch/#organization",
+        "name": "Physio Pommier",
+        "url": "https://physiopommier.ch",
+        "areaServed": ["Genève", "Grand-Saconnex"]
+      }
+    ]
+  }
+  </script>
 ---
 
 *Cet article est à visée informative et ne remplace pas un avis médical. Consultez un professionnel de santé.*
