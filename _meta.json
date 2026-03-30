@@ -1,65 +1,68 @@
 {
-  "barberconcept/entretien-barbe-courte.md": {
+  "barberconcept/articles/entretien-barbe-courte": {
     "addedAt": "2026-03-27"
   },
-  "barberconcept/huile-ou-baume-barbe.md": {
+  "barberconcept/articles/huile-ou-baume-barbe": {
     "addedAt": "2026-03-27"
   },
-  "barberconcept/rasage-serviette-chaude.md": {
+  "barberconcept/articles/rasage-serviette-chaude": {
     "addedAt": "2026-03-27"
   },
-  "barberconcept/tendances-coupe-homme-2026.md": {
+  "barberconcept/articles/tendances-coupe-homme-2026": {
     "addedAt": "2026-03-27"
   },
-  "barberconcept/gmb-calendar-draft.json": {
+  "barberconcept/gmb/2026-03": {
     "addedAt": "2026-03-27"
   },
-  "physiopommier/activite-physique-adaptee-seniors.md": {
+  "barberconcept/gmb/2026-04": {
+    "addedAt": "2026-03-27"
+  },
+  "physiopommier/articles/activite-physique-adaptee-seniors": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/arthrose-exercice-soulager-douleurs.md": {
+  "physiopommier/articles/arthrose-exercice-soulager-douleurs": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/autonomie-domicile-seniors-physiotherapie.md": {
+  "physiopommier/articles/autonomie-domicile-seniors-physiotherapie": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/osteoporose-physiotherapie-renforcement.md": {
+  "physiopommier/articles/osteoporose-physiotherapie-renforcement": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/peur-de-tomber-seniors-confiance.md": {
+  "physiopommier/articles/peur-de-tomber-seniors-confiance": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/pilates-mal-de-dos.md": {
+  "physiopommier/articles/pilates-mal-de-dos": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/pilates-post-partum.md": {
+  "physiopommier/articles/pilates-post-partum": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/pilates-posture-alignement.md": {
+  "physiopommier/articles/pilates-posture-alignement": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/pilates-vs-yoga.md": {
+  "physiopommier/articles/pilates-vs-yoga": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/plancher-pelvien-renforcement.md": {
+  "physiopommier/articles/plancher-pelvien-renforcement": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/pranayama-techniques-respiration.md": {
+  "physiopommier/articles/pranayama-techniques-respiration": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/sarcopenie-perte-musculaire-seniors.md": {
+  "physiopommier/articles/sarcopenie-perte-musculaire-seniors": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/yoga-sommeil-nuits-reparatrices.md": {
+  "physiopommier/articles/yoga-sommeil-nuits-reparatrices": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/yoga-souplesse-mobilite.md": {
+  "physiopommier/articles/yoga-souplesse-mobilite": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/yoga-sportifs-recuperation.md": {
+  "physiopommier/articles/yoga-sportifs-recuperation": {
     "addedAt": "2026-03-28"
   },
-  "physiopommier/yoga-stress-systeme-nerveux.md": {
+  "physiopommier/articles/yoga-stress-systeme-nerveux": {
     "addedAt": "2026-03-28"
   }
 }

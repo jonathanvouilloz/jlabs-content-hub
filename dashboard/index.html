@@ -465,17 +465,30 @@ function decodeBase64Utf8(b64) {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
+// ── Path parsing helper ──
+function parseContentPath(path) {
+  const parts = path.split('/');
+  // Expected: {project}/articles/{drafts|published/YYYY/MM}/{file}.md
+  //        or {project}/gmb/{drafts|published/YYYY/MM}/{file}.json
+  const project = parts[0];
+  const contentType = parts[1] === 'gmb' ? 'gmb' : 'article';
+  const isDraft = parts[2] === 'drafts';
+  const filename = parts[parts.length - 1];
+  const slug = filename.replace(/\.(md|json)$/, '');
+  const stableKey = `${project}/${parts[1]}/${slug}`;
+  return { project, contentType, isDraft, slug, stableKey, filename };
+}
+
 async function fetchTree() {
   const data = await ghFetch(
     `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees/main?recursive=1`
   );
   const mdFiles = data.tree
     .filter(f => f.type === 'blob' && f.path.endsWith('.md'))
-    .filter(f => !f.path.startsWith('dashboard/'))
-    .filter(f => f.path !== 'README.md');
+    .filter(f => /\/articles\//.test(f.path));
   const gmbFiles = data.tree
-    .filter(f => f.type === 'blob' && /gmb[-_].*\.json$/.test(f.path))
-    .filter(f => f.path !== '_meta.json');
+    .filter(f => f.type === 'blob' && f.path.endsWith('.json'))
+    .filter(f => /\/gmb\//.test(f.path));
   return { mdFiles, gmbFiles };
 }
 
@@ -524,28 +537,78 @@ async function saveMeta() {
   metaSha = data.content.sha;
 }
 
-async function togglePublished(path) {
-  const entry = meta[path] || {};
-  if (entry.published) {
+async function togglePublished(item) {
+  const parsed = parseContentPath(item.path);
+  const entry = meta[parsed.stableKey] || {};
+  const wasPublished = !parsed.isDraft;
+
+  if (wasPublished) {
+    // Unpublish: move from published/YYYY/MM/ to drafts/
+    const newPath = `${parsed.project}/${parsed.contentType === 'gmb' ? 'gmb' : 'articles'}/drafts/${parsed.filename}`;
+    await moveFileOnGitHub(item.path, newPath);
     delete entry.published;
     delete entry.publishedAt;
+    item.path = newPath;
   } else {
+    // Publish: move from drafts/ to published/YYYY/MM/
+    let year, month;
+    if (parsed.contentType === 'gmb') {
+      const m = parsed.slug.match(/^(\d{4})-(\d{2})/);
+      year = m ? m[1] : new Date().getFullYear().toString();
+      month = m ? m[2] : String(new Date().getMonth() + 1).padStart(2, '0');
+    } else {
+      const pubDate = item.frontmatter?.date || '';
+      const dm = pubDate.match(/^(\d{4})-(\d{2})/);
+      year = dm ? dm[1] : new Date().getFullYear().toString();
+      month = dm ? dm[2] : String(new Date().getMonth() + 1).padStart(2, '0');
+    }
+    const newPath = `${parsed.project}/${parsed.contentType === 'gmb' ? 'gmb' : 'articles'}/published/${year}/${month}/${parsed.filename}`;
+    await moveFileOnGitHub(item.path, newPath);
     entry.published = true;
     entry.publishedAt = new Date().toISOString().split('T')[0];
+    item.path = newPath;
   }
-  meta[path] = entry;
+  meta[parsed.stableKey] = entry;
   await saveMeta();
+}
+
+async function moveFileOnGitHub(oldPath, newPath) {
+  const pat = getPat();
+  const headers = { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' };
+
+  // 1. Read file content + sha
+  const readRes = await fetch(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(oldPath)}`,
+    { headers }
+  );
+  if (!readRes.ok) throw new Error('Erreur lecture du fichier.');
+  const fileData = await readRes.json();
+
+  // 2. Create file at new path
+  const createRes = await fetch(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(newPath)}`,
+    { method: 'PUT', headers, body: JSON.stringify({ message: `[hub] move: ${oldPath} → ${newPath}`, content: fileData.content }) }
+  );
+  if (!createRes.ok) throw new Error('Erreur creation du fichier.');
+
+  // 3. Delete file at old path
+  const deleteRes = await fetch(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${encodeURIComponent(oldPath)}`,
+    { method: 'DELETE', headers, body: JSON.stringify({ message: `[hub] cleanup: ${oldPath}`, sha: fileData.sha }) }
+  );
+  if (!deleteRes.ok) throw new Error('Erreur suppression ancien fichier.');
 }
 
 function ensureAddedAt() {
   let dirty = false;
   const today = new Date().toISOString().split('T')[0];
   for (const item of articles) {
-    if (!meta[item.path]) {
-      meta[item.path] = { addedAt: today };
+    const key = item.stableKey;
+    if (!meta[key]) {
+      meta[key] = { addedAt: today };
       dirty = true;
-    } else if (!meta[item.path].addedAt) {
-      meta[item.path].addedAt = today;
+    } else if (!meta[key].addedAt) {
+      meta[key].addedAt = today;
       dirty = true;
     }
   }
@@ -570,7 +633,7 @@ function parseFrontmatter(content) {
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
       val = val.slice(1, -1);
     if (key === 'title') fm.title = val;
-    else if (key === 'date') fm.date = val;
+    else if (key === 'date' || key === 'pubdate') fm.date = val;
     else if (key === 'status') fm.status = val.toLowerCase();
     else if (key === 'description') fm.description = val;
     else if (key === 'tags') {
@@ -592,17 +655,15 @@ async function loadData() {
     const { mdFiles, gmbFiles } = tree;
 
     const mdItems = mdFiles.map(file => {
-      const parts = file.path.split('/');
-      const project = parts.length > 1 ? parts[0] : '_root';
-      return { path: file.path, project, type: 'article', frontmatter: null, content: null, gmbData: null };
+      const parsed = parseContentPath(file.path);
+      return { path: file.path, project: parsed.project, type: 'article', stableKey: parsed.stableKey, isDraft: parsed.isDraft, frontmatter: null, content: null, gmbData: null };
     });
 
     const gmbItems = gmbFiles.map(file => {
-      const parts = file.path.split('/');
-      const project = parts.length > 1 ? parts[0] : '_root';
-      const dateMatch = file.path.match(/(\d{4}-\d{2}-\d{2})/);
+      const parsed = parseContentPath(file.path);
+      const dateMatch = file.path.match(/(\d{4}-\d{2})/);
       return {
-        path: file.path, project, type: 'gmb',
+        path: file.path, project: parsed.project, type: 'gmb', stableKey: parsed.stableKey, isDraft: parsed.isDraft,
         frontmatter: { title: '', date: dateMatch ? dateMatch[1] : '', tags: [], status: '', description: '', body: '' },
         content: null, gmbData: null,
       };
@@ -661,7 +722,7 @@ async function loadData() {
 // Sidebar
 // ══════════════════════════════════════════
 function renderSidebar() {
-  const unpublishedCount = articles.filter(a => !meta[a.path]?.published).length;
+  const unpublishedCount = articles.filter(a => a.isDraft).length;
 
   const projectMap = new Map();
   for (const a of articles) {
@@ -738,7 +799,7 @@ function renderTabBar() {
 // Content rendering
 // ══════════════════════════════════════════
 function getCardDates(item) {
-  const entry = meta[item.path] || {};
+  const entry = meta[item.stableKey] || {};
   const parts = [];
 
   if (item.type === 'article' && item.frontmatter?.date) {
@@ -749,7 +810,7 @@ function getCardDates(item) {
   }
 
   if (entry.addedAt) parts.push(`Ajoute le ${entry.addedAt}`);
-  if (entry.published && entry.publishedAt) parts.push(`<span class="date-published">Publie le ${entry.publishedAt}</span>`);
+  if (!item.isDraft && entry.publishedAt) parts.push(`<span class="date-published">Publie le ${entry.publishedAt}</span>`);
 
   return parts.length ? `<div class="card-dates">${parts.join('<span class="sep"> · </span>')}</div>` : '';
 }
@@ -759,7 +820,7 @@ function renderCard(item, showProject) {
   const title = fm.title || item.path.split('/').pop().replace('.md', '');
   const isOpen = expandedCard === item.path;
   const isGmb = item.type === 'gmb';
-  const isPublished = meta[item.path]?.published;
+  const isPublished = !item.isDraft;
 
   const typeBadge = isGmb
     ? '<span class="type-badge type-badge-gmb">GMB</span>'
@@ -778,7 +839,7 @@ function renderCard(item, showProject) {
         ${fm.description ? `<div class="card-description">${escapeHtml(fm.description)}</div>` : ''}
       </div>
       <div class="card-actions">
-        <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${item.path}" title="${isPublished ? 'Publie le ' + (meta[item.path]?.publishedAt || '') : 'Marquer comme publie'}">
+        <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${item.path}" title="${isPublished ? 'Publie le ' + (meta[item.stableKey]?.publishedAt || '') : 'Marquer comme publie'}">
           <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
         </button>
         <span class="card-chevron">▶</span>
@@ -811,7 +872,7 @@ function renderContent() {
   let showProject;
 
   if (activeProject === '__pipeline') {
-    filtered = articles.filter(a => !meta[a.path]?.published);
+    filtered = articles.filter(a => a.isDraft);
     showProject = true;
   } else {
     filtered = articles.filter(a => a.project === activeProject && a.type === 'article');
@@ -835,8 +896,8 @@ function renderContent() {
   if (activeProject === '__pipeline') {
     html = `<div class="section-cards" style="padding-top:16px">${filtered.map(item => renderCard(item, true)).join('')}</div>`;
   } else {
-    const unpublished = filtered.filter(a => !meta[a.path]?.published);
-    const published = filtered.filter(a => meta[a.path]?.published);
+    const unpublished = filtered.filter(a => a.isDraft);
+    const published = filtered.filter(a => !a.isDraft);
     html += renderSection('A publier', unpublished, false, '');
     html += renderSection('Publies', published, false, 'section-published');
   }
@@ -896,11 +957,11 @@ function renderGmbView(query) {
   const previewHtml = renderGmbPreview(sp);
 
   // Publish button for the GMB file
-  const filePath = gmbItems[0]?.path;
-  const isPublished = filePath ? meta[filePath]?.published : false;
-  const publishBtnHtml = filePath ? `
-    <button class="publish-btn ${isPublished ? 'is-published' : ''}" data-path="${filePath}" style="margin-bottom:16px">
-      <span class="dot"></span>${isPublished ? 'Publie' : 'Non publie'}
+  const gmbFile = gmbItems[0];
+  const gmbIsPublished = gmbFile ? !gmbFile.isDraft : false;
+  const publishBtnHtml = gmbFile ? `
+    <button class="publish-btn ${gmbIsPublished ? 'is-published' : ''}" data-path="${gmbFile.path}" style="margin-bottom:16px">
+      <span class="dot"></span>${gmbIsPublished ? 'Publie' : 'Non publie'}
     </button>` : '';
 
   $content.innerHTML = `<div class="gmb-layout">
@@ -931,12 +992,14 @@ function renderGmbView(query) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const path = btn.dataset.path;
+      const item = articles.find(a => a.path === path);
+      if (!item) return;
       btn.classList.add('saving');
       btn.textContent = '...';
       try {
-        await togglePublished(path);
-        renderSidebar();
-        renderContent();
+        await togglePublished(item);
+        item.isDraft = !item.isDraft;
+        await loadData();
       } catch (err) {
         btn.classList.remove('saving');
         btn.innerHTML = '<span class="dot"></span>Erreur';
@@ -1007,12 +1070,14 @@ function bindCardEvents() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const path = btn.dataset.path;
+      const item = articles.find(a => a.path === path);
+      if (!item) return;
       btn.classList.add('saving');
       btn.textContent = '...';
       try {
-        await togglePublished(path);
-        renderSidebar();
-        renderContent();
+        await togglePublished(item);
+        item.isDraft = !item.isDraft;
+        await loadData();
       } catch (err) {
         btn.classList.remove('saving');
         btn.innerHTML = '<span class="dot"></span>Erreur';
