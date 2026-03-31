@@ -102,6 +102,22 @@ GITHUB_REPO=jlabs-content-hub
 [hub] update: description pour les changements globaux
 ```
 
+## Documentation
+
+- `docs/PRD.md` — Product Requirements Document (source de verite pour le scope)
+- `docs/PLAN.md` — Plan d'execution avec statuts par epic
+- `docs/DECISIONS.md` — Log des decisions techniques
+- `docs/STYLEGUIDE.md` — Conventions de code et design
+- `docs/features/*.md` — Detail par feature/epic
+
+## Etat actuel
+
+**Date :** 2026-03-31
+**Phase :** Init projet
+**Epics DONE :** Init + Schema DB, API REST, GitHub sync
+**Epic EN COURS :** Auth admin (config posee, UI login a faire)
+**Prochaine etape :** Configurer .env, db:push, ajouter Skeleton UI + Tailwind, UI login
+
 ## Skills relies
 
 Ce repo est consomme par plusieurs skills Claude Code :
