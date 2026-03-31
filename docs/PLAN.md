@@ -8,7 +8,7 @@
 |---|------|-----------|--------|--------|
 | 1 | Init projet + Schema DB | S | DONE | [init-schema.md](features/init-schema.md) |
 | 2 | API REST (contenu, projets, commentaires) | M | DONE | [api-routes.md](features/api-routes.md) |
-| 3 | Auth admin (Better Auth) | S | EN COURS | [auth.md](features/auth.md) |
+| 3 | Auth admin (Better Auth) | S | DONE | [auth.md](features/auth.md) |
 | 4 | Dashboard admin (UI Skeleton) | L | TODO | [dashboard-admin.md](features/dashboard-admin.md) |
 | 5 | Calendrier editorial | M | TODO | [calendrier.md](features/calendrier.md) |
 | 6 | Acces client + commentaires | M | TODO | [acces-client.md](features/acces-client.md) |
@@ -21,7 +21,7 @@
 ```
 1. Init + Schema DB .............. DONE
 2. API REST ...................... DONE
-3. Auth admin .................... EN COURS (config Better Auth posee, UI login a faire)
+3. Auth admin .................... DONE (Skeleton UI + Tailwind + Better Auth + login + layout)
 4. Deploiement Vercel + Turso .... deployer tot pour iterer en prod
 5. Dashboard admin (UI) .......... coeur du produit
 6. Calendrier editorial .......... vue calendrier + filtres
@@ -32,8 +32,7 @@
 
 ## Prochaines etapes
 
-1. Configurer `.env` avec credentials Turso + Better Auth
-2. `npm run db:push` pour creer les tables
-3. Ajouter Skeleton UI + Tailwind CSS
-4. Implementer la page login
-5. Implementer le layout admin (AppShell + Sidebar)
+1. Deployer sur Vercel + configurer Turso prod
+2. `POST /api/setup` pour creer le compte admin + seed
+3. Dashboard admin : pages projets, vue liste contenus, detail contenu
+4. Calendrier editorial : grille mensuelle avec filtres

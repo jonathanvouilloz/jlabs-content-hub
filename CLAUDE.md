@@ -113,10 +113,10 @@ GITHUB_REPO=jlabs-content-hub
 ## Etat actuel
 
 **Date :** 2026-03-31
-**Phase :** Init projet
-**Epics DONE :** Init + Schema DB, API REST, GitHub sync
-**Epic EN COURS :** Auth admin (config posee, UI login a faire)
-**Prochaine etape :** Configurer .env, db:push, ajouter Skeleton UI + Tailwind, UI login
+**Phase :** Foundation complete
+**Epics DONE :** Init + Schema DB, API REST, GitHub sync, Auth admin
+**UI :** Skeleton UI v4 + Tailwind CSS v4 installes, theme Jon Labs, layout admin avec sidebar
+**Prochaine etape :** Deploiement Vercel + Turso, puis Dashboard admin (epic 4)
 
 ## Skills relies
 
