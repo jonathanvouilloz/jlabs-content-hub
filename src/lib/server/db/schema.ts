@@ -17,6 +17,8 @@ export const session = sqliteTable('session', {
 	id: text('id').primaryKey(),
 	expiresAt: text('expires_at').notNull(),
 	token: text('token').notNull().unique(),
+	ipAddress: text('ip_address'),
+	userAgent: text('user_agent'),
 	userId: text('user_id')
 		.notNull()
 		.references(() => user.id),
