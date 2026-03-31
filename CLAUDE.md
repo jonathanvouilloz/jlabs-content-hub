@@ -4,56 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project
 
-Hub centralise pour stocker et gerer les articles markdown, posts GMB et posts LinkedIn produits via Claude Code pour differents projets clients. Accompagne d'un dashboard HTML local qui fetch l'API GitHub pour afficher, filtrer et publier le contenu.
+Hub editorial centralise (web app SvelteKit) pour stocker, gerer et visualiser les articles markdown, posts LinkedIn et posts GMB produits via Claude Code pour differents projets clients. Source de verite = base de donnees Turso. GitHub = backup/mirror.
+
+## Stack technique
+
+| Couche | Choix |
+|--------|-------|
+| Framework | SvelteKit (Svelte 5, runes) |
+| Database | Turso (libSQL) |
+| ORM | Drizzle |
+| Auth | Better Auth (email/password) |
+| Hosting | Vercel |
+| GitHub sync | Octokit (REST API) |
 
 ## Architecture
 
 ```
-{projet}/
-├── articles/drafts/          # Articles en attente
-├── articles/published/YYYY/MM/  # Articles publies
-├── gmb/drafts/               # Calendriers GMB (1 JSON par mois)
-├── gmb/published/YYYY/MM/
-├── linkedin/drafts/           # Posts LinkedIn (1 .md par post)
-└── linkedin/published/YYYY/MM/
-dashboard/
-├── index.html                # SPA monolithique (HTML + CSS + JS)
-└── serve.sh                  # Lance npx serve sur :4242
-_meta.json                    # Metadonnees par cle stable
+src/
+├── lib/
+│   ├── server/
+│   │   ├── db/
+│   │   │   ├── index.ts     # Client Turso
+│   │   │   ├── schema.ts    # Schema Drizzle (5 tables)
+│   │   │   └── seed.ts      # Seed content_types
+│   │   ├── auth.ts          # Config Better Auth
+│   │   ├── github.ts        # Service GitHub sync (Octokit)
+│   │   ├── api-auth.ts      # Validation API key + client token
+│   │   └── utils.ts         # createId()
+│   └── utils/
+│       ├── content.ts       # Parse frontmatter, render markdown
+│       ├── dates.ts         # Formatage dates
+│       └── slugify.ts       # Generation de slugs
+├── routes/
+│   ├── api/
+│   │   ├── content/         # POST + GET (liste)
+│   │   │   └── [id]/        # GET + PUT + DELETE
+│   │   │       └── status/  # PATCH (changement statut)
+│   │   ├── projects/        # POST + GET
+│   │   │   └── [slug]/      # PUT
+│   │   │       └── token/   # POST (regenerer token)
+│   │   ├── comments/        # POST
+│   │   │   └── [id]/        # DELETE
+│   │   └── auth/[...all]/   # Better Auth catch-all
+│   ├── (app)/               # Routes admin (a implementer)
+│   ├── (auth)/login/        # Login (a implementer)
+│   └── view/[project_slug]/ # Vue client publique (a implementer)
 ```
 
-Le dashboard est un fichier HTML unique sans framework ni build step. Il utilise l'API GitHub (REST v3) pour lire les fichiers et `_meta.json` pour tracker les metadonnees. Le PAT GitHub est stocke dans `localStorage`.
+## Contenu sur GitHub (backup)
 
-## Cles `_meta.json`
+```
+{projet}/{type}/{YYYY}/{MM}/{filename}
+```
 
-Les cles sont stables et independantes du dossier draft/published :
-- `{projet}/articles/{slug}` (ex: `barberconcept/articles/entretien-barbe-courte`)
-- `{projet}/gmb/{YYYY-MM}` (ex: `barberconcept/gmb/2026-04`)
-- `{projet}/linkedin/{slug}` (ex: `physiopommier/linkedin/pilates-mal-de-dos-lundi`)
+Exemples :
+- `barberconcept/articles/2026/03/entretien-barbe-courte.md`
+- `barberconcept/gmb/2026/04/2026-04-gmb.json`
+- `physiopommier/articles/2026/03/pilates-mal-de-dos.md`
 
-## Dashboard (dashboard/index.html)
+## Schema DB (5 tables)
 
-3 vues : Kanban (defaut), Calendrier, Liste. Toggle persiste dans `localStorage`.
+- `projects` : id, name, slug (unique), color, access_token, archived
+- `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta, github_synced, github_path — unique (project_id, type, slug)
+- `comments` : id, content_id (FK), author_name, author_email, body
+- `content_types` : id, slug (unique), label, icon — seed: article, linkedin, gmb
+- `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
 
-Fonctions critiques a ne pas casser :
-- `parseContentPath(path)` — derive projet, type, isDraft, stableKey depuis le chemin
-- `togglePublished(item)` — deplace le fichier via API GitHub (read → create → delete)
-- `moveFileOnGitHub(old, new)` — 3 appels API pour deplacer un fichier
+Statuts : draft → review → approved → published
 
-Le publish deplace physiquement le fichier de `drafts/` vers `published/YYYY/MM/` sur GitHub.
+## API Auth (3 mecanismes)
 
-## Lancer le dashboard
+1. **API Key** (Claude Code → Hub) : `Authorization: Bearer {API_KEY}`
+2. **Client Token** (acces client) : query param `?token={access_token}`
+3. **Session admin** (dashboard) : Better Auth cookie
+
+## Lancer le projet
 
 ```bash
-cd dashboard && ./serve.sh
-# ou: npx serve dashboard -p 4242
+npm install
+npm run dev          # localhost:5173
+npm run db:push      # sync schema vers Turso
+npm run db:generate  # generer migrations
+npm run db:studio    # Drizzle Studio
 ```
 
 ## Config GitHub
 
-```js
-const GITHUB_OWNER = 'jonathanvouilloz';
-const GITHUB_REPO  = 'jlabs-content-hub';
+```
+GITHUB_OWNER=jonathanvouilloz
+GITHUB_REPO=jlabs-content-hub
 ```
 
 ## Conventions de commit
@@ -66,7 +105,7 @@ const GITHUB_REPO  = 'jlabs-content-hub';
 ## Skills relies
 
 Ce repo est consomme par plusieurs skills Claude Code :
-- `/publish-hub` — pousse du contenu depuis un repo client vers `{projet}/*/drafts/`
+- `/publish-hub` — pousse du contenu vers le hub via POST /api/content
 - `/content-pipeline` — orchestre publish + linkedin + gmb en sequence
 - `/linkedin-weekly-posts` — genere 3 posts LinkedIn par article
 - `/gmb-generate` — genere un calendrier GMB
