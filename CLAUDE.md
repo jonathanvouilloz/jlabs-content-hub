@@ -46,8 +46,11 @@ src/
 │   │   ├── comments/        # POST
 │   │   │   └── [id]/        # DELETE
 │   │   └── auth/[...all]/   # Better Auth catch-all
-│   ├── (app)/               # Routes admin (a implementer)
-│   ├── (auth)/login/        # Login (a implementer)
+│   ├── (app)/               # Routes admin (protegees par auth)
+│   │   ├── +page            # Dashboard stats + derniers contenus
+│   │   ├── projects/        # Liste projets, nouveau projet, detail projet
+│   │   └── content/[id]/    # Detail contenu + commentaires + changement statut
+│   ├── (auth)/login/        # Page login
 │   └── view/[project_slug]/ # Vue client publique (a implementer)
 ```
 
@@ -62,7 +65,15 @@ Exemples :
 - `barberconcept/gmb/2026/04/2026-04-gmb.json`
 - `physiopommier/articles/2026/03/pilates-mal-de-dos.md`
 
-## Schema DB (5 tables)
+## Schema DB (9 tables)
+
+Tables auth (Better Auth) :
+- `user` : id, name, email, emailVerified, image
+- `session` : id, expiresAt, token, ipAddress, userAgent, userId (FK)
+- `account` : id, accountId, providerId, userId (FK), password
+- `verification` : id, identifier, value, expiresAt
+
+Tables application :
 
 - `projects` : id, name, slug (unique), color, access_token, archived
 - `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta, github_synced, github_path — unique (project_id, type, slug)
@@ -113,10 +124,12 @@ GITHUB_REPO=jlabs-content-hub
 ## Etat actuel
 
 **Date :** 2026-03-31
-**Phase :** Dashboard admin complet
-**Epics DONE :** Init + Schema DB, API REST, GitHub sync, Auth admin, Dashboard admin
-**UI :** Skeleton UI v4 + Tailwind CSS v4, theme Jon Labs, layout admin, pages projets/contenus
-**Prochaine etape :** Calendrier editorial (epic 5), puis deploiement Vercel
+**Phase :** MVP en cours — dashboard admin fonctionnel
+**Epics DONE (6/9) :** Init + Schema DB, API REST, GitHub sync, Auth admin, Dashboard admin
+**Epics TODO (3/9) :** Calendrier editorial, Acces client + commentaires, Migration contenu, Deploiement
+**DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — 9 tables creees
+**Admin :** contact@jonlabs.ch (compte cree)
+**Prochaine etape :** Calendrier editorial (epic 5), deploiement Vercel, migration contenu existant
 
 ## Skills relies
 
