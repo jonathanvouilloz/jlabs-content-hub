@@ -57,13 +57,13 @@ src/
 ## Contenu sur GitHub (backup)
 
 ```
-{projet}/{type}/{YYYY}/{MM}/{filename}
+content/{projet}/{type}/{YYYY}/{MM}/{filename}
 ```
 
 Exemples :
-- `barberconcept/articles/2026/03/entretien-barbe-courte.md`
-- `barberconcept/gmb/2026/04/2026-04-gmb.json`
-- `physiopommier/articles/2026/03/pilates-mal-de-dos.md`
+- `content/barberconcept/articles/2026/03/entretien-barbe-courte.md`
+- `content/barberconcept/gmb/2026/04/2026-04-gmb.json`
+- `content/physiopommier/articles/2026/03/pilates-mal-de-dos.md`
 
 ## Schema DB (9 tables)
 

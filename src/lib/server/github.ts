@@ -16,7 +16,7 @@ export function buildGitHubPath(
 	const mm = (d.getMonth() + 1).toString().padStart(2, '0');
 	const ext = type === 'gmb' ? 'json' : 'md';
 	const filename = type === 'article' ? `${slug}.${ext}` : `${date?.slice(0, 10) ?? yyyy}-${slug}.${ext}`;
-	return `${projectSlug}/${type === 'article' ? 'articles' : type}/${yyyy}/${mm}/${filename}`;
+	return `content/${projectSlug}/${type === 'article' ? 'articles' : type}/${yyyy}/${mm}/${filename}`;
 }
 
 async function getFileSha(path: string): Promise<string | null> {

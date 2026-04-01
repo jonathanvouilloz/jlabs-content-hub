@@ -158,7 +158,7 @@ async function ensureProjects(): Promise<Map<string, string>> {
 
 // ── Articles ───────────────────────────────────────────────────────
 async function migrateArticles(projectSlug: string, projectId: string): Promise<number> {
-	const articlesDir = join(ROOT, projectSlug, 'articles');
+	const articlesDir = join(ROOT, 'content', projectSlug, 'articles');
 	const files = await findMarkdownFiles(articlesDir);
 	let count = 0;
 
@@ -235,7 +235,7 @@ async function findMarkdownFiles(dir: string): Promise<string[]> {
 
 // ── GMB ────────────────────────────────────────────────────────────
 async function migrateGmb(projectSlug: string, projectId: string): Promise<number> {
-	const gmbDir = join(ROOT, projectSlug, 'gmb');
+	const gmbDir = join(ROOT, 'content', projectSlug, 'gmb');
 	const files = await findJsonFiles(gmbDir);
 	let count = 0;
 
