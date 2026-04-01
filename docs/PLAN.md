@@ -10,7 +10,7 @@
 | 2 | API REST (contenu, projets, commentaires) | M | DONE | [api-routes.md](features/api-routes.md) |
 | 3 | Auth admin (Better Auth) | S | DONE | [auth.md](features/auth.md) |
 | 4 | Dashboard admin (UI Skeleton) | L | DONE | [dashboard-admin.md](features/dashboard-admin.md) |
-| 5 | Calendrier editorial | M | TODO | [calendrier.md](features/calendrier.md) |
+| 5 | Calendrier editorial | M | DONE | [calendrier.md](features/calendrier.md) |
 | 6 | Acces client + commentaires | M | TODO | [acces-client.md](features/acces-client.md) |
 | 7 | GitHub sync (backup) | S | DONE | [github-sync.md](features/github-sync.md) |
 | 8 | Migration contenu existant | S | TODO | [migration.md](features/migration.md) |
@@ -23,7 +23,7 @@
 2. API REST ...................... DONE
 3. Auth admin .................... DONE
 4. Dashboard admin (UI) .......... DONE
-5. Calendrier editorial .......... TODO
+5. Calendrier editorial .......... DONE
 6. Deploiement Vercel + Turso .... TODO
 7. Acces client + commentaires ... TODO
 8. Migration contenu existant .... TODO
