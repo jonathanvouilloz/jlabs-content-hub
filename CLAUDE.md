@@ -124,12 +124,12 @@ GITHUB_REPO=jlabs-content-hub
 ## Etat actuel
 
 **Date :** 2026-04-01
-**Phase :** MVP en cours — calendrier editorial fonctionnel
-**Epics DONE (7/9) :** Init + Schema DB, API REST, GitHub sync, Auth admin, Dashboard admin, Calendrier editorial
-**Epics TODO (3/9) :** Acces client + commentaires, Migration contenu, Deploiement
+**Phase :** MVP en cours — deploye sur Vercel
+**Epics DONE (8/9) :** Init + Schema DB, API REST, GitHub sync, Auth admin, Dashboard admin, Calendrier editorial, Deploiement Vercel
+**Epics TODO (2/9) :** Acces client + commentaires, Migration contenu
 **DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — 9 tables creees
 **Admin :** contact@jonlabs.ch (compte cree)
-**Prochaine etape :** Deploiement Vercel (epic 9), migration contenu existant (epic 8), acces client (epic 6)
+**Prochaine etape :** Migration contenu existant (epic 8), acces client + commentaires (epic 6)
 
 ## Skills relies
 

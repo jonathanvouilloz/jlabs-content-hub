@@ -14,7 +14,7 @@
 | 6 | Acces client + commentaires | M | TODO | [acces-client.md](features/acces-client.md) |
 | 7 | GitHub sync (backup) | S | DONE | [github-sync.md](features/github-sync.md) |
 | 8 | Migration contenu existant | S | TODO | [migration.md](features/migration.md) |
-| 9 | Deploiement Vercel + Turso | S | TODO | [deploiement.md](features/deploiement.md) |
+| 9 | Deploiement Vercel + Turso | S | DONE | [deploiement.md](features/deploiement.md) |
 
 ## Ordre d'execution
 
@@ -24,7 +24,7 @@
 3. Auth admin .................... DONE
 4. Dashboard admin (UI) .......... DONE
 5. Calendrier editorial .......... DONE
-6. Deploiement Vercel + Turso .... TODO
+6. Deploiement Vercel + Turso .... DONE
 7. Acces client + commentaires ... TODO
 8. Migration contenu existant .... TODO
 9. GitHub sync ................... DONE
