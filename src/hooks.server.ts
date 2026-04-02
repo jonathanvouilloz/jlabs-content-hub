@@ -12,8 +12,8 @@ export async function handle({ event, resolve }) {
 		event.locals.session = session.session as App.Locals['session'];
 	}
 
-	// Skip Better Auth handler for our custom Google OAuth routes
-	if (event.url.pathname.startsWith('/api/auth/google')) {
+	// Skip Better Auth handler for our custom OAuth routes (Google, LinkedIn)
+	if (event.url.pathname.startsWith('/api/auth/google') || event.url.pathname.startsWith('/api/auth/linkedin')) {
 		return resolve(event);
 	}
 

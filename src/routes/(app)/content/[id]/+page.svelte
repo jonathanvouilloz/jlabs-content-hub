@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ProjectPill from '$lib/components/ProjectPill.svelte';
 	import { renderMarkdown } from '$lib/utils/content.js';
 	import { formatDate } from '$lib/utils/dates.js';
+	import { isBatchFormat, parseLinkedInBatch, buildFinalText, type LinkedInPost } from '$lib/utils/linkedin.js';
+	import { suggestDates } from '$lib/utils/linkedin-schedule.js';
 
 	let { data } = $props();
 
@@ -76,6 +78,77 @@
 		publishingCms = false;
 	}
 
+	// LinkedIn publish
+	let publishingLinkedin = $state(false);
+	let linkedinPublishError = $state('');
+
+	async function publishToLinkedin() {
+		publishingLinkedin = true;
+		linkedinPublishError = '';
+		try {
+			const res = await fetch(`/api/linkedin/publish/${data.content.id}`, { method: 'POST' });
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			invalidateAll();
+		} catch (err) {
+			linkedinPublishError = (err as Error).message;
+		}
+		publishingLinkedin = false;
+	}
+
+	// LinkedIn post review (individual post with hooks in meta)
+	interface LinkedinHooks { main: string; A: string; B: string; }
+	let linkedinMeta = $derived(() => {
+		if (data.content.type !== 'linkedin' || !data.content.meta) return null;
+		try {
+			const m = JSON.parse(data.content.meta);
+			if (m.hooks) return m as { hooks: LinkedinHooks; strategy?: string; articleUrl?: string };
+			return null;
+		} catch { return null; }
+	});
+
+	let selectedHook = $state<'main' | 'A' | 'B' | 'custom'>('main');
+	let customHook = $state('');
+	let editingLinkedin = $state(false);
+	let editedLinkedinBody = $state('');
+	let approvingLinkedin = $state(false);
+
+	function getLinkedinPreview(): string {
+		const meta = linkedinMeta();
+		if (!meta) return data.content.body;
+		if (editedLinkedinBody) return editedLinkedinBody;
+		if (selectedHook === 'main') return meta.hooks.main;
+		if (selectedHook === 'custom' && customHook) {
+			return buildFinalText(
+				{ day: '', emoji: '', title: '', mainHook: meta.hooks.main, hookA: meta.hooks.A, hookB: meta.hooks.B, strategy: '' },
+				'custom', customHook
+			);
+		}
+		return buildFinalText(
+			{ day: '', emoji: '', title: '', mainHook: meta.hooks.main, hookA: meta.hooks.A, hookB: meta.hooks.B, strategy: '' },
+			selectedHook
+		);
+	}
+
+	async function approveLinkedinPost() {
+		approvingLinkedin = true;
+		try {
+			const finalBody = editedLinkedinBody || getLinkedinPreview();
+			await fetch(`/api/content/${data.content.id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+				body: JSON.stringify({ body: finalBody, meta: null })
+			});
+			await fetch(`/api/content/${data.content.id}/status`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+				body: JSON.stringify({ status: 'approved' })
+			});
+			invalidateAll();
+		} catch { /* ignore */ }
+		approvingLinkedin = false;
+	}
+
 	// GMB parsed body
 	let gmbData = $derived(() => {
 		if (data.content.type !== 'gmb') return null;
@@ -135,12 +208,35 @@
 					</button>
 				{/if}
 			{/if}
+			{#if data.content.type === 'linkedin' && data.linkedinConnected}
+				{#if data.content.status === 'published'}
+					<span class="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+						<span class="h-2 w-2 rounded-full bg-blue-500"></span>
+						Publie sur LinkedIn
+					</span>
+				{:else if data.content.status === 'approved' || data.content.status === 'review'}
+					<button
+						onclick={publishToLinkedin}
+						class="btn preset-filled-primary-500 text-xs"
+						disabled={publishingLinkedin}
+					>
+						{publishingLinkedin ? 'Publication...' : 'Publier sur LinkedIn'}
+					</button>
+				{/if}
+			{:else if data.content.type === 'linkedin' && !data.linkedinConnected}
+				<a href="/api/auth/linkedin" class="btn preset-outlined-surface-200 text-xs">
+					Connecter LinkedIn
+				</a>
+			{/if}
 			<StatusBadge status={data.content.status} interactive onchange={changeStatus} />
 		</div>
 	</div>
 
 	{#if cmsPublishError}
 		<div class="mt-2 rounded-md bg-red-50 px-4 py-2 text-xs text-red-600">{cmsPublishError}</div>
+	{/if}
+	{#if linkedinPublishError}
+		<div class="mt-2 rounded-md bg-red-50 px-4 py-2 text-xs text-red-600">{linkedinPublishError}</div>
 	{/if}
 
 	<!-- Metadata -->
@@ -194,7 +290,103 @@
 
 	<!-- Body -->
 	<div class="mt-8">
-		{#if data.content.type === 'gmb' && gmbData()}
+		{#if data.content.type === 'linkedin' && linkedinMeta() != null}
+			<!-- LinkedIn Post Review (individual with hook selection) -->
+			<div class="rounded-lg border border-surface-200 bg-white p-6">
+				{#if linkedinMeta()?.strategy}
+					<p class="text-xs text-surface-400 italic mb-4">{linkedinMeta()?.strategy}</p>
+				{/if}
+				{#if linkedinMeta()?.articleUrl}
+					<a href={linkedinMeta()?.articleUrl} target="_blank" rel="noopener" class="text-xs text-primary-600 hover:underline mb-4 inline-block">
+						Article lie
+					</a>
+				{/if}
+
+				<!-- Hook selection -->
+				<div>
+					<p class="text-xs font-medium text-surface-600 mb-2">Accroche :</p>
+					<div class="space-y-1.5">
+						<label class="flex items-start gap-2 cursor-pointer">
+							<input type="radio" value="main" bind:group={selectedHook} class="mt-1" />
+							<div>
+								<span class="text-xs font-medium text-surface-700">Principale</span>
+								<p class="text-xs text-surface-500 line-clamp-2">{linkedinMeta()?.hooks.main.split('\n')[0]}</p>
+							</div>
+						</label>
+						{#if linkedinMeta()?.hooks.A}
+							<label class="flex items-start gap-2 cursor-pointer">
+								<input type="radio" value="A" bind:group={selectedHook} class="mt-1" />
+								<div>
+									<span class="text-xs font-medium text-surface-700">Alternative A</span>
+									<p class="text-xs text-surface-500 line-clamp-2">{linkedinMeta()?.hooks.A}</p>
+								</div>
+							</label>
+						{/if}
+						{#if linkedinMeta()?.hooks.B}
+							<label class="flex items-start gap-2 cursor-pointer">
+								<input type="radio" value="B" bind:group={selectedHook} class="mt-1" />
+								<div>
+									<span class="text-xs font-medium text-surface-700">Alternative B</span>
+									<p class="text-xs text-surface-500 line-clamp-2">{linkedinMeta()?.hooks.B}</p>
+								</div>
+							</label>
+						{/if}
+						<label class="flex items-start gap-2 cursor-pointer">
+							<input type="radio" value="custom" bind:group={selectedHook} class="mt-1" />
+							<span class="text-xs font-medium text-surface-700">Personnalisee</span>
+						</label>
+						{#if selectedHook === 'custom'}
+							<textarea
+								bind:value={customHook}
+								placeholder="Ecris ton accroche..."
+								class="input preset-outlined-surface-200 w-full text-sm mt-1"
+								rows="2"
+							></textarea>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Post preview / edit -->
+				<div class="mt-4">
+					<div class="flex items-center justify-between mb-2">
+						<p class="text-xs font-medium text-surface-600">Apercu du post :</p>
+						<button
+							onclick={() => {
+								if (!editingLinkedin) editedLinkedinBody = getLinkedinPreview();
+								editingLinkedin = !editingLinkedin;
+							}}
+							class="text-xs text-primary-600 hover:underline"
+						>
+							{editingLinkedin ? 'Apercu' : 'Modifier'}
+						</button>
+					</div>
+					{#if editingLinkedin}
+						<textarea
+							bind:value={editedLinkedinBody}
+							class="input preset-outlined-surface-200 w-full text-sm font-mono"
+							rows="12"
+						></textarea>
+					{:else}
+						<div class="rounded-md border border-surface-100 bg-surface-50 p-4 text-sm text-surface-700 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
+							{getLinkedinPreview()}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Approve button -->
+				{#if data.content.status === 'draft'}
+					<div class="mt-4">
+						<button
+							onclick={approveLinkedinPost}
+							class="btn preset-filled-primary-500 text-sm"
+							disabled={approvingLinkedin}
+						>
+							{approvingLinkedin ? 'Validation...' : 'Approuver ce post'}
+						</button>
+					</div>
+				{/if}
+			</div>
+		{:else if data.content.type === 'gmb' && gmbData()}
 			{@const gmb = gmbData()}
 			<!-- GMB Post display -->
 			<div class="rounded-lg border border-surface-200 bg-white p-6">

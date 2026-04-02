@@ -146,3 +146,10 @@ export const gmbSettings = sqliteTable('gmb_settings', {
 	value: text('value').notNull()
 });
 
+// ── LinkedIn tables ───────────────────────────────────────────────
+
+export const linkedinSettings = sqliteTable('linkedin_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull()
+});
+

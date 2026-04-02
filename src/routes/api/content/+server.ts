@@ -6,6 +6,9 @@ import { createId } from '$lib/server/utils.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { buildGitHubPath, pushFileToGitHub } from '$lib/server/github.js';
 import { slugify } from '$lib/utils/slugify.js';
+import { parseFrontmatter } from '$lib/utils/content.js';
+import { isBatchFormat, parseLinkedInBatch } from '$lib/utils/linkedin.js';
+import { suggestDates } from '$lib/utils/linkedin-schedule.js';
 import { eq, and, like } from 'drizzle-orm';
 
 export const POST: RequestHandler = async (event) => {
@@ -89,6 +92,60 @@ export const POST: RequestHandler = async (event) => {
 	pushFileToGitHub(githubPath, content, `[${project_slug}] add: ${slug}`).then(async (synced) => {
 		await db.update(contents).set({ githubSynced: synced }).where(eq(contents.id, id));
 	});
+
+	// Auto-split LinkedIn batch into individual posts
+	if (type === 'linkedin') {
+		const { content: markdownBody } = parseFrontmatter(content);
+		if (isBatchFormat(markdownBody)) {
+			const posts = parseLinkedInBatch(markdownBody);
+			if (posts.length > 0) {
+				const dates = suggestDates();
+				const createdIds: string[] = [];
+
+				for (let i = 0; i < posts.length; i++) {
+					const post = posts[i];
+					const postId = createId();
+					const postSlug = `${slug}-${post.day}`;
+					const postTitle = post.title;
+					const postMeta = JSON.stringify({
+						hooks: { main: post.mainHook, A: post.hookA, B: post.hookB },
+						strategy: post.strategy,
+						articleUrl: post.articleUrl
+					});
+
+					await db.insert(contents).values({
+						id: postId,
+						projectId: project.id,
+						type: 'linkedin',
+						title: postTitle,
+						slug: postSlug,
+						body: post.mainHook,
+						status: 'draft',
+						plannedDate: dates[i]?.date ? new Date(dates[i].date).toISOString() : null,
+						meta: postMeta,
+						createdAt: new Date().toISOString(),
+						updatedAt: new Date().toISOString()
+					});
+
+					await db.insert(statusHistory).values({
+						id: createId(),
+						contentId: postId,
+						fromStatus: null,
+						toStatus: 'draft',
+						changedBy: 'api'
+					});
+
+					createdIds.push(postId);
+				}
+
+				// Delete the batch content
+				await db.delete(statusHistory).where(eq(statusHistory.contentId, id));
+				await db.delete(contents).where(eq(contents.id, id));
+
+				return jsonResponse({ ids: createdIds, split: true, count: createdIds.length }, 201);
+			}
+		}
+	}
 
 	return jsonResponse({ id, slug, github_path: githubPath }, existing ? 200 : 201);
 };
