@@ -9,10 +9,10 @@
 	--color-primary-50: #e6fff7;
 	--color-primary-100: #b3ffea;
 	--color-primary-200: #80ffdd;
-	--color-primary-300: #4dffd0;
-	--color-primary-400: #1affc3;
-	--color-primary-500: #00D9A3;
-	--color-primary-600: #00b386;
+	--color-primary-300: #1affc3;
+	--color-primary-400: #00D9A3;
+	--color-primary-500: #00B386;
+	--color-primary-600: #009973;
 	--color-primary-700: #008c69;
 	--color-primary-800: #00664d;
 	--color-primary-900: #003f30;
@@ -27,4 +27,12 @@
 	--color-surface-700: #404040;
 	--color-surface-800: #262626;
 	--color-surface-900: #141413;
+}
+
+.input {
+	background-color: white;
+}
+
+.btn {
+	border-radius: 9999px;
 }
