@@ -1,8 +1,9 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents, projects, comments, statusHistory } from '$lib/server/db/schema.js';
+import { contents, projects, comments, statusHistory, cmsConnections } from '$lib/server/db/schema.js';
 import { eq, desc } from 'drizzle-orm';
+import { parseFrontmatter } from '$lib/utils/content.js';
 
 export const load: PageServerLoad = async ({ params }) => {
 	const content = await db.query.contents.findFirst({
@@ -27,10 +28,23 @@ export const load: PageServerLoad = async ({ params }) => {
 		.where(eq(statusHistory.contentId, params.id))
 		.orderBy(desc(statusHistory.changedAt));
 
+	// Strip frontmatter from body (gray-matter needs Node.js Buffer, so parse server-side)
+	const strippedBody = content.type !== 'gmb'
+		? parseFrontmatter(content.body).content
+		: content.body;
+
+	// Load CMS connection for this project
+	const cmsConnection = content.type === 'article'
+		? await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, content.projectId)).get()
+		: null;
+
 	return {
-		content,
+		content: { ...content, body: strippedBody },
 		project,
 		comments: contentComments,
-		history
+		history,
+		cmsConnection: cmsConnection
+			? { cmsType: cmsConnection.cmsType, config: JSON.parse(cmsConnection.config) }
+			: null
 	};
 };

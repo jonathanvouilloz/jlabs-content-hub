@@ -63,6 +63,7 @@ export const projects = sqliteTable('projects', {
 	color: text('color').notNull().default('#00D9A3'),
 	accessToken: text('access_token').notNull().unique(),
 	archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+	gmbLocationId: text('gmb_location_id'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 });
@@ -83,6 +84,8 @@ export const contents = sqliteTable(
 		publishedAt: text('published_at'),
 		tags: text('tags'),
 		meta: text('meta'),
+		gmbPostId: text('gmb_post_id'),
+		cmsItemId: text('cms_item_id'),
 		githubSynced: integer('github_synced', { mode: 'boolean' }).notNull().default(false),
 		githubPath: text('github_path'),
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -120,3 +123,26 @@ export const statusHistory = sqliteTable('status_history', {
 	changedBy: text('changed_by').notNull().default('admin'),
 	changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`)
 });
+
+// ── CMS connections ───────────────────────────────────────────────
+
+export const cmsConnections = sqliteTable('cms_connections', {
+	id: text('id').primaryKey(),
+	projectId: text('project_id')
+		.notNull()
+		.references(() => projects.id)
+		.unique(),
+	cmsType: text('cms_type').notNull(),
+	config: text('config').notNull(),
+	apiToken: text('api_token').notNull(),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+});
+
+// ── GMB tables ─────────────────────────────────────────────────────
+
+export const gmbSettings = sqliteTable('gmb_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull()
+});
+

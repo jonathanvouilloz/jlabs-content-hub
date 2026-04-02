@@ -45,6 +45,65 @@
 		});
 		invalidateAll();
 	}
+
+	// GMB publish
+	let publishing = $state(false);
+
+	async function publishGmbNow() {
+		publishing = true;
+		try {
+			await fetch(`/api/gmb/publish/${data.content.id}`, { method: 'POST' });
+			invalidateAll();
+		} catch { /* ignore */ }
+		publishing = false;
+	}
+
+	// CMS publish
+	let publishingCms = $state(false);
+	let cmsPublishError = $state('');
+
+	async function publishToCms() {
+		publishingCms = true;
+		cmsPublishError = '';
+		try {
+			const res = await fetch(`/api/cms/publish/${data.content.id}`, { method: 'POST' });
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			invalidateAll();
+		} catch (err) {
+			cmsPublishError = (err as Error).message;
+		}
+		publishingCms = false;
+	}
+
+	// GMB parsed body
+	let gmbData = $derived(() => {
+		if (data.content.type !== 'gmb') return null;
+		try { return JSON.parse(data.content.body); }
+		catch { return null; }
+	});
+
+	// Planned date editing
+	let editingDate = $state(false);
+	let newPlannedDate = $state('');
+
+	function startEditDate() {
+		// Convert ISO to datetime-local format
+		const d = data.content.plannedDate;
+		newPlannedDate = d ? d.slice(0, 16) : '';
+		editingDate = true;
+	}
+
+	async function savePlannedDate() {
+		const isoDate = newPlannedDate ? new Date(newPlannedDate).toISOString() : null;
+		await fetch(`/api/content/${data.content.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+			body: JSON.stringify({ plannedDate: isoDate })
+		});
+		editingDate = false;
+		invalidateAll();
+	}
 </script>
 
 <div>
@@ -59,13 +118,65 @@
 			</div>
 			<h1 class="mt-2 text-2xl font-bold text-surface-900">{data.content.title}</h1>
 		</div>
-		<StatusBadge status={data.content.status} interactive onchange={changeStatus} />
+		<div class="flex items-center gap-3">
+			{#if data.cmsConnection && data.content.type === 'article'}
+				{#if data.content.cmsItemId}
+					<span class="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+						<span class="h-2 w-2 rounded-full bg-green-500"></span>
+						Publie sur {data.cmsConnection.cmsType === 'webflow' ? 'Webflow' : data.cmsConnection.cmsType}
+					</span>
+				{:else if data.content.status === 'approved' || data.content.status === 'review'}
+					<button
+						onclick={publishToCms}
+						class="btn preset-filled-primary-500 text-xs"
+						disabled={publishingCms}
+					>
+						{publishingCms ? 'Publication...' : `Publier sur ${data.cmsConnection.cmsType === 'webflow' ? 'Webflow' : data.cmsConnection.cmsType}`}
+					</button>
+				{/if}
+			{/if}
+			<StatusBadge status={data.content.status} interactive onchange={changeStatus} />
+		</div>
 	</div>
 
+	{#if cmsPublishError}
+		<div class="mt-2 rounded-md bg-red-50 px-4 py-2 text-xs text-red-600">{cmsPublishError}</div>
+	{/if}
+
 	<!-- Metadata -->
-	<div class="mt-4 flex flex-wrap gap-4 text-xs text-surface-400">
+	<div class="mt-4 flex flex-wrap items-center gap-4 text-xs text-surface-400">
 		{#if data.content.plannedDate}
-			<span>Planifie : {formatDate(data.content.plannedDate)}</span>
+			<span>
+				Planifie : {formatDate(data.content.plannedDate)}
+				{#if data.content.type === 'gmb' && data.content.status !== 'published'}
+					{#if editingDate}
+						<input
+							type="datetime-local"
+							bind:value={newPlannedDate}
+							class="ml-1 rounded border border-surface-200 px-1.5 py-0.5 text-xs"
+						/>
+						<button onclick={savePlannedDate} class="ml-1 text-primary-600 hover:underline">OK</button>
+						<button onclick={() => editingDate = false} class="ml-1 text-surface-400 hover:underline">Annuler</button>
+					{:else}
+						<button onclick={startEditDate} class="ml-1 text-primary-600 hover:underline">modifier</button>
+					{/if}
+				{/if}
+			</span>
+		{:else if data.content.type === 'gmb' && data.content.status !== 'published'}
+			<span>
+				Pas de date planifiee
+				{#if editingDate}
+					<input
+						type="datetime-local"
+						bind:value={newPlannedDate}
+						class="ml-1 rounded border border-surface-200 px-1.5 py-0.5 text-xs"
+					/>
+					<button onclick={savePlannedDate} class="ml-1 text-primary-600 hover:underline">OK</button>
+					<button onclick={() => editingDate = false} class="ml-1 text-surface-400 hover:underline">Annuler</button>
+				{:else}
+					<button onclick={startEditDate} class="ml-1 text-primary-600 hover:underline">ajouter</button>
+				{/if}
+			</span>
 		{/if}
 		{#if data.content.publishedAt}
 			<span>Publie : {formatDate(data.content.publishedAt)}</span>
@@ -83,8 +194,71 @@
 
 	<!-- Body -->
 	<div class="mt-8">
-		{#if data.content.type === 'gmb'}
-			<pre class="rounded-lg bg-surface-50 p-4 text-sm overflow-auto">{JSON.stringify(JSON.parse(data.content.body), null, 2)}</pre>
+		{#if data.content.type === 'gmb' && gmbData()}
+			{@const gmb = gmbData()}
+			<!-- GMB Post display -->
+			<div class="rounded-lg border border-surface-200 bg-white p-6">
+				<div class="flex items-start justify-between gap-4">
+					<div class="min-w-0 flex-1">
+						<div class="flex items-center gap-2">
+							<span class="rounded-full bg-surface-100 px-2.5 py-0.5 text-xs font-medium text-surface-600">
+								{gmb.type || 'whats_new'}
+							</span>
+							{#if gmb.cta}
+								<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs text-primary-700">
+									{gmb.cta.action}
+								</span>
+							{/if}
+						</div>
+
+						<p class="mt-3 text-sm leading-relaxed text-surface-700">{gmb.content}</p>
+
+						{#if gmb.cta?.url}
+							<div class="mt-3">
+								<a href={gmb.cta.url} target="_blank" rel="noopener" class="text-xs text-primary-600 hover:underline">
+									{gmb.cta.url}
+								</a>
+							</div>
+						{/if}
+
+						{#if gmb.event_start_date || gmb.event_end_date}
+							<div class="mt-3 flex gap-3 text-xs text-surface-400">
+								{#if gmb.event_start_date}
+									<span>Debut : {formatDate(gmb.event_start_date)}</span>
+								{/if}
+								{#if gmb.event_end_date}
+									<span>Fin : {formatDate(gmb.event_end_date)}</span>
+								{/if}
+							</div>
+						{/if}
+
+						{#if gmb.image_prompt}
+							<details class="mt-3">
+								<summary class="cursor-pointer text-xs text-surface-400">Image prompt</summary>
+								<p class="mt-1 text-xs text-surface-500">{gmb.image_prompt}</p>
+							</details>
+						{/if}
+					</div>
+
+					{#if data.content.status !== 'published'}
+						<button
+							onclick={publishGmbNow}
+							class="btn preset-filled-primary-500 shrink-0 text-xs"
+							disabled={publishing}
+						>
+							{publishing ? 'Publication...' : 'Publier maintenant'}
+						</button>
+					{:else if data.content.gmbPostId}
+						<span class="text-xs text-green-600">Publie sur Google</span>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Raw JSON (collapsible) -->
+			<details class="mt-4">
+				<summary class="cursor-pointer text-sm font-medium text-surface-500">JSON brut</summary>
+				<pre class="mt-2 rounded-lg bg-surface-50 p-4 text-xs overflow-auto">{JSON.stringify(gmb, null, 2)}</pre>
+			</details>
 		{:else if renderedBody}
 			<div class="prose prose-sm max-w-none rounded-lg border border-surface-200 bg-white p-6">
 				{@html renderedBody}
