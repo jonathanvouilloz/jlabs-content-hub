@@ -11,6 +11,7 @@ export const load: PageServerLoad = async () => {
 			slug: projects.slug,
 			description: projects.description,
 			color: projects.color,
+			image: projects.image,
 			archived: projects.archived,
 			createdAt: projects.createdAt,
 			total: sql<number>`count(${contents.id})`,

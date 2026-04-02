@@ -22,6 +22,7 @@ export const PUT: RequestHandler = async (event) => {
 	if (body.color !== undefined) updates.color = body.color;
 	if (body.archived !== undefined) updates.archived = body.archived;
 	if (body.gmbLocationId !== undefined) updates.gmbLocationId = body.gmbLocationId;
+	if (body.image !== undefined) updates.image = body.image;
 
 	await db.update(projects).set(updates).where(eq(projects.id, project.id));
 	return jsonResponse({ slug: event.params.slug });

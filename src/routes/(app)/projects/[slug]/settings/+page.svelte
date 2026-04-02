@@ -3,6 +3,39 @@
 
 	let { data } = $props();
 
+	// ── Project image ───────────────────────────────────────────────
+	let imageUploading = $state(false);
+
+	async function handleProjectImageUpload(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		imageUploading = true;
+		const reader = new FileReader();
+		reader.onload = async () => {
+			const base64 = reader.result as string;
+			await fetch(`/api/projects/${data.project.slug}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ image: base64 })
+			});
+			imageUploading = false;
+			invalidateAll();
+		};
+		reader.readAsDataURL(file);
+	}
+
+	async function removeProjectImage() {
+		imageUploading = true;
+		await fetch(`/api/projects/${data.project.slug}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ image: null })
+		});
+		imageUploading = false;
+		invalidateAll();
+	}
+
 	// ── CMS connection ──────────────────────────────────────────────
 	interface CmsSite { id: string; name: string; }
 	interface CmsCollection { id: string; name: string; slug: string; }
@@ -204,6 +237,42 @@
 	<div class="flex items-center gap-3">
 		<span class="h-4 w-4 rounded-full" style="background-color: {data.project.color};"></span>
 		<h1 class="text-2xl font-bold text-surface-900">Parametres — {data.project.name}</h1>
+	</div>
+
+	<!-- Section 0: Project -->
+	<div class="mt-6 rounded-lg border border-surface-200 bg-white p-4">
+		<h2 class="text-sm font-semibold text-surface-900">Projet</h2>
+		<div class="mt-3">
+			<span class="text-xs font-medium text-surface-500">Image du projet</span>
+			<div class="mt-2">
+				{#if data.project.image}
+					<div class="relative mb-2 inline-block">
+						<img src={data.project.image} alt={data.project.name} class="h-32 w-full rounded-lg object-cover" />
+						<button
+							type="button"
+							onclick={removeProjectImage}
+							disabled={imageUploading}
+							class="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-xs text-white hover:bg-black/70"
+							title="Supprimer l'image"
+						>&times;</button>
+					</div>
+				{:else}
+					<div class="flex h-32 w-full items-center justify-center rounded-lg text-2xl font-bold text-white/80" style="background-color: {data.project.color};">
+						{data.project.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+					</div>
+				{/if}
+				<input
+					type="file"
+					accept="image/*"
+					onchange={handleProjectImageUpload}
+					disabled={imageUploading}
+					class="mt-2 block w-full text-sm text-surface-500 file:mr-3 file:rounded-md file:border-0 file:bg-surface-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-surface-700 hover:file:bg-surface-200"
+				/>
+				{#if imageUploading}
+					<p class="mt-1 text-xs text-surface-400">Upload en cours...</p>
+				{/if}
+			</div>
+		</div>
 	</div>
 
 	<!-- Section 1: CMS Publishing -->

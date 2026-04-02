@@ -21,8 +21,8 @@
 
 <a
 	href="{projectSlug ? `/projects/${projectSlug}/content/${id}` : `/content/${id}`}"
-	class="group flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-surface-100"
-	style="border-left: 3px solid {projectColor ?? '#9ca3af'};"
+	class="group flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-opacity hover:opacity-80"
+	style="background-color: {projectColor ? projectColor + '18' : '#9ca3af18'};"
 >
 	<span class="h-1.5 w-1.5 shrink-0 rounded-full {dotClass}"></span>
 	<span class="truncate text-surface-700 group-hover:text-surface-900">{title}</span>

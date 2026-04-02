@@ -61,6 +61,7 @@ export const projects = sqliteTable('projects', {
 	slug: text('slug').notNull().unique(),
 	description: text('description'),
 	color: text('color').notNull().default('#00D9A3'),
+	image: text('image'),
 	accessToken: text('access_token').notNull().unique(),
 	archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 	gmbLocationId: text('gmb_location_id'),

@@ -13,7 +13,7 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const body = await event.request.json();
-	const { name, slug: bodySlug, description, color } = body;
+	const { name, slug: bodySlug, description, color, image } = body;
 
 	if (!name) return errorResponse('Missing required field: name', 400);
 
@@ -33,6 +33,7 @@ export const POST: RequestHandler = async (event) => {
 		slug,
 		description: description ?? null,
 		color: color ?? '#00D9A3',
+		image: image ?? null,
 		accessToken
 	});
 
