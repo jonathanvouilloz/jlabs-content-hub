@@ -2,6 +2,7 @@
 @import '@skeletonlabs/skeleton';
 @import '@skeletonlabs/skeleton-svelte';
 @import '@skeletonlabs/skeleton/themes/cerberus';
+@plugin "@tailwindcss/typography";
 
 /* Jon Labs brand overrides */
 :root {

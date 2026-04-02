@@ -5,7 +5,7 @@ import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-aut
 import { eq } from 'drizzle-orm';
 
 export const PUT: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
+	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
 	}
 
@@ -21,6 +21,7 @@ export const PUT: RequestHandler = async (event) => {
 	if (body.description !== undefined) updates.description = body.description;
 	if (body.color !== undefined) updates.color = body.color;
 	if (body.archived !== undefined) updates.archived = body.archived;
+	if (body.gmbLocationId !== undefined) updates.gmbLocationId = body.gmbLocationId;
 
 	await db.update(projects).set(updates).where(eq(projects.id, project.id));
 	return jsonResponse({ slug: event.params.slug });

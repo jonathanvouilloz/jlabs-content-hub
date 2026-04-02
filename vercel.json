@@ -1,4 +1,10 @@
 {
 	"framework": "sveltekit",
-	"regions": ["cdg1"]
+	"regions": ["cdg1"],
+	"crons": [
+		{
+			"path": "/api/cron/gmb-publish",
+			"schedule": "0 * * * *"
+		}
+	]
 }

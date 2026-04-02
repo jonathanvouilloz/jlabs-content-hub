@@ -1,7 +1,7 @@
 <script lang="ts">
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import CommentBox from '$lib/components/CommentBox.svelte';
-	import { parseFrontmatter, renderMarkdown } from '$lib/utils/content.js';
+	import { renderMarkdown } from '$lib/utils/content.js';
 	import { formatDate } from '$lib/utils/dates.js';
 
 	let { data } = $props();
@@ -22,8 +22,7 @@
 				return data.content.body;
 			}
 		}
-		const { content } = parseFrontmatter(data.content.body);
-		return renderMarkdown(content);
+		return renderMarkdown(data.content.body);
 	});
 </script>
 

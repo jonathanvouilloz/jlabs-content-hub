@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 const VALID_STATUSES = ['draft', 'review', 'approved', 'published'];
 
 export const PATCH: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
+	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
 	}
 

@@ -4,6 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { contents, projects, comments } from '$lib/server/db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { validateClientToken } from '$lib/server/api-auth.js';
+import { parseFrontmatter } from '$lib/utils/content.js';
 
 export const load: PageServerLoad = async ({ params, url }) => {
 	const token = url.searchParams.get('token');
@@ -28,8 +29,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		.where(eq(comments.contentId, params.content_id))
 		.orderBy(desc(comments.createdAt));
 
+	// Strip frontmatter server-side (gray-matter needs Node.js Buffer)
+	const strippedBody = content.type !== 'gmb'
+		? parseFrontmatter(content.body).content
+		: content.body;
+
 	return {
-		content,
+		content: { ...content, body: strippedBody },
 		project: { name: project!.name, slug: project!.slug, color: project!.color },
 		comments: contentComments,
 		token
