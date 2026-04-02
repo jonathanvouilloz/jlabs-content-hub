@@ -11,15 +11,16 @@
 		title: string;
 		status: string;
 		projectColor?: string | null;
+		projectSlug?: string | null;
 	}
 
-	let { id, title, status, projectColor }: Props = $props();
+	let { id, title, status, projectColor, projectSlug }: Props = $props();
 
 	const dotClass = $derived(STATUS_COLORS[status] ?? STATUS_COLORS.draft);
 </script>
 
 <a
-	href="/content/{id}"
+	href="{projectSlug ? `/projects/${projectSlug}/content/${id}` : `/content/${id}`}"
 	class="group flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-surface-100"
 	style="border-left: 3px solid {projectColor ?? '#9ca3af'};"
 >

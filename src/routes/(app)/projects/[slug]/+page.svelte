@@ -139,6 +139,6 @@
 
 	<!-- Content table -->
 	<div class="mt-4">
-		<ContentTable contents={data.contents} showType={true} showBatchActions={true} />
+		<ContentTable contents={data.contents} projectSlug={data.project.slug} showType={true} showBatchActions={true} />
 	</div>
 </div>

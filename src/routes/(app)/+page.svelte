@@ -44,6 +44,7 @@
 					createdAt={item.createdAt}
 					projectName={item.projectName ?? undefined}
 					projectColor={item.projectColor ?? undefined}
+					projectSlug={item.projectSlug ?? undefined}
 				/>
 			{/each}
 		</div>

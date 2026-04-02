@@ -13,10 +13,12 @@
 
 	let {
 		contents,
+		projectSlug,
 		showType = true,
 		showBatchActions = true
 	}: {
 		contents: ContentItem[];
+		projectSlug: string;
 		showType?: boolean;
 		showBatchActions?: boolean;
 	} = $props();
@@ -168,7 +170,7 @@
 							</td>
 						{/if}
 						<td class="px-4 py-3">
-							<a href="/content/{item.id}" class="font-medium text-surface-900 hover:text-primary-600">
+							<a href="/projects/{projectSlug}/content/{item.id}" class="font-medium text-surface-900 hover:text-primary-600">
 								{item.title}
 							</a>
 						</td>

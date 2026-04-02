@@ -6,6 +6,7 @@
 		title: string;
 		status: string;
 		projectColor?: string | null;
+		projectSlug?: string | null;
 	}
 
 	interface Props {
@@ -40,6 +41,7 @@
 					title={item.title}
 					status={item.status}
 					projectColor={item.projectColor}
+					projectSlug={item.projectSlug}
 				/>
 			{/each}
 			{#if overflow > 0}

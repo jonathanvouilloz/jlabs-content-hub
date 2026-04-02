@@ -1,51 +1,36 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
 	import ContentTable from '$lib/components/ContentTable.svelte';
 
 	let { data } = $props();
 
-	const STATUSES = [
-		{ value: '', label: 'Tous statuts' },
-		{ value: 'draft', label: 'Draft' },
-		{ value: 'review', label: 'Review' },
-		{ value: 'approved', label: 'Approved' },
-		{ value: 'published', label: 'Published' }
-	];
-
-	let statusFilter = $derived($page.url.searchParams.get('status') ?? '');
-
-	let filteredContents = $derived(
-		statusFilter
-			? data.contents.filter((c: { status: string }) => c.status === statusFilter)
-			: data.contents
+	let activeContents = $derived(
+		data.contents.filter((c: { status: string }) => c.status !== 'published')
 	);
 
-	function applyFilter(value: string) {
-		const params = new URLSearchParams($page.url.searchParams);
-		if (value) params.set('status', value);
-		else params.delete('status');
-		goto(`?${params.toString()}`, { replaceState: true });
+	let publishedContents = $state<Array<{ id: string; title: string; type: string; status: string; plannedDate: string | null }> | null>(null);
+	let loadingPublished = $state(false);
+
+	async function loadPublished() {
+		loadingPublished = true;
+		try {
+			const res = await fetch(`/api/content?project=${data.project.slug}&type=linkedin&status=published`, {
+				headers: { Authorization: 'Bearer dev-api-key' }
+			});
+			const json = await res.json();
+			publishedContents = json.data ?? [];
+		} catch {
+			publishedContents = [];
+		}
+		loadingPublished = false;
 	}
 </script>
 
 <div>
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-bold text-surface-900">Posts LinkedIn</h1>
-		<div class="flex items-center gap-3">
-			<select
-				class="input preset-outlined-surface-200 w-40 text-sm"
-				value={statusFilter}
-				onchange={(e) => applyFilter((e.target as HTMLSelectElement).value)}
-			>
-				{#each STATUSES as s}
-					<option value={s.value}>{s.label}</option>
-				{/each}
-			</select>
-			<span class="text-sm text-surface-400">
-				{filteredContents.length} post{filteredContents.length !== 1 ? 's' : ''}
-			</span>
-		</div>
+		<span class="text-sm text-surface-400">
+			{activeContents.length} actif{activeContents.length !== 1 ? 's' : ''}
+		</span>
 	</div>
 
 	{#if !data.connections.linkedin}
@@ -60,6 +45,30 @@
 	{/if}
 
 	<div class="mt-4">
-		<ContentTable contents={filteredContents} showType={false} showBatchActions={true} />
+		<ContentTable contents={activeContents} projectSlug={data.project.slug} showType={false} showBatchActions={true} />
+	</div>
+
+	<!-- Published section -->
+	<div class="mt-10">
+		<div class="flex items-center justify-between">
+			<h2 class="text-lg font-semibold text-surface-700">Posts publies</h2>
+			{#if publishedContents === null}
+				<button
+					onclick={loadPublished}
+					class="btn preset-outlined-surface-200 text-xs"
+					disabled={loadingPublished}
+				>
+					{loadingPublished ? 'Chargement...' : 'Charger les posts publies'}
+				</button>
+			{:else}
+				<span class="text-sm text-surface-400">{publishedContents.length} publie{publishedContents.length !== 1 ? 's' : ''}</span>
+			{/if}
+		</div>
+
+		{#if publishedContents !== null}
+			<div class="mt-4">
+				<ContentTable contents={publishedContents} projectSlug={data.project.slug} showType={false} showBatchActions={false} />
+			</div>
+		{/if}
 	</div>
 </div>

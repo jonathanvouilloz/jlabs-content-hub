@@ -29,7 +29,8 @@ export const load: PageServerLoad = async () => {
 			createdAt: contents.createdAt,
 			projectId: contents.projectId,
 			projectName: projects.name,
-			projectColor: projects.color
+			projectColor: projects.color,
+			projectSlug: projects.slug
 		})
 		.from(contents)
 		.leftJoin(projects, eq(contents.projectId, projects.id))

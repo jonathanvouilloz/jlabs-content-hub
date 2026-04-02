@@ -12,9 +12,10 @@
 		createdAt: string;
 		projectName?: string;
 		projectColor?: string;
+		projectSlug?: string;
 	}
 
-	let { id, title, type, status, plannedDate, createdAt, projectName, projectColor }: Props = $props();
+	let { id, title, type, status, plannedDate, createdAt, projectName, projectColor, projectSlug }: Props = $props();
 
 	const TYPE_LABELS: Record<string, string> = {
 		article: 'Article',
@@ -26,7 +27,7 @@
 </script>
 
 <a
-	href="/content/{id}"
+	href="{projectSlug ? `/projects/${projectSlug}/content/${id}` : `/content/${id}`}"
 	class="block rounded-lg border border-surface-200 bg-white p-4 transition-shadow hover:shadow-md"
 >
 	<div class="flex items-start justify-between gap-3">
