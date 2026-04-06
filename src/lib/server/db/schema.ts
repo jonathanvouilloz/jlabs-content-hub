@@ -169,12 +169,26 @@ export const gmbReviews = sqliteTable('gmb_reviews', {
 	rating: integer('rating').notNull(),
 	comment: text('comment').notNull().default(''),
 	createTime: text('create_time').notNull(),
+	draftReply: text('draft_reply'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
 });
 
 export const gmbSettings = sqliteTable('gmb_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
+});
+
+// ── Project contexts ──────────────────────────────────────────────
+
+export const projectContexts = sqliteTable('project_contexts', {
+	id: text('id').primaryKey(),
+	projectId: text('project_id')
+		.notNull()
+		.references(() => projects.id)
+		.unique(),
+	context: text('context').notNull(),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 });
 
 // ── LinkedIn tables ───────────────────────────────────────────────

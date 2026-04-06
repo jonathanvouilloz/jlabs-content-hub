@@ -21,12 +21,14 @@
 	$effect(() => {
 		if (!selectedId && data.reviews.length > 0) {
 			selectedId = data.reviews[0].id;
+			replyText = data.reviews[0].draftReply ?? '';
 		}
 	});
 
 	function selectReview(id: string) {
 		selectedId = id;
-		replyText = '';
+		const review = data.reviews.find((r: Review) => r.id === id);
+		replyText = review?.draftReply ?? '';
 		replyError = '';
 	}
 
@@ -144,6 +146,9 @@
 								<span class="inline-block max-w-[140px] truncate rounded-full bg-surface-100 px-2 py-0.5 text-[10px] text-surface-500">
 									{review.locationLabel}
 								</span>
+								{#if review.draftReply}
+									<span class="rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-medium text-primary-700">Brouillon</span>
+								{/if}
 							</div>
 						</div>
 					</button>

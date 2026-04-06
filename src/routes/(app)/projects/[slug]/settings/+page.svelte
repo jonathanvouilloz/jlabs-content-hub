@@ -1,7 +1,66 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { DEFAULT_CONTEXT, type ProjectContext, type TeamMember } from '$lib/types/project-context.js';
 
 	let { data } = $props();
+
+	// ── Business context ────────────────────────────────────────────
+	let ctx = $state<ProjectContext>(data.projectContext ? { ...DEFAULT_CONTEXT, ...data.projectContext } : { ...DEFAULT_CONTEXT });
+	let ctxSaving = $state(false);
+	let ctxMessage = $state('');
+
+	// Temporary inputs for array fields
+	let newService = $state('');
+	let newValue = $state('');
+	let newKeyword = $state('');
+	let newMemberName = $state('');
+	let newMemberRole = $state('');
+
+	function addToArray(arr: string[], value: string, resetFn: () => void) {
+		const trimmed = value.trim();
+		if (trimmed && !arr.includes(trimmed)) {
+			arr.push(trimmed);
+			resetFn();
+		}
+	}
+
+	function removeFromArray(arr: string[], index: number) {
+		arr.splice(index, 1);
+	}
+
+	function addMember() {
+		const name = newMemberName.trim();
+		const role = newMemberRole.trim();
+		if (name) {
+			ctx.teamMembers.push({ name, role });
+			newMemberName = '';
+			newMemberRole = '';
+		}
+	}
+
+	function removeMember(index: number) {
+		ctx.teamMembers.splice(index, 1);
+	}
+
+	async function saveContext() {
+		ctxSaving = true;
+		ctxMessage = '';
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}/context`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(ctx)
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			ctxMessage = 'Profil sauvegarde';
+			invalidateAll();
+		} catch (err) {
+			ctxMessage = (err as Error).message;
+		}
+		ctxSaving = false;
+		setTimeout(() => { ctxMessage = ''; }, 3000);
+	}
 
 	// ── Project image ───────────────────────────────────────────────
 	let imageUploading = $state(false);
@@ -594,5 +653,178 @@
 				</a>
 			</div>
 		{/if}
+	</div>
+
+	<!-- Section 4: Business Context -->
+	<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
+		<div class="flex items-center justify-between">
+			<h2 class="text-sm font-semibold text-surface-900">Profil Business</h2>
+			{#if data.projectContext}
+				<span class="inline-flex items-center gap-1.5 text-xs text-green-600">
+					<span class="h-2 w-2 rounded-full bg-green-500"></span>
+					Configure
+				</span>
+			{:else}
+				<span class="text-xs text-surface-400">Non configure</span>
+			{/if}
+		</div>
+		<p class="mt-1 text-xs text-surface-400">
+			Contexte utilise pour generer les reponses aux avis Google et adapter le ton des communications.
+		</p>
+
+		<div class="mt-4 space-y-4">
+			<!-- Identity -->
+			<div class="grid grid-cols-3 gap-3">
+				<div>
+					<label class="text-xs font-medium text-surface-600">Nom du business</label>
+					<input type="text" bind:value={ctx.businessName} placeholder="Le Studio" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Type d'activite</label>
+					<input type="text" bind:value={ctx.businessType} placeholder="Barbershop, restaurant..." class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Localite</label>
+					<input type="text" bind:value={ctx.locality} placeholder="Geneve, Rive" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+			</div>
+
+			<!-- Tone & Signatures -->
+			<div class="grid grid-cols-3 gap-3">
+				<div>
+					<label class="text-xs font-medium text-surface-600">Ton</label>
+					<select bind:value={ctx.tone} class="input preset-outlined-surface-200 mt-1 w-full text-sm">
+						<option value="decontracte">Decontracte</option>
+						<option value="chaleureux">Chaleureux</option>
+						<option value="professionnel">Professionnel</option>
+						<option value="formel">Formel</option>
+					</select>
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Signature par defaut</label>
+					<input type="text" bind:value={ctx.defaultSignature} placeholder="L'equipe Le Studio" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Signature avis negatifs</label>
+					<input type="text" bind:value={ctx.negativeSignature} placeholder="Jacky, fondateur" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+			</div>
+
+			<!-- Contact -->
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="text-xs font-medium text-surface-600">Email (contact public)</label>
+					<input type="email" bind:value={ctx.contactEmail} placeholder="contact@business.ch" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Telephone (optionnel)</label>
+					<input type="text" bind:value={ctx.contactPhone} placeholder="+41 22 123 45 67" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+			</div>
+
+			<!-- Services -->
+			<div>
+				<label class="text-xs font-medium text-surface-600">Services cles</label>
+				<div class="mt-1 flex flex-wrap gap-1.5">
+					{#each ctx.keyServices as service, i}
+						<span class="inline-flex items-center gap-1 rounded-full bg-surface-100 px-2.5 py-1 text-xs text-surface-700">
+							{service}
+							<button onclick={() => removeFromArray(ctx.keyServices, i)} class="text-surface-400 hover:text-red-500">&times;</button>
+						</span>
+					{/each}
+				</div>
+				<div class="mt-1.5 flex gap-2">
+					<input type="text" bind:value={newService} placeholder="Ajouter un service..." class="input preset-outlined-surface-200 flex-1 text-sm"
+						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addToArray(ctx.keyServices, newService, () => newService = ''); } }}
+					/>
+					<button onclick={() => addToArray(ctx.keyServices, newService, () => newService = '')} class="btn preset-outlined-surface-200 text-xs" disabled={!newService.trim()}>+</button>
+				</div>
+			</div>
+
+			<!-- Values -->
+			<div>
+				<label class="text-xs font-medium text-surface-600">Valeurs</label>
+				<div class="mt-1 flex flex-wrap gap-1.5">
+					{#each ctx.values as val, i}
+						<span class="inline-flex items-center gap-1 rounded-full bg-surface-100 px-2.5 py-1 text-xs text-surface-700">
+							{val}
+							<button onclick={() => removeFromArray(ctx.values, i)} class="text-surface-400 hover:text-red-500">&times;</button>
+						</span>
+					{/each}
+				</div>
+				<div class="mt-1.5 flex gap-2">
+					<input type="text" bind:value={newValue} placeholder="Ajouter une valeur..." class="input preset-outlined-surface-200 flex-1 text-sm"
+						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addToArray(ctx.values, newValue, () => newValue = ''); } }}
+					/>
+					<button onclick={() => addToArray(ctx.values, newValue, () => newValue = '')} class="btn preset-outlined-surface-200 text-xs" disabled={!newValue.trim()}>+</button>
+				</div>
+			</div>
+
+			<!-- Team members -->
+			<div>
+				<label class="text-xs font-medium text-surface-600">Equipe</label>
+				{#if ctx.teamMembers.length > 0}
+					<div class="mt-1 space-y-1">
+						{#each ctx.teamMembers as member, i}
+							<div class="flex items-center gap-2 rounded-md border border-surface-100 px-3 py-1.5 text-sm">
+								<span class="font-medium text-surface-800">{member.name}</span>
+								{#if member.role}
+									<span class="text-xs text-surface-400">{member.role}</span>
+								{/if}
+								<button onclick={() => removeMember(i)} class="ml-auto text-xs text-surface-400 hover:text-red-500">&times;</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				<div class="mt-1.5 flex gap-2">
+					<input type="text" bind:value={newMemberName} placeholder="Prenom" class="input preset-outlined-surface-200 w-1/3 text-sm"
+						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMember(); } }}
+					/>
+					<input type="text" bind:value={newMemberRole} placeholder="Role (optionnel)" class="input preset-outlined-surface-200 flex-1 text-sm"
+						onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMember(); } }}
+					/>
+					<button onclick={addMember} class="btn preset-outlined-surface-200 text-xs" disabled={!newMemberName.trim()}>+</button>
+				</div>
+			</div>
+
+			<!-- SEO -->
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="text-xs font-medium text-surface-600">Mots-cles SEO</label>
+					<div class="mt-1 flex flex-wrap gap-1.5">
+						{#each ctx.seoKeywords as kw, i}
+							<span class="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-xs text-primary-700">
+								{kw}
+								<button onclick={() => removeFromArray(ctx.seoKeywords, i)} class="text-primary-400 hover:text-red-500">&times;</button>
+							</span>
+						{/each}
+					</div>
+					<div class="mt-1.5 flex gap-2">
+						<input type="text" bind:value={newKeyword} placeholder="Mot-cle..." class="input preset-outlined-surface-200 flex-1 text-sm"
+							onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addToArray(ctx.seoKeywords, newKeyword, () => newKeyword = ''); } }}
+						/>
+						<button onclick={() => addToArray(ctx.seoKeywords, newKeyword, () => newKeyword = '')} class="btn preset-outlined-surface-200 text-xs" disabled={!newKeyword.trim()}>+</button>
+					</div>
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Zone geographique SEO</label>
+					<input type="text" bind:value={ctx.geoZone} placeholder="Geneve, quartier des Eaux-Vives" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+			</div>
+
+			<!-- Save button -->
+			<div class="flex items-center gap-3 pt-2">
+				<button
+					onclick={saveContext}
+					class="btn preset-filled-primary-500 text-sm"
+					disabled={ctxSaving || !ctx.businessName || !ctx.businessType || !ctx.locality}
+				>
+					{ctxSaving ? 'Sauvegarde...' : 'Sauvegarder le profil'}
+				</button>
+				{#if ctxMessage}
+					<span class="text-xs text-surface-500">{ctxMessage}</span>
+				{/if}
+			</div>
+		</div>
 	</div>
 </div>

@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations } from '$lib/server/db/schema.js';
+import { cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations, projectContexts } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -18,11 +18,14 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const linkedinTokens = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).get();
 	const linkedinName = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'person_name')).get();
 
+	const projectContext = await db.select().from(projectContexts).where(eq(projectContexts.projectId, project.id)).get();
+
 	return {
 		cmsConnection: cmsConnection ? { id: cmsConnection.id, cmsType: cmsConnection.cmsType, config: JSON.parse(cmsConnection.config) } : null,
 		gmbConnected: !!gmbTokens,
 		assignedGmbLocations: assignedLocations,
 		linkedinConnected: !!linkedinTokens,
-		linkedinPersonName: linkedinName?.value ?? null
+		linkedinPersonName: linkedinName?.value ?? null,
+		projectContext: projectContext ? JSON.parse(projectContext.context) : null
 	};
 };
