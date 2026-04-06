@@ -28,35 +28,40 @@
 </script>
 
 <div class="w-full max-w-sm">
-	<div class="card preset-outlined-surface-200 p-8">
+	<div class="rounded-lg border border-surface-200 bg-white p-8">
 		<header class="mb-8 text-center">
-			<h1 class="text-2xl font-bold text-surface-900">Content Hub</h1>
-			<p class="mt-1 text-sm text-surface-500">Jon Labs</p>
+			<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-primary-500 text-sm font-bold text-white">
+				JL
+			</div>
+			<h1 class="text-lg font-semibold text-surface-900">Content Hub</h1>
+			<p class="mt-0.5 text-xs text-surface-400">Jon Labs</p>
 		</header>
 
 		<form onsubmit={handleSubmit} class="space-y-4">
-			<label class="label">
-				<span class="text-sm font-medium text-surface-700">Email</span>
+			<div>
+				<label for="email" class="mb-1 block text-sm font-medium text-surface-700">Email</label>
 				<input
+					id="email"
 					type="email"
 					bind:value={email}
 					required
 					autocomplete="email"
-					class="input preset-outlined-surface-200 w-full"
+					class="h-10 w-full rounded-md border border-surface-200 bg-white px-3 text-sm text-surface-900 outline-none transition-colors focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
 					placeholder="jonathan@jonlabs.ch"
 				/>
-			</label>
+			</div>
 
-			<label class="label">
-				<span class="text-sm font-medium text-surface-700">Mot de passe</span>
+			<div>
+				<label for="password" class="mb-1 block text-sm font-medium text-surface-700">Mot de passe</label>
 				<input
+					id="password"
 					type="password"
 					bind:value={password}
 					required
 					autocomplete="current-password"
-					class="input preset-outlined-surface-200 w-full"
+					class="h-10 w-full rounded-md border border-surface-200 bg-white px-3 text-sm text-surface-900 outline-none transition-colors focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
 				/>
-			</label>
+			</div>
 
 			{#if error}
 				<p class="text-sm text-red-600">{error}</p>
@@ -65,7 +70,7 @@
 			<button
 				type="submit"
 				disabled={loading}
-				class="btn preset-filled-primary-500 w-full"
+				class="h-10 w-full rounded-md bg-primary-500 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
 			>
 				{loading ? 'Connexion...' : 'Se connecter'}
 			</button>

@@ -1,8 +1,10 @@
 # Plan d'execution — JLabs Content Hub
 
-> Derniere mise a jour : 2026-03-31
+> Derniere mise a jour : 2026-04-07
 
-## Epics
+---
+
+## Phase 1 — MVP (DONE)
 
 | # | Epic | Complexite | Statut | Detail |
 |---|------|-----------|--------|--------|
@@ -16,23 +18,25 @@
 | 8 | Migration contenu existant | S | DONE | [migration.md](features/migration.md) |
 | 9 | Deploiement Vercel + Turso | S | DONE | [deploiement.md](features/deploiement.md) |
 
-## Ordre d'execution
+---
 
-```
-1. Init + Schema DB .............. DONE
-2. API REST ...................... DONE
-3. Auth admin .................... DONE
-4. Dashboard admin (UI) .......... DONE
-5. Calendrier editorial .......... DONE
-6. Deploiement Vercel + Turso .... DONE
-7. Acces client + commentaires ... DONE
-8. Migration contenu existant .... DONE
-9. GitHub sync ................... DONE
-```
+## Phase 2 — V2 Ameliorations
 
-## Prochaines etapes
+| # | Epic | Complexite | Statut | Commits cles |
+|---|------|-----------|--------|--------------|
+| 10 | UX admin — sidebar dynamique + design system | M | DONE | `556a430`, `0333da4` |
+| 11 | Cartes projets redesign + image cover + calendrier | M | DONE | `fdab660` |
+| 12 | Publication GMB — auth Google, cron, multi-location | L | DONE | `c3f7301`, `e7c2aa8`, `e7bac29` |
+| 13 | Publication LinkedIn — OAuth, batch split, scheduling | L | DONE | `562ec01` |
+| 14 | Publication CMS (Webflow) — adapter, API, JSON-LD | L | DONE | `906755d` |
+| 15 | Avis Google — consultation, reponse, stockage DB, cron sync | L | DONE | `4c8a5de`, `ad19986`, `93ba9ad` |
+| 16 | Profil business par projet | S | DONE | `93ba9ad` |
 
-1. Calendrier editorial : grille mensuelle avec filtres
-2. Deployer sur Vercel + configurer Turso prod + domaine hub.jonlabs.ch
-3. Migration : importer les 22 contenus existants en DB
-4. Acces client : vue publique avec token + commentaires
+---
+
+## Prochaines etapes (V2+)
+
+- Responsive mobile
+- Pagination contenus
+- Hash tokens (securite)
+- Analytics / stats par projet

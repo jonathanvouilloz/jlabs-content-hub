@@ -6,7 +6,7 @@ import { pushFileToGitHub, deleteFileFromGitHub } from '$lib/server/github.js';
 import { eq } from 'drizzle-orm';
 
 export const GET: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
+	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
 	}
 

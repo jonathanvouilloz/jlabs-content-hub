@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { ChevronLeft, ChevronRight } from 'lucide-svelte';
 	import CalendarGrid from '$lib/components/CalendarGrid.svelte';
 	import ContentCard from '$lib/components/ContentCard.svelte';
 
@@ -43,41 +44,39 @@
 		if (m > 12) { m = 1; y++; }
 		applyFilter('month', `${y}-${String(m).padStart(2, '0')}`);
 	}
+
+	const selectClass = 'rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs text-surface-600 outline-none';
 </script>
 
 <div>
 	<!-- Header -->
 	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-bold text-surface-900">Calendrier</h1>
+		<h1 class="text-xl font-semibold text-surface-900">Calendrier</h1>
 		<div class="flex items-center gap-1">
 			<button
 				onclick={() => navigateMonth(-1)}
-				class="btn preset-outlined-surface-200 px-2 py-1"
+				class="rounded-md border border-surface-200 bg-white p-1.5 text-surface-500 transition-colors hover:bg-surface-50"
 				aria-label="Mois precedent"
 			>
-				<svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-					<path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" />
-				</svg>
+				<ChevronLeft size={16} />
 			</button>
-			<span class="min-w-40 text-center text-lg font-semibold capitalize text-surface-700">
+			<span class="min-w-36 text-center text-sm font-semibold capitalize text-surface-700">
 				{monthLabel}
 			</span>
 			<button
 				onclick={() => navigateMonth(1)}
-				class="btn preset-outlined-surface-200 px-2 py-1"
+				class="rounded-md border border-surface-200 bg-white p-1.5 text-surface-500 transition-colors hover:bg-surface-50"
 				aria-label="Mois suivant"
 			>
-				<svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-					<path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
-				</svg>
+				<ChevronRight size={16} />
 			</button>
 		</div>
 	</div>
 
 	<!-- Filters + View toggle -->
-	<div class="mt-4 flex flex-wrap items-center gap-3">
+	<div class="mt-4 flex flex-wrap items-center gap-2">
 		<select
-			class="input preset-outlined-surface-200 w-44 text-sm"
+			class="{selectClass} w-40"
 			value={data.filters.project ?? ''}
 			onchange={(e) => applyFilter('project', (e.target as HTMLSelectElement).value)}
 		>
@@ -88,7 +87,7 @@
 		</select>
 
 		<select
-			class="input preset-outlined-surface-200 w-40 text-sm"
+			class="{selectClass} w-32"
 			value={data.filters.type ?? ''}
 			onchange={(e) => applyFilter('type', (e.target as HTMLSelectElement).value)}
 		>
@@ -98,7 +97,7 @@
 		</select>
 
 		<select
-			class="input preset-outlined-surface-200 w-40 text-sm"
+			class="{selectClass} w-32"
 			value={data.filters.status ?? ''}
 			onchange={(e) => applyFilter('status', (e.target as HTMLSelectElement).value)}
 		>
@@ -107,18 +106,16 @@
 			{/each}
 		</select>
 
-		<div class="ml-auto flex rounded-lg border border-surface-200">
+		<div class="ml-auto flex overflow-hidden rounded-md border border-surface-200">
 			<button
 				onclick={() => (view = 'calendar')}
-				class="px-3 py-1.5 text-sm transition-colors {view === 'calendar' ? 'bg-primary-500 text-white' : 'text-surface-500 hover:bg-surface-50'}"
-				style="border-radius: 0.5rem 0 0 0.5rem;"
+				class="px-3 py-1 text-xs font-medium transition-colors {view === 'calendar' ? 'bg-surface-900 text-white' : 'bg-white text-surface-500 hover:bg-surface-50'}"
 			>
 				Calendrier
 			</button>
 			<button
 				onclick={() => (view = 'list')}
-				class="px-3 py-1.5 text-sm transition-colors {view === 'list' ? 'bg-primary-500 text-white' : 'text-surface-500 hover:bg-surface-50'}"
-				style="border-radius: 0 0.5rem 0.5rem 0;"
+				class="px-3 py-1 text-xs font-medium transition-colors {view === 'list' ? 'bg-surface-900 text-white' : 'bg-white text-surface-500 hover:bg-surface-50'}"
 			>
 				Liste
 			</button>
@@ -126,10 +123,10 @@
 	</div>
 
 	<!-- Content area -->
-	<div class="mt-6">
+	<div class="mt-4">
 		{#if data.monthContents.length === 0 && data.unplanned.length === 0}
-			<div class="rounded-lg border border-dashed border-surface-300 p-12 text-center">
-				<p class="text-surface-500">Aucun contenu pour ce mois</p>
+			<div class="rounded-lg border border-dashed border-surface-200 py-12 text-center">
+				<p class="text-sm text-surface-400">Aucun contenu pour ce mois</p>
 			</div>
 		{:else if view === 'calendar'}
 			<CalendarGrid year={data.year} month={data.month} contents={data.monthContents} />
@@ -155,10 +152,10 @@
 	<!-- Unplanned block -->
 	{#if data.unplanned.length > 0}
 		<div class="mt-8">
-			<h2 class="text-lg font-semibold text-surface-700">
-				Non planifie
-				<span class="ml-1 text-sm font-normal text-surface-400">({data.unplanned.length})</span>
-			</h2>
+			<div class="flex items-center gap-2">
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-surface-400">Non planifie</h2>
+				<span class="text-xs text-surface-300">({data.unplanned.length})</span>
+			</div>
 			<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 				{#each data.unplanned as item}
 					<ContentCard
