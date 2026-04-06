@@ -142,6 +142,21 @@ export const cmsConnections = sqliteTable('cms_connections', {
 
 // ── GMB tables ─────────────────────────────────────────────────────
 
+export const projectGmbLocations = sqliteTable(
+	'project_gmb_locations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		gmbLocationId: text('gmb_location_id').notNull(),
+		label: text('label').notNull(),
+		address: text('address'),
+		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [uniqueIndex('project_gmb_loc_unique').on(table.projectId, table.gmbLocationId)]
+);
+
 export const gmbSettings = sqliteTable('gmb_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()

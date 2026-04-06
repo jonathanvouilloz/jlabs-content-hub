@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents, comments, statusHistory, cmsConnections, linkedinSettings } from '$lib/server/db/schema.js';
+import { contents, comments, statusHistory, cmsConnections, linkedinSettings, projectGmbLocations } from '$lib/server/db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { parseFrontmatter } from '$lib/utils/content.js';
 
@@ -38,6 +38,10 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 		? !!(await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).get())
 		: false;
 
+	const gmbLocations = content.type === 'gmb'
+		? await db.select().from(projectGmbLocations).where(eq(projectGmbLocations.projectId, content.projectId))
+		: [];
+
 	return {
 		content: { ...content, body: strippedBody },
 		project,
@@ -46,6 +50,7 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 		cmsConnection: cmsConnection
 			? { cmsType: cmsConnection.cmsType, config: JSON.parse(cmsConnection.config) }
 			: null,
-		linkedinConnected
+		linkedinConnected,
+		gmbLocations
 	};
 };

@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { publishPost } from '$lib/server/gmb.js';
+import { resolveTargetLocations, publishToLocations, buildGmbPostIdMap } from '$lib/server/gmb.js';
 import { createId } from '$lib/server/utils.js';
 import type { RequestHandler } from './$types';
 
@@ -47,28 +47,40 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		return json({ error: 'Invalid GMB JSON body' }, { status: 400 });
 	}
 
-	const result = await publishPost(
-		{ id: project.id, gmbLocationId: project.gmbLocationId },
-		{
-			id: content.id,
-			title: content.title,
-			body: gmbBody.content,
-			type: gmbBody.type || 'whats_new',
-			ctaAction: gmbBody.cta?.action ?? null,
-			ctaUrl: gmbBody.cta?.url ?? null,
-			imageUrl: gmbBody.image_url ?? null,
-			eventStartDate: gmbBody.event_start_date ?? null,
-			eventEndDate: gmbBody.event_end_date ?? null
-		}
-	);
+	const meta = content.meta ? JSON.parse(content.meta) : null;
+	const locations = await resolveTargetLocations(project.id, meta);
 
-	const now = new Date().toISOString();
-	const previousStatus = content.status;
+	if (locations.length === 0) {
+		return json({ error: 'No GMB locations assigned to this project' }, { status: 400 });
+	}
 
-	if (result.success) {
+	const post = {
+		id: content.id,
+		title: content.title,
+		body: gmbBody.content,
+		type: gmbBody.type || 'whats_new',
+		ctaAction: gmbBody.cta?.action ?? null,
+		ctaUrl: gmbBody.cta?.url ?? null,
+		imageUrl: gmbBody.image_url ?? null,
+		eventStartDate: gmbBody.event_start_date ?? null,
+		eventEndDate: gmbBody.event_end_date ?? null
+	};
+
+	const { results, allSuccess } = await publishToLocations(post, locations);
+	const hasAnySuccess = results.some((r) => r.success);
+
+	if (hasAnySuccess) {
+		const now = new Date().toISOString();
+		const previousStatus = content.status;
+
 		await db
 			.update(contents)
-			.set({ status: 'published', publishedAt: now, gmbPostId: result.gmb_post_id, updatedAt: now })
+			.set({
+				status: 'published',
+				publishedAt: now,
+				gmbPostId: buildGmbPostIdMap(results),
+				updatedAt: now
+			})
 			.where(eq(contents.id, content.id));
 
 		await db.insert(statusHistory).values({
@@ -80,5 +92,5 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		});
 	}
 
-	return json(result);
+	return json({ results, allSuccess });
 };

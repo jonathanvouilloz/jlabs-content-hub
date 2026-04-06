@@ -1,18 +1,13 @@
 import { env } from '$env/dynamic/private';
 import { encrypt, decrypt } from './crypto.js';
 import { db } from './db/index.js';
-import { gmbSettings } from './db/schema.js';
+import { gmbSettings, projectGmbLocations } from './db/schema.js';
 import { eq } from 'drizzle-orm';
 
 interface Tokens {
 	access_token: string;
 	refresh_token: string;
 	expiry: string;
-}
-
-interface GmbProject {
-	id: string;
-	gmbLocationId: string | null;
 }
 
 interface GmbPost {
@@ -31,6 +26,14 @@ interface GmbLocation {
 	name: string;
 	title: string;
 	address: string;
+}
+
+interface PublishResult {
+	locationId: string;
+	label: string;
+	success: boolean;
+	gmb_post_id?: string;
+	error?: string;
 }
 
 // ── Settings helpers ───────────────────────────────────────────────
@@ -216,20 +219,85 @@ async function callGmbApi(
 }
 
 export async function publishPost(
-	project: GmbProject,
+	locationId: string,
 	post: GmbPost
 ): Promise<{ success: boolean; gmb_post_id?: string; error?: string }> {
-	if (!project.gmbLocationId) {
-		return { success: false, error: 'Project has no GMB location assigned' };
-	}
-
 	const accountTokens = await getSetting('account_tokens');
 	if (!accountTokens) {
 		return { success: false, error: 'Google account not connected' };
 	}
 
 	const tokens = await refreshAccountToken();
-	return callGmbApi(project.gmbLocationId, tokens, post);
+	return callGmbApi(locationId, tokens, post);
+}
+
+// ── Multi-location helpers ────────────────────────────────────────
+
+export async function getProjectLocations(projectId: string) {
+	return db
+		.select()
+		.from(projectGmbLocations)
+		.where(eq(projectGmbLocations.projectId, projectId));
+}
+
+export async function resolveTargetLocations(
+	projectId: string,
+	meta: { target_locations?: string[] } | null
+): Promise<typeof projectGmbLocations.$inferSelect[]> {
+	const allLocations = await getProjectLocations(projectId);
+
+	if (meta?.target_locations?.length) {
+		const targetSet = new Set(meta.target_locations);
+		return allLocations.filter((loc) => targetSet.has(loc.gmbLocationId));
+	}
+
+	return allLocations;
+}
+
+export async function publishToLocations(
+	post: GmbPost,
+	locations: { gmbLocationId: string; label: string }[]
+): Promise<{ results: PublishResult[]; allSuccess: boolean }> {
+	const results: PublishResult[] = [];
+
+	for (const loc of locations) {
+		const result = await publishPost(loc.gmbLocationId, post);
+		results.push({
+			locationId: loc.gmbLocationId,
+			label: loc.label,
+			success: result.success,
+			gmb_post_id: result.gmb_post_id,
+			error: result.error
+		});
+	}
+
+	return {
+		results,
+		allSuccess: results.every((r) => r.success)
+	};
+}
+
+/** Parse gmbPostId field — handles legacy string and new JSON map */
+export function parseGmbPostIds(raw: string | null): Record<string, string> | null {
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw);
+		if (typeof parsed === 'object' && parsed !== null) return parsed;
+	} catch {
+		/* legacy single string */
+	}
+	return { _legacy: raw };
+}
+
+/** Build gmbPostId JSON map from publish results */
+export function buildGmbPostIdMap(results: PublishResult[]): string {
+	const map: Record<string, string> = {};
+	for (const r of results) {
+		if (r.success && r.gmb_post_id) {
+			map[r.locationId] = r.gmb_post_id;
+		}
+	}
+	return JSON.stringify(map);
 }
 
 export { getSetting as getGmbSetting, setSetting as setGmbSetting };

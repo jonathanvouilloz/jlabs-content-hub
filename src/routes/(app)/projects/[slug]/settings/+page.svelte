@@ -204,29 +204,40 @@
 		invalidateAll();
 	}
 
-	// ── GMB location ────────────────────────────────────────────────
+	// ── GMB locations (multi) ────────────────────────────────────────
 	interface GmbLocation { name: string; title: string; address: string; }
-	let gmbLocations = $state<GmbLocation[]>([]);
+	let gmbAvailableLocations = $state<GmbLocation[]>([]);
 	let loadingLocations = $state(false);
 	let savingLocation = $state(false);
 
-	async function fetchLocations() {
+	async function fetchAvailableLocations() {
 		loadingLocations = true;
 		try {
 			const res = await fetch('/api/gmb/locations');
 			const json = await res.json();
-			if (json.locations) gmbLocations = json.locations;
+			if (json.locations) gmbAvailableLocations = json.locations;
 		} catch { /* ignore */ }
 		loadingLocations = false;
 	}
 
-	async function assignLocation(locationId: string) {
+	function isLocationAssigned(locationName: string): boolean {
+		return data.assignedGmbLocations.some((l: { gmbLocationId: string }) => l.gmbLocationId === locationName);
+	}
+
+	async function addLocation(loc: GmbLocation) {
 		savingLocation = true;
-		await fetch(`/api/projects/${data.project.slug}`, {
-			method: 'PUT',
+		await fetch(`/api/projects/${data.project.slug}/gmb-locations`, {
+			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ gmbLocationId: locationId || null })
+			body: JSON.stringify({ gmbLocationId: loc.name, label: loc.title, address: loc.address })
 		});
+		savingLocation = false;
+		invalidateAll();
+	}
+
+	async function removeLocation(id: string) {
+		savingLocation = true;
+		await fetch(`/api/projects/${data.project.slug}/gmb-locations/${id}`, { method: 'DELETE' });
 		savingLocation = false;
 		invalidateAll();
 	}
@@ -493,29 +504,55 @@
 					<span class="h-2 w-2 rounded-full bg-green-500"></span>
 					Connecte
 				</span>
+				<span class="text-xs text-surface-500">
+					{data.assignedGmbLocations.length} location{data.assignedGmbLocations.length !== 1 ? 's' : ''} assignee{data.assignedGmbLocations.length !== 1 ? 's' : ''}
+				</span>
+			</div>
 
-				{#if data.project.gmbLocationId}
-					<span class="text-xs text-surface-500">
-						Location : {data.project.gmbLocationId}
-					</span>
-				{/if}
+			<!-- Assigned locations -->
+			{#if data.assignedGmbLocations.length > 0}
+				<div class="mt-3 space-y-1.5">
+					<p class="text-xs font-medium text-surface-500">Locations assignees</p>
+					{#each data.assignedGmbLocations as loc}
+						<div class="flex items-center justify-between rounded-md border border-primary-200 bg-primary-50 px-3 py-2">
+							<div>
+								<span class="text-sm font-medium text-surface-900">{loc.label}</span>
+								{#if loc.address}
+									<span class="ml-2 text-xs text-surface-400">{loc.address}</span>
+								{/if}
+							</div>
+							<button
+								onclick={() => removeLocation(loc.id)}
+								class="text-xs text-red-400 hover:text-red-600"
+								disabled={savingLocation}
+							>
+								Retirer
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
 
+			<!-- Add locations -->
+			<div class="mt-3">
 				<button
-					onclick={fetchLocations}
+					onclick={fetchAvailableLocations}
 					class="btn preset-outlined-surface-200 text-xs"
 					disabled={loadingLocations}
 				>
-					{loadingLocations ? 'Chargement...' : data.project.gmbLocationId ? 'Changer la location' : 'Assigner une location'}
+					{loadingLocations ? 'Chargement...' : 'Ajouter une location'}
 				</button>
 			</div>
 
-			{#if gmbLocations.length > 0}
-				<div class="mt-3 space-y-1.5">
-					{#each gmbLocations as loc}
+			{#if gmbAvailableLocations.length > 0}
+				<div class="mt-2 space-y-1.5">
+					<p class="text-xs font-medium text-surface-500">Locations disponibles</p>
+					{#each gmbAvailableLocations as loc}
+						{@const assigned = isLocationAssigned(loc.name)}
 						<button
-							onclick={() => assignLocation(loc.name)}
-							class="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-surface-50 {data.project.gmbLocationId === loc.name ? 'border-primary-500 bg-primary-50' : 'border-surface-200'}"
-							disabled={savingLocation}
+							onclick={() => addLocation(loc)}
+							class="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors {assigned ? 'border-surface-100 bg-surface-50 opacity-50' : 'border-surface-200 hover:bg-surface-50'}"
+							disabled={savingLocation || assigned}
 						>
 							<div>
 								<span class="font-medium text-surface-900">{loc.title}</span>
@@ -523,8 +560,10 @@
 									<span class="ml-2 text-xs text-surface-400">{loc.address}</span>
 								{/if}
 							</div>
-							{#if data.project.gmbLocationId === loc.name}
-								<span class="text-xs text-primary-600">Actif</span>
+							{#if assigned}
+								<span class="text-xs text-surface-400">Deja assignee</span>
+							{:else}
+								<span class="text-xs text-primary-600">Ajouter</span>
 							{/if}
 						</button>
 					{/each}

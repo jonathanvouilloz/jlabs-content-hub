@@ -48,13 +48,35 @@
 		invalidateAll();
 	}
 
-	// GMB publish
+	// GMB publish + location targeting
 	let publishing = $state(false);
+	let gmbPublishResults = $state<{ locationId: string; label: string; success: boolean; error?: string }[]>([]);
+
+	// Parse target_locations from meta
+	let gmbTargetLocations = $derived(() => {
+		const meta = parsedMeta();
+		if (meta?.target_locations?.length) return meta.target_locations as string[];
+		return null; // null = all locations
+	});
+
+	// Parse published post IDs (supports legacy string + JSON map)
+	let gmbPublishedMap = $derived(() => {
+		const raw = data.content.gmbPostId;
+		if (!raw) return null;
+		try {
+			const parsed = JSON.parse(raw);
+			if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, string>;
+		} catch { /* legacy single string */ }
+		return { _legacy: raw } as Record<string, string>;
+	});
 
 	async function publishGmbNow() {
 		publishing = true;
+		gmbPublishResults = [];
 		try {
-			await fetch(`/api/gmb/publish/${data.content.id}`, { method: 'POST' });
+			const res = await fetch(`/api/gmb/publish/${data.content.id}`, { method: 'POST' });
+			const json = await res.json();
+			if (json.results) gmbPublishResults = json.results;
 			invalidateAll();
 		} catch { /* ignore */ }
 		publishing = false;
@@ -436,7 +458,7 @@
 						<button
 							onclick={publishGmbNow}
 							class="btn preset-filled-primary-500 shrink-0 text-xs"
-							disabled={publishing}
+							disabled={publishing || data.gmbLocations.length === 0}
 						>
 							{publishing ? 'Publication...' : 'Publier maintenant'}
 						</button>
@@ -445,6 +467,75 @@
 					{/if}
 				</div>
 			</div>
+
+			<!-- Location targeting -->
+			{#if data.gmbLocations.length > 0}
+				<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
+					<h3 class="text-xs font-semibold text-surface-600">Locations cibles</h3>
+					<div class="mt-2 flex flex-wrap gap-1.5">
+						{#if gmbTargetLocations() === null}
+							<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
+								Toutes les locations ({data.gmbLocations.length})
+							</span>
+						{:else}
+							{#each data.gmbLocations as loc}
+								{#if gmbTargetLocations()?.includes(loc.gmbLocationId)}
+									<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
+										{loc.label}
+									</span>
+								{/if}
+							{/each}
+						{/if}
+					</div>
+
+					<!-- Published status per location -->
+					{#if data.content.status === 'published' && gmbPublishedMap()}
+						<div class="mt-3 space-y-1">
+							<p class="text-xs font-medium text-surface-500">Statut par location</p>
+							{#each data.gmbLocations as loc}
+								{@const postId = gmbPublishedMap()?.[loc.gmbLocationId]}
+								<div class="flex items-center gap-2 text-xs">
+									{#if postId}
+										<span class="h-2 w-2 rounded-full bg-green-500"></span>
+										<span class="text-surface-700">{loc.label}</span>
+										<span class="text-surface-400">Publie</span>
+									{:else if gmbTargetLocations() === null || gmbTargetLocations()?.includes(loc.gmbLocationId)}
+										<span class="h-2 w-2 rounded-full bg-red-400"></span>
+										<span class="text-surface-700">{loc.label}</span>
+										<span class="text-red-400">Non publie</span>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{:else if data.content.type === 'gmb'}
+				<div class="mt-4 rounded-md bg-amber-50 px-4 py-3 text-xs text-amber-700">
+					Aucune location GMB assignee a ce projet. Configurez les locations dans les parametres du projet.
+				</div>
+			{/if}
+
+			<!-- Publish results (after clicking publish) -->
+			{#if gmbPublishResults.length > 0}
+				<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
+					<h3 class="text-xs font-semibold text-surface-600">Resultats de publication</h3>
+					<div class="mt-2 space-y-1">
+						{#each gmbPublishResults as r}
+							<div class="flex items-center gap-2 text-xs">
+								{#if r.success}
+									<span class="h-2 w-2 rounded-full bg-green-500"></span>
+									<span class="text-surface-700">{r.label}</span>
+									<span class="text-green-600">OK</span>
+								{:else}
+									<span class="h-2 w-2 rounded-full bg-red-500"></span>
+									<span class="text-surface-700">{r.label}</span>
+									<span class="text-red-500">{r.error ?? 'Echec'}</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Raw JSON (collapsible) -->
 			<details class="mt-4">

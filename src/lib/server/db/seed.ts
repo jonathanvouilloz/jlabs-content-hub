@@ -1,5 +1,6 @@
 import { db } from './index.js';
-import { contentTypes } from './schema.js';
+import { contentTypes, projects, projectGmbLocations } from './schema.js';
+import { isNotNull } from 'drizzle-orm';
 import { createId } from '../utils.js';
 
 const SEED_TYPES = [
@@ -15,4 +16,28 @@ export async function seedContentTypes(): Promise<void> {
 			.values({ id: createId(), ...type })
 			.onConflictDoNothing();
 	}
+}
+
+/** Migrate legacy projects.gmbLocationId → project_gmb_locations table */
+export async function migrateGmbLocations(): Promise<number> {
+	const rows = await db
+		.select({ id: projects.id, name: projects.name, gmbLocationId: projects.gmbLocationId })
+		.from(projects)
+		.where(isNotNull(projects.gmbLocationId));
+
+	let migrated = 0;
+	for (const row of rows) {
+		if (!row.gmbLocationId) continue;
+		await db
+			.insert(projectGmbLocations)
+			.values({
+				id: createId(),
+				projectId: row.id,
+				gmbLocationId: row.gmbLocationId,
+				label: row.name
+			})
+			.onConflictDoNothing();
+		migrated++;
+	}
+	return migrated;
 }
