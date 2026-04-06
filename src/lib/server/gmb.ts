@@ -1,8 +1,9 @@
 import { env } from '$env/dynamic/private';
 import { encrypt, decrypt } from './crypto.js';
 import { db } from './db/index.js';
-import { gmbSettings, projectGmbLocations } from './db/schema.js';
+import { gmbSettings, projectGmbLocations, gmbReviews } from './db/schema.js';
 import { eq } from 'drizzle-orm';
+import { createId } from './utils.js';
 
 interface Tokens {
 	access_token: string;
@@ -406,6 +407,36 @@ export async function replyToReview(
 	}
 
 	return { success: true };
+}
+
+export async function syncProjectReviews(projectId: string): Promise<number> {
+	const reviews = await fetchProjectReviews(projectId);
+	let synced = 0;
+
+	for (const r of reviews) {
+		const result = await db
+			.insert(gmbReviews)
+			.values({
+				id: createId(),
+				projectId,
+				locationId: r.locationId,
+				locationLabel: r.locationLabel,
+				reviewId: r.reviewId,
+				authorName: r.authorName,
+				rating: r.rating,
+				comment: r.comment,
+				createTime: r.createTime
+			})
+			.onConflictDoNothing();
+
+		if (result.rowsAffected > 0) synced++;
+	}
+
+	return synced;
+}
+
+export async function deleteReviewFromDb(reviewId: string): Promise<void> {
+	await db.delete(gmbReviews).where(eq(gmbReviews.reviewId, reviewId));
 }
 
 /** Parse gmbPostId field — handles legacy string and new JSON map */

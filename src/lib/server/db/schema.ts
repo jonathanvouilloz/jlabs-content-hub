@@ -157,6 +157,21 @@ export const projectGmbLocations = sqliteTable(
 	(table) => [uniqueIndex('project_gmb_loc_unique').on(table.projectId, table.gmbLocationId)]
 );
 
+export const gmbReviews = sqliteTable('gmb_reviews', {
+	id: text('id').primaryKey(),
+	projectId: text('project_id')
+		.notNull()
+		.references(() => projects.id),
+	locationId: text('location_id').notNull(),
+	locationLabel: text('location_label').notNull(),
+	reviewId: text('review_id').notNull().unique(),
+	authorName: text('author_name').notNull(),
+	rating: integer('rating').notNull(),
+	comment: text('comment').notNull().default(''),
+	createTime: text('create_time').notNull(),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+});
+
 export const gmbSettings = sqliteTable('gmb_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
