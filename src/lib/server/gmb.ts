@@ -277,6 +277,137 @@ export async function publishToLocations(
 	};
 }
 
+// ── Reviews ───────────────────────────────────────────────────────
+
+export interface GmbReview {
+	reviewId: string;
+	locationId: string;
+	locationLabel: string;
+	authorName: string;
+	rating: number;
+	comment: string;
+	createTime: string;
+	reply: string | null;
+	replyTime: string | null;
+}
+
+export async function fetchLocationReviews(
+	locationId: string,
+	tokens: Tokens,
+	isRetry = false
+): Promise<GmbReview[]> {
+	const rawAccountId = await getSetting('account_id');
+	const accountId = rawAccountId?.replace(/^accounts\//, '') ?? '';
+	const locId = locationId.replace(/^locations\//, '');
+
+	const reviews: GmbReview[] = [];
+	let pageToken: string | undefined;
+
+	do {
+		const params = new URLSearchParams({ pageSize: '50' });
+		if (pageToken) params.set('pageToken', pageToken);
+
+		const url = `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locId}/reviews?${params}`;
+		const res = await fetch(url, {
+			headers: { Authorization: `Bearer ${tokens.access_token}` }
+		});
+
+		if (res.status === 401 && !isRetry) {
+			const newTokens = await refreshAccountToken();
+			return fetchLocationReviews(locationId, newTokens, true);
+		}
+
+		if (!res.ok) {
+			const text = await res.text();
+			throw new Error(`Fetch reviews failed: ${res.status} ${text}`);
+		}
+
+		const data = await res.json();
+		if (data.reviews) {
+			for (const r of data.reviews) {
+				reviews.push({
+					reviewId: r.name || r.reviewId,
+					locationId,
+					locationLabel: '',
+					authorName: r.reviewer?.displayName || 'Anonyme',
+					rating: r.starRating ? starRatingToNumber(r.starRating) : 0,
+					comment: r.comment || '',
+					createTime: r.createTime || '',
+					reply: r.reviewReply?.comment || null,
+					replyTime: r.reviewReply?.updateTime || null
+				});
+			}
+		}
+
+		pageToken = data.nextPageToken;
+	} while (pageToken);
+
+	return reviews;
+}
+
+function starRatingToNumber(rating: string): number {
+	const map: Record<string, number> = {
+		ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5
+	};
+	return map[rating] ?? 0;
+}
+
+export async function fetchProjectReviews(
+	projectId: string,
+	maxAgeDays = 30
+): Promise<GmbReview[]> {
+	const tokens = await refreshAccountToken();
+	const locations = await getProjectLocations(projectId);
+
+	const cutoff = new Date();
+	cutoff.setDate(cutoff.getDate() - maxAgeDays);
+
+	const allReviews: GmbReview[] = [];
+
+	for (const loc of locations) {
+		const reviews = await fetchLocationReviews(loc.gmbLocationId, tokens);
+		for (const r of reviews) {
+			r.locationLabel = loc.label;
+		}
+		allReviews.push(...reviews);
+	}
+
+	return allReviews
+		.filter((r) => !r.reply && new Date(r.createTime) >= cutoff)
+		.sort((a, b) => new Date(b.createTime).getTime() - new Date(a.createTime).getTime());
+}
+
+export async function replyToReview(
+	locationId: string,
+	reviewId: string,
+	replyBody: string
+): Promise<{ success: boolean; error?: string }> {
+	const tokens = await refreshAccountToken();
+	const rawAccountId = await getSetting('account_id');
+	const accountId = rawAccountId?.replace(/^accounts\//, '') ?? '';
+	const locId = locationId.replace(/^locations\//, '');
+
+	// reviewId can be full path or just the ID
+	const revId = reviewId.includes('/') ? reviewId.split('/').pop() : reviewId;
+
+	const url = `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locId}/reviews/${revId}/reply`;
+	const res = await fetch(url, {
+		method: 'PUT',
+		headers: {
+			Authorization: `Bearer ${tokens.access_token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ comment: replyBody })
+	});
+
+	if (!res.ok) {
+		const text = await res.text();
+		return { success: false, error: `Reply failed: ${res.status} ${text}` };
+	}
+
+	return { success: true };
+}
+
 /** Parse gmbPostId field — handles legacy string and new JSON map */
 export function parseGmbPostIds(raw: string | null): Record<string, string> | null {
 	if (!raw) return null;

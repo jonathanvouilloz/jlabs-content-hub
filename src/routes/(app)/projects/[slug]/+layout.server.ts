@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { projects, cmsConnections, gmbSettings, linkedinSettings } from '$lib/server/db/schema.js';
+import { projects, cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 
 export const load: LayoutServerLoad = async ({ params }) => {
@@ -25,6 +25,12 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.where(eq(gmbSettings.key, 'account_tokens'))
 		.get();
 
+	// Check GMB locations assigned
+	const gmbLocations = await db
+		.select()
+		.from(projectGmbLocations)
+		.where(eq(projectGmbLocations.projectId, project.id));
+
 	// Check LinkedIn connection (global account tokens)
 	const linkedinTokens = await db
 		.select()
@@ -37,8 +43,8 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		connections: {
 			cms: !!cmsConnection,
 			cmsType: cmsConnection?.cmsType ?? null,
-			gmb: !!gmbTokens,
-			gmbLocation: !!project.gmbLocationId,
+			gmb: !!gmbTokens && gmbLocations.length > 0,
+			gmbLocation: gmbLocations.length > 0,
 			linkedin: !!linkedinTokens
 		}
 	};

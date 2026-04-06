@@ -7,7 +7,8 @@
 		{ href: `/projects/${data.project.slug}`, label: 'Dashboard', icon: 'grid', connection: null },
 		{ href: `/projects/${data.project.slug}/articles`, label: 'Articles', icon: 'document', connection: null },
 		{ href: `/projects/${data.project.slug}/linkedin`, label: 'LinkedIn', icon: 'linkedin', connection: 'linkedin' as const },
-		{ href: `/projects/${data.project.slug}/gmb`, label: 'GMB', icon: 'gmb', connection: 'gmb' as const }
+		{ href: `/projects/${data.project.slug}/gmb`, label: 'GMB', icon: 'gmb', connection: 'gmb' as const },
+		{ href: `/projects/${data.project.slug}/reviews`, label: 'Avis', icon: 'star', connection: 'gmb' as const }
 	];
 
 	function isActive(href: string): boolean {
@@ -67,6 +68,8 @@
 						<svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
 					{:else if item.icon === 'gmb'}
 						<svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="currentColor"/><circle cx="12" cy="9" r="2.5" fill="white"/></svg>
+					{:else if item.icon === 'star'}
+						<svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
 					{/if}
 
 					<span class="flex-1 truncate">{item.label}</span>
