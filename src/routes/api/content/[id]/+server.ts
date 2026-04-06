@@ -19,7 +19,7 @@ export const GET: RequestHandler = async (event) => {
 };
 
 export const PUT: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
+	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
 	}
 

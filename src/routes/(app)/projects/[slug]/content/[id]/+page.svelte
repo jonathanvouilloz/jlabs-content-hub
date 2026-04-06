@@ -70,6 +70,68 @@
 		return { _legacy: raw } as Record<string, string>;
 	});
 
+	// Editable location targeting
+	let targetAll = $state(true);
+	let selectedLocations = $state<Set<string>>(new Set());
+	let savingTarget = $state(false);
+
+	$effect(() => {
+		const targets = gmbTargetLocations();
+		if (targets) {
+			targetAll = false;
+			selectedLocations = new Set(targets);
+		} else {
+			targetAll = true;
+			selectedLocations = new Set();
+		}
+	});
+
+	function toggleAll() {
+		targetAll = true;
+		selectedLocations = new Set();
+	}
+
+	function toggleLocation(locId: string) {
+		targetAll = false;
+		const next = new Set(selectedLocations);
+		if (next.has(locId)) {
+			next.delete(locId);
+			if (next.size === 0) targetAll = true;
+		} else {
+			next.add(locId);
+		}
+		selectedLocations = next;
+	}
+
+	function hasTargetChanged(): boolean {
+		const current = gmbTargetLocations();
+		if (targetAll && current === null) return false;
+		if (targetAll && current !== null) return true;
+		if (!targetAll && current === null) return true;
+		if (!current) return true;
+		if (selectedLocations.size !== current.length) return true;
+		return !current.every((id: string) => selectedLocations.has(id));
+	}
+
+	async function saveTargetLocations() {
+		savingTarget = true;
+		const currentMeta = parsedMeta() || {};
+		let newMeta: Record<string, unknown>;
+		if (targetAll) {
+			const { target_locations: _, ...rest } = currentMeta;
+			newMeta = rest;
+		} else {
+			newMeta = { ...currentMeta, target_locations: [...selectedLocations] };
+		}
+		await fetch(`/api/content/${data.content.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ meta: Object.keys(newMeta).length > 0 ? newMeta : null })
+		});
+		savingTarget = false;
+		invalidateAll();
+	}
+
 	async function publishGmbNow() {
 		publishing = true;
 		gmbPublishResults = [];
@@ -472,41 +534,87 @@
 			{#if data.gmbLocations.length > 0}
 				<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
 					<h3 class="text-xs font-semibold text-surface-600">Locations cibles</h3>
-					<div class="mt-2 flex flex-wrap gap-1.5">
-						{#if gmbTargetLocations() === null}
-							<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
-								Toutes les locations ({data.gmbLocations.length})
-							</span>
-						{:else}
-							{#each data.gmbLocations as loc}
-								{#if gmbTargetLocations()?.includes(loc.gmbLocationId)}
-									<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
-										{loc.label}
-									</span>
-								{/if}
-							{/each}
-						{/if}
-					</div>
 
-					<!-- Published status per location -->
-					{#if data.content.status === 'published' && gmbPublishedMap()}
-						<div class="mt-3 space-y-1">
-							<p class="text-xs font-medium text-surface-500">Statut par location</p>
-							{#each data.gmbLocations as loc}
-								{@const postId = gmbPublishedMap()?.[loc.gmbLocationId]}
-								<div class="flex items-center gap-2 text-xs">
-									{#if postId}
-										<span class="h-2 w-2 rounded-full bg-green-500"></span>
-										<span class="text-surface-700">{loc.label}</span>
-										<span class="text-surface-400">Publie</span>
-									{:else if gmbTargetLocations() === null || gmbTargetLocations()?.includes(loc.gmbLocationId)}
-										<span class="h-2 w-2 rounded-full bg-red-400"></span>
-										<span class="text-surface-700">{loc.label}</span>
-										<span class="text-red-400">Non publie</span>
+					{#if data.content.status === 'published'}
+						<!-- Read-only after publication -->
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#if gmbTargetLocations() === null}
+								<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
+									Toutes les locations ({data.gmbLocations.length})
+								</span>
+							{:else}
+								{#each data.gmbLocations as loc}
+									{#if gmbTargetLocations()?.includes(loc.gmbLocationId)}
+										<span class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
+											{loc.label}
+										</span>
 									{/if}
-								</div>
-							{/each}
+								{/each}
+							{/if}
 						</div>
+
+						{#if gmbPublishedMap()}
+							<div class="mt-3 space-y-1">
+								<p class="text-xs font-medium text-surface-500">Statut par location</p>
+								{#each data.gmbLocations as loc}
+									{@const postId = gmbPublishedMap()?.[loc.gmbLocationId]}
+									<div class="flex items-center gap-2 text-xs">
+										{#if postId}
+											<span class="h-2 w-2 rounded-full bg-green-500"></span>
+											<span class="text-surface-700">{loc.label}</span>
+											<span class="text-surface-400">Publie</span>
+										{:else if gmbTargetLocations() === null || gmbTargetLocations()?.includes(loc.gmbLocationId)}
+											<span class="h-2 w-2 rounded-full bg-red-400"></span>
+											<span class="text-surface-700">{loc.label}</span>
+											<span class="text-red-400">Non publie</span>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+					{:else}
+						<!-- Editable before publication -->
+						<div class="mt-2 space-y-1.5">
+							<label class="flex items-center gap-2 cursor-pointer">
+								<input
+									type="checkbox"
+									checked={targetAll}
+									onchange={toggleAll}
+									class="rounded border-surface-300"
+								/>
+								<span class="text-sm text-surface-700 font-medium">Toutes les locations ({data.gmbLocations.length})</span>
+							</label>
+
+							<div class="ml-1 border-l-2 border-surface-100 pl-4 space-y-1">
+								{#each data.gmbLocations as loc}
+									<label class="flex items-center gap-2 cursor-pointer">
+										<input
+											type="checkbox"
+											checked={targetAll || selectedLocations.has(loc.gmbLocationId)}
+											disabled={targetAll}
+											onchange={() => toggleLocation(loc.gmbLocationId)}
+											class="rounded border-surface-300"
+										/>
+										<span class="text-sm {targetAll ? 'text-surface-400' : 'text-surface-700'}">{loc.label}</span>
+										{#if loc.address}
+											<span class="text-xs text-surface-400">{loc.address}</span>
+										{/if}
+									</label>
+								{/each}
+							</div>
+						</div>
+
+						{#if hasTargetChanged()}
+							<div class="mt-3">
+								<button
+									onclick={saveTargetLocations}
+									class="btn preset-filled-primary-500 text-xs"
+									disabled={savingTarget}
+								>
+									{savingTarget ? 'Sauvegarde...' : 'Sauvegarder le ciblage'}
+								</button>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{:else if data.content.type === 'gmb'}
