@@ -78,6 +78,24 @@
 		return buildFinalText(fakePost, selectedHook, customHook);
 	});
 
+	let updatingStatus = $state(false);
+	async function changeStatus(newStatus: string) {
+		if (!content || updatingStatus) return;
+		updatingStatus = true;
+		try {
+			const res = await fetch(`/api/content/${contentId}/status`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status: newStatus })
+			});
+			if (res.ok) {
+				content = { ...content, status: newStatus };
+			}
+		} finally {
+			updatingStatus = false;
+		}
+	}
+
 	async function copyImagePrompt() {
 		const prompt = linkedinMeta()?.imagePrompt;
 		if (!prompt) return;
@@ -202,7 +220,7 @@
 		{#if content}
 			<div class="flex items-center gap-2 min-w-0">
 				<span class="text-xs text-surface-400">{contentTypeConfig(content.type as string).label}</span>
-				<StatusBadge status={content.status as string} />
+				<StatusBadge status={content.status as string} interactive onchange={changeStatus} />
 			</div>
 		{:else}
 			<span></span>
