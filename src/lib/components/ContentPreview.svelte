@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { X, ExternalLink, Copy, Eye } from 'lucide-svelte';
+	import { X, ExternalLink, Copy, Eye, Send } from 'lucide-svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import { renderMarkdown } from '$lib/utils/content.js';
 	import { formatDate } from '$lib/utils/dates.js';
@@ -77,6 +77,28 @@
 		};
 		return buildFinalText(fakePost, selectedHook, customHook);
 	});
+
+	let publishingGmb = $state(false);
+	let publishGmbFeedback = $state('');
+	async function publishGmbNow() {
+		if (!content || publishingGmb) return;
+		publishingGmb = true;
+		publishGmbFeedback = '';
+		try {
+			const res = await fetch(`/api/gmb/publish/${contentId}`, { method: 'POST' });
+			const json = await res.json().catch(() => ({}));
+			if (res.ok) {
+				publishGmbFeedback = 'Publié';
+				content = { ...content, status: 'published' };
+			} else {
+				publishGmbFeedback = json?.error || 'Erreur';
+			}
+		} catch {
+			publishGmbFeedback = 'Erreur';
+		}
+		publishingGmb = false;
+		setTimeout(() => { publishGmbFeedback = ''; }, 3000);
+	}
 
 	let updatingStatus = $state(false);
 	async function changeStatus(newStatus: string) {
@@ -226,6 +248,17 @@
 			<span></span>
 		{/if}
 		<div class="flex items-center gap-1 flex-shrink-0">
+			{#if content && content.type === 'gmb' && content.status !== 'published'}
+				<button
+					onclick={publishGmbNow}
+					disabled={publishingGmb}
+					class="inline-flex items-center gap-1 rounded border border-primary-200 bg-primary-50 px-2 py-1 text-[11px] font-medium text-primary-700 transition-colors hover:bg-primary-100 disabled:opacity-50"
+					title="Publier maintenant sur Google My Business"
+				>
+					<Send size={12} />
+					{publishingGmb ? 'Publication...' : (publishGmbFeedback || 'Publier')}
+				</button>
+			{/if}
 			<a
 				href="/projects/{projectSlug}/content/{contentId}"
 				class="rounded p-1 text-surface-400 transition-colors hover:bg-surface-50 hover:text-surface-700"

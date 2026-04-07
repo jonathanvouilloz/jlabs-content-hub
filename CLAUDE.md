@@ -83,6 +83,8 @@ Tables application :
 
 Statuts : draft → review → approved → published
 
+**Format GMB canonique :** `POST /api/content` avec `type=gmb` accepte soit un post unique JSON, soit un tableau de posts (calendrier mensuel). Si c'est un tableau, le hub crée automatiquement 1 row par post (meme logique que le split LinkedIn). C'est le format produit par le skill `/gmb-generate`.
+
 ## API Auth (3 mecanismes)
 
 1. **API Key** (Claude Code → Hub) : `Authorization: Bearer {API_KEY}`

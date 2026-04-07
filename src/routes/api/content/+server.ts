@@ -148,6 +148,65 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
+	// Auto-split GMB calendar (array of posts) into individual posts
+	if (type === 'gmb') {
+		let parsed: unknown = null;
+		try { parsed = JSON.parse(content); } catch { /* not JSON, skip */ }
+		if (Array.isArray(parsed) && parsed.length > 0) {
+			const posts = parsed as Array<Record<string, unknown>>;
+			const createdIds: string[] = [];
+			const usedSlugs = new Set<string>();
+
+			for (let i = 0; i < posts.length; i++) {
+				const post = posts[i];
+				const postId = createId();
+				const rawTitle = (post.title as string | undefined) ?? `Post ${i + 1}`;
+				let postSlug = `${slug}-${slugify(rawTitle)}`;
+				if (usedSlugs.has(postSlug)) postSlug = `${slug}-${i + 1}`;
+				usedSlugs.add(postSlug);
+
+				const postBody = JSON.stringify(post);
+				const scheduledAt = (post.scheduled_at as string | undefined) ?? null;
+				const postMeta = JSON.stringify({
+					image_template: post.image_template ?? null,
+					image_style: post.image_style ?? null,
+					image_text: post.image_text ?? null,
+					image_prompt: post.image_prompt ?? null
+				});
+
+				await db.insert(contents).values({
+					id: postId,
+					projectId: project.id,
+					type: 'gmb',
+					title: rawTitle,
+					slug: postSlug,
+					body: postBody,
+					status: 'draft',
+					plannedDate: scheduledAt ?? planned_date ?? null,
+					meta: postMeta,
+					githubSynced: false,
+					githubPath
+				});
+
+				await db.insert(statusHistory).values({
+					id: createId(),
+					contentId: postId,
+					fromStatus: null,
+					toStatus: 'draft',
+					changedBy: 'api'
+				});
+
+				createdIds.push(postId);
+			}
+
+			// Delete the original batch row (kept on GitHub as backup via pushFileToGitHub above)
+			await db.delete(statusHistory).where(eq(statusHistory.contentId, id));
+			await db.delete(contents).where(eq(contents.id, id));
+
+			return jsonResponse({ ids: createdIds, split: true, count: createdIds.length }, 201);
+		}
+	}
+
 	return jsonResponse({ id, slug, github_path: githubPath }, existing ? 200 : 201);
 };
 
