@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { X, ExternalLink } from 'lucide-svelte';
+	import { X, ExternalLink, Copy, Eye } from 'lucide-svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import { renderMarkdown } from '$lib/utils/content.js';
 	import { formatDate } from '$lib/utils/dates.js';
 	import { contentTypeConfig } from '$lib/config/design-tokens.js';
+	import { buildFinalText } from '$lib/utils/linkedin.js';
 
 	interface Props {
 		contentId: string;
@@ -33,8 +34,62 @@
 	}
 
 	$effect(() => {
-		if (contentId) fetchContent(contentId);
+		if (contentId) {
+			fetchContent(contentId);
+			selectedHook = 'main';
+			customHook = '';
+			imagePromptModalOpen = false;
+		}
 	});
+
+	// LinkedIn hook selector state
+	let selectedHook = $state<'main' | 'A' | 'B' | 'custom'>('main');
+	let customHook = $state('');
+	let imagePromptModalOpen = $state(false);
+	let copyFeedback = $state('');
+
+	interface LinkedinMeta {
+		hooks: { main: string; A: string; B: string };
+		strategy?: string;
+		articleUrl?: string;
+		imagePrompt?: string | null;
+	}
+
+	let linkedinMeta = $derived(() => {
+		if (content?.type !== 'linkedin') return null;
+		const m = meta();
+		if (!m || typeof m !== 'object' || !('hooks' in m)) return null;
+		return m as LinkedinMeta;
+	});
+
+	let linkedinPreview = $derived(() => {
+		const m = linkedinMeta();
+		if (!m) return '';
+		const fakePost = {
+			day: '',
+			emoji: '',
+			title: '',
+			mainHook: m.hooks.main,
+			hookA: m.hooks.A,
+			hookB: m.hooks.B,
+			strategy: '',
+			articleUrl: undefined
+		};
+		return buildFinalText(fakePost, selectedHook, customHook);
+	});
+
+	async function copyImagePrompt() {
+		const prompt = linkedinMeta()?.imagePrompt;
+		if (!prompt) return;
+		try {
+			await navigator.clipboard.writeText(prompt);
+			copyFeedback = 'Copié !';
+			setTimeout(() => { copyFeedback = ''; }, 2000);
+		} catch {
+			copyFeedback = 'Erreur';
+			setTimeout(() => { copyFeedback = ''; }, 2000);
+		}
+	}
 
 	// Strip frontmatter with regex (gray-matter needs Node.js, won't run in browser)
 	function stripFrontmatter(raw: string): { meta: Record<string, unknown>; body: string } {
@@ -285,8 +340,8 @@
 				</div>
 			{/if}
 
-			<!-- Meta JSON (for non-article content with meta) -->
-			{#if meta() && content.type !== 'article'}
+			<!-- Meta JSON (for non-article, non-linkedin content with meta) -->
+			{#if meta() && content.type !== 'article' && content.type !== 'linkedin'}
 				<details class="mt-4">
 					<summary class="cursor-pointer text-xs font-medium text-surface-500">Metadonnees</summary>
 					<pre class="mt-1 rounded-md bg-surface-50 p-3 text-[10px] overflow-auto max-h-40">{JSON.stringify(meta(), null, 2)}</pre>
@@ -315,6 +370,88 @@
 							</a>
 						{/if}
 					</div>
+				{:else if content.type === 'linkedin' && linkedinMeta()}
+					{@const lm = linkedinMeta()!}
+					<div class="space-y-3">
+						{#if lm.strategy}
+							<p class="text-xs italic text-surface-400">{lm.strategy}</p>
+						{/if}
+						{#if lm.articleUrl}
+							<a href={lm.articleUrl} target="_blank" rel="noopener" class="block text-xs text-primary-600 hover:underline">Article lié →</a>
+						{/if}
+
+						<!-- Hook selector -->
+						<div>
+							<p class="mb-1.5 text-xs font-medium text-surface-600">Accroche</p>
+							<div class="space-y-1">
+								<label class="flex items-start gap-2 cursor-pointer rounded p-1 hover:bg-surface-50">
+									<input type="radio" value="main" bind:group={selectedHook} class="mt-0.5" />
+									<div class="min-w-0 flex-1">
+										<span class="text-[11px] font-medium text-surface-700">Principale</span>
+										<p class="text-[11px] text-surface-500 line-clamp-1">{lm.hooks.main.split('\n')[0]}</p>
+									</div>
+								</label>
+								{#if lm.hooks.A}
+									<label class="flex items-start gap-2 cursor-pointer rounded p-1 hover:bg-surface-50">
+										<input type="radio" value="A" bind:group={selectedHook} class="mt-0.5" />
+										<div class="min-w-0 flex-1">
+											<span class="text-[11px] font-medium text-surface-700">Alternative A</span>
+											<p class="text-[11px] text-surface-500 line-clamp-1">{lm.hooks.A}</p>
+										</div>
+									</label>
+								{/if}
+								{#if lm.hooks.B}
+									<label class="flex items-start gap-2 cursor-pointer rounded p-1 hover:bg-surface-50">
+										<input type="radio" value="B" bind:group={selectedHook} class="mt-0.5" />
+										<div class="min-w-0 flex-1">
+											<span class="text-[11px] font-medium text-surface-700">Alternative B</span>
+											<p class="text-[11px] text-surface-500 line-clamp-1">{lm.hooks.B}</p>
+										</div>
+									</label>
+								{/if}
+								<label class="flex items-start gap-2 cursor-pointer rounded p-1 hover:bg-surface-50">
+									<input type="radio" value="custom" bind:group={selectedHook} class="mt-0.5" />
+									<span class="text-[11px] font-medium text-surface-700">Personnalisée</span>
+								</label>
+								{#if selectedHook === 'custom'}
+									<textarea
+										bind:value={customHook}
+										placeholder="Écris ton accroche..."
+										class="w-full rounded border border-surface-200 p-2 text-xs"
+										rows="2"
+									></textarea>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Final post preview -->
+						<div>
+							<p class="mb-1.5 text-xs font-medium text-surface-600">Aperçu du post</p>
+							<div class="rounded-md border border-surface-100 bg-surface-50 p-3 text-xs leading-relaxed text-surface-700 whitespace-pre-wrap max-h-[40vh] overflow-y-auto">
+								{linkedinPreview()}
+							</div>
+						</div>
+
+						<!-- Image prompt actions -->
+						{#if lm.imagePrompt}
+							<div class="flex items-center gap-2 border-t border-surface-100 pt-3">
+								<button
+									onclick={copyImagePrompt}
+									class="inline-flex items-center gap-1.5 rounded border border-surface-200 bg-white px-2.5 py-1 text-[11px] font-medium text-surface-700 hover:bg-surface-50"
+								>
+									<Copy size={12} />
+									{copyFeedback || 'Copier prompt image'}
+								</button>
+								<button
+									onclick={() => imagePromptModalOpen = true}
+									class="inline-flex items-center gap-1.5 rounded border border-surface-200 bg-white px-2.5 py-1 text-[11px] font-medium text-surface-700 hover:bg-surface-50"
+								>
+									<Eye size={12} />
+									Voir prompt
+								</button>
+							</div>
+						{/if}
+					</div>
 				{:else if content.type === 'linkedin'}
 					<div class="rounded-md bg-surface-50 p-4 text-sm leading-relaxed text-surface-700 whitespace-pre-wrap max-h-[50vh] overflow-y-auto">
 						{content.body}
@@ -330,3 +467,40 @@
 		{/if}
 	</div>
 </div>
+
+{#if imagePromptModalOpen && linkedinMeta()?.imagePrompt}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		onclick={() => (imagePromptModalOpen = false)}
+		role="presentation"
+	>
+		<div
+			class="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl"
+			onclick={(e) => e.stopPropagation()}
+			role="dialog"
+		>
+			<div class="flex items-center justify-between border-b border-surface-100 px-4 py-3">
+				<h3 class="text-sm font-semibold text-surface-900">Prompt image</h3>
+				<div class="flex items-center gap-2">
+					<button
+						onclick={copyImagePrompt}
+						class="inline-flex items-center gap-1.5 rounded border border-surface-200 bg-white px-2.5 py-1 text-[11px] font-medium text-surface-700 hover:bg-surface-50"
+					>
+						<Copy size={12} />
+						{copyFeedback || 'Copier'}
+					</button>
+					<button
+						onclick={() => (imagePromptModalOpen = false)}
+						class="rounded p-1 text-surface-400 hover:bg-surface-50 hover:text-surface-700"
+						aria-label="Fermer"
+					>
+						<X size={14} />
+					</button>
+				</div>
+			</div>
+			<div class="max-h-[70vh] overflow-y-auto p-4">
+				<pre class="whitespace-pre-wrap font-sans text-xs text-surface-700">{linkedinMeta()?.imagePrompt}</pre>
+			</div>
+		</div>
+	</div>
+{/if}
