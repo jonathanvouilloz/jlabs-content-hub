@@ -65,7 +65,7 @@ Exemples :
 - `content/barberconcept/gmb/2026/04/2026-04-gmb.json`
 - `content/physiopommier/articles/2026/03/pilates-mal-de-dos.md`
 
-## Schema DB (9 tables)
+## Schema DB (10+ tables)
 
 Tables auth (Better Auth) :
 - `user` : id, name, email, emailVerified, image
@@ -82,6 +82,10 @@ Tables application :
 - `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
 
 Statuts : draft → review → approved → published
+
+**Tracking employes mentionnes dans les avis :**
+- `gmb_reviews.mentioned_employees` (JSON `[{name, sentiment}]`) — rempli par /gmb-review-responder via POST /api/projects/{slug}/employee-mentions (idempotent par reviewId).
+- `employee_mentions` (project_id, employee_name, year, month, mention_count, positive_count, neutral_count, negative_count) — agregat mensuel pour le rapport UI sur la page Avis du projet.
 
 **Format GMB canonique :** `POST /api/content` avec `type=gmb` accepte soit un post unique JSON, soit un tableau de posts (calendrier mensuel). Si c'est un tableau, le hub crée automatiquement 1 row par post (meme logique que le split LinkedIn). C'est le format produit par le skill `/gmb-generate`.
 

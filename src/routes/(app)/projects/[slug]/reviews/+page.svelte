@@ -3,6 +3,7 @@
 	import { RefreshCw, Send, Save, Star } from 'lucide-svelte';
 	import { formatDate } from '$lib/utils/dates.js';
 	import { ratingColor } from '$lib/config/design-tokens.js';
+	import EmployeeMentionsReport from '$lib/components/EmployeeMentionsReport.svelte';
 
 	let { data } = $props();
 
@@ -240,6 +241,9 @@
 					</button>
 				{/if}
 			</div>
+		</div>
+		<div class="mt-4">
+			<EmployeeMentionsReport projectSlug={data.project.slug} />
 		</div>
 	</div>
 

@@ -170,8 +170,28 @@ export const gmbReviews = sqliteTable('gmb_reviews', {
 	comment: text('comment').notNull().default(''),
 	createTime: text('create_time').notNull(),
 	draftReply: text('draft_reply'),
+	mentionedEmployees: text('mentioned_employees'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
 });
+
+export const employeeMentions = sqliteTable(
+	'employee_mentions',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		employeeName: text('employee_name').notNull(),
+		year: integer('year').notNull(),
+		month: integer('month').notNull(),
+		mentionCount: integer('mention_count').notNull().default(0),
+		positiveCount: integer('positive_count').notNull().default(0),
+		neutralCount: integer('neutral_count').notNull().default(0),
+		negativeCount: integer('negative_count').notNull().default(0),
+		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [uniqueIndex('emp_mentions_unique').on(table.projectId, table.employeeName, table.year, table.month)]
+);
 
 export const gmbSettings = sqliteTable('gmb_settings', {
 	key: text('key').primaryKey(),
