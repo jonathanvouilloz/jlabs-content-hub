@@ -83,7 +83,7 @@
 		</div>
 
 		{#if previewId}
-			<div class="w-[45%] flex-shrink-0 overflow-hidden pr-6 pb-6 lg:pr-8">
+			<div class="w-1/2 flex-shrink-0 overflow-hidden pr-6 pb-6 lg:pr-8">
 				<ContentPreview
 					contentId={previewId}
 					projectSlug={data.project.slug}
