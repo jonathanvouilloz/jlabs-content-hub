@@ -102,7 +102,7 @@
 		if (data.content.type !== 'linkedin' || !data.content.meta) return null;
 		try {
 			const m = JSON.parse(data.content.meta);
-			if (m.hooks) return m as { hooks: LinkedinHooks; strategy?: string; articleUrl?: string };
+			if (m.hooks) return m as { hooks: LinkedinHooks; strategy?: string; articleUrl?: string; imagePrompt?: string | null };
 			return null;
 		} catch { return null; }
 	});
@@ -372,6 +372,13 @@
 						</div>
 					{/if}
 				</div>
+
+				{#if linkedinMeta()?.imagePrompt}
+					<details class="mt-4">
+						<summary class="cursor-pointer text-xs text-surface-400">Prompt image</summary>
+						<pre class="mt-1 whitespace-pre-wrap text-xs text-surface-500 font-sans">{linkedinMeta()?.imagePrompt}</pre>
+					</details>
+				{/if}
 
 				<!-- Approve button -->
 				{#if data.content.status === 'draft'}

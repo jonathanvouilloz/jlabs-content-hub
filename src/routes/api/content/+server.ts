@@ -110,7 +110,8 @@ export const POST: RequestHandler = async (event) => {
 					const postMeta = JSON.stringify({
 						hooks: { main: post.mainHook, A: post.hookA, B: post.hookB },
 						strategy: post.strategy,
-						articleUrl: post.articleUrl
+						articleUrl: post.articleUrl,
+						imagePrompt: post.imagePrompt ?? null
 					});
 
 					await db.insert(contents).values({

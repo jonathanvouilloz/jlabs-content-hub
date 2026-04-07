@@ -7,12 +7,13 @@ export interface LinkedInPost {
 	hookB: string;
 	strategy: string;
 	articleUrl?: string;
+	imagePrompt?: string;
 }
 
 const DAY_MARKERS = [
-	{ pattern: '## 🟢', day: 'lundi', emoji: '🟢' },
-	{ pattern: '## 🔵', day: 'mercredi', emoji: '🔵' },
-	{ pattern: '## 🟣', day: 'vendredi', emoji: '🟣' }
+	{ pattern: '## 🟢', day: 'lundi', emoji: '🟢', imageLabel: 'Lundi' },
+	{ pattern: '## 🔵', day: 'mercredi', emoji: '🔵', imageLabel: 'Mercredi' },
+	{ pattern: '## 🟣', day: 'vendredi', emoji: '🟣', imageLabel: 'Vendredi' }
 ];
 
 /**
@@ -28,8 +29,10 @@ export function isBatchFormat(body: string): boolean {
 export function parseLinkedInBatch(markdown: string): LinkedInPost[] {
 	const posts: LinkedInPost[] = [];
 
-	// Remove image prompts section
-	const withoutImages = markdown.split('## 🖼️')[0] || markdown;
+	// Split body from image prompts section
+	const imagesSplit = markdown.split('## 🖼️');
+	const withoutImages = imagesSplit[0] || markdown;
+	const imagesSection = imagesSplit.length > 1 ? imagesSplit.slice(1).join('## 🖼️') : '';
 
 	for (let i = 0; i < DAY_MARKERS.length; i++) {
 		const marker = DAY_MARKERS[i];
@@ -62,6 +65,8 @@ export function parseLinkedInBatch(markdown: string): LinkedInPost[] {
 		const urlMatch = section.match(/\*\*(?:Lien article|Rappel article)\s*:\*\*\s*(https?:\/\/\S+)/);
 		const articleUrl = urlMatch ? urlMatch[1].trim() : undefined;
 
+		const imagePrompt = extractImagePrompt(imagesSection, marker.imageLabel);
+
 		posts.push({
 			day: marker.day,
 			emoji: marker.emoji,
@@ -70,7 +75,8 @@ export function parseLinkedInBatch(markdown: string): LinkedInPost[] {
 			hookA: cleanHookText(hookA),
 			hookB: cleanHookText(hookB),
 			strategy,
-			articleUrl
+			articleUrl,
+			imagePrompt
 		});
 	}
 
@@ -123,6 +129,13 @@ function cleanPostText(text: string): string {
 		.replace(/^\*\*Lien article.*$/gm, '')   // Remove link lines
 		.replace(/^\*\*Rappel article.*$/gm, '') // Remove reminder lines
 		.trim();
+}
+
+function extractImagePrompt(imagesSection: string, dayLabel: string): string | undefined {
+	if (!imagesSection) return undefined;
+	const re = new RegExp(`###\\s*Image\\s+${dayLabel}\\s*\\r?\\n\`\`\`[^\\n]*\\r?\\n([\\s\\S]*?)\\r?\\n\`\`\``, 'i');
+	const match = imagesSection.match(re);
+	return match ? match[1].trim() : undefined;
 }
 
 function cleanHookText(text: string): string {
