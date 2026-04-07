@@ -4,11 +4,11 @@
 	"crons": [
 		{
 			"path": "/api/cron/gmb-publish",
-			"schedule": "0 * * * *"
+			"schedule": "0 9 * * *"
 		},
 		{
 			"path": "/api/cron/linkedin-publish",
-			"schedule": "*/15 * * * *"
+			"schedule": "0 9 * * *"
 		}
 	]
 }
