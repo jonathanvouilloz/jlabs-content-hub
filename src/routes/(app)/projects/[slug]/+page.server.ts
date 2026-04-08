@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { contents } from '$lib/server/db/schema.js';
-import { eq, and, asc, gt, sql } from 'drizzle-orm';
+import { eq, and, asc, gt, not, sql } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ parent, url }) => {
 	const { project } = await parent();
@@ -9,7 +9,11 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 	const statusFilter = url.searchParams.get('status');
 
 	const conditions = [eq(contents.projectId, project.id)];
-	if (statusFilter) conditions.push(eq(contents.status, statusFilter));
+	if (statusFilter) {
+		conditions.push(eq(contents.status, statusFilter));
+	} else {
+		conditions.push(not(eq(contents.status, 'published')));
+	}
 
 	const projectContents = await db
 		.select()
@@ -38,7 +42,8 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		.where(
 			and(
 				eq(contents.projectId, project.id),
-				gt(contents.plannedDate, now)
+				gt(contents.plannedDate, now),
+				not(eq(contents.status, 'published'))
 			)
 		)
 		.orderBy(asc(contents.plannedDate))

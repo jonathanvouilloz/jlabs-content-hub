@@ -12,12 +12,28 @@
 
 	let previewId = $state<string | null>(null);
 
+	let publishedContents = $state<Array<{ id: string; title: string; type: string; status: string; plannedDate: string | null }> | null>(null);
+	let loadingPublished = $state(false);
+
+	async function loadPublished() {
+		loadingPublished = true;
+		try {
+			const res = await fetch(`/api/content?project=${data.project.slug}&status=published`, {
+				headers: { Authorization: 'Bearer dev-api-key' }
+			});
+			const json = await res.json();
+			publishedContents = json.data ?? [];
+		} catch {
+			publishedContents = [];
+		}
+		loadingPublished = false;
+	}
+
 	const STATUSES = [
 		{ value: '', label: 'Tous statuts' },
 		{ value: 'draft', label: 'Draft' },
 		{ value: 'review', label: 'Review' },
-		{ value: 'approved', label: 'Approved' },
-		{ value: 'published', label: 'Published' }
+		{ value: 'approved', label: 'Approved' }
 	];
 
 	function applyFilter(value: string) {
@@ -123,6 +139,35 @@
 				selectedId={previewId}
 				onselect={(id) => { previewId = id; }}
 			/>
+
+			<div class="mt-8">
+				<div class="flex items-center justify-between">
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-surface-400">Contenus publies</h2>
+					{#if publishedContents === null}
+						<button
+							onclick={loadPublished}
+							class="rounded-md border border-surface-200 bg-white px-2.5 py-1 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
+							disabled={loadingPublished}
+						>
+							{loadingPublished ? 'Chargement...' : 'Charger'}
+						</button>
+					{:else}
+						<span class="text-xs text-surface-400">{publishedContents.length} publie{publishedContents.length !== 1 ? 's' : ''}</span>
+					{/if}
+				</div>
+				{#if publishedContents !== null}
+					<div class="mt-3">
+						<ContentTable
+							contents={publishedContents}
+							projectSlug={data.project.slug}
+							showType={true}
+							showBatchActions={false}
+							selectedId={previewId}
+							onselect={(id) => { previewId = id; }}
+						/>
+					</div>
+				{/if}
+			</div>
 		</div>
 
 		{#if previewId}

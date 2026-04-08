@@ -91,6 +91,11 @@
 		invalidateAll();
 	}
 
+	const nowIso = new Date().toISOString();
+	function isOverdue(item: ContentItem) {
+		return item.status !== 'published' && !!item.plannedDate && item.plannedDate < nowIso;
+	}
+
 	function handleRowClick(id: string) {
 		if (onselect) {
 			onselect(id);
@@ -189,11 +194,17 @@
 									{item.title}
 								</a>
 							{/if}
+							{#if isOverdue(item)}
+								<span class="ml-2 inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 align-middle">
+									<span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+									En retard
+								</span>
+							{/if}
 						</td>
 						<td class="px-4 py-2.5">
 							<StatusBadge status={item.status} />
 						</td>
-						<td class="px-4 py-2.5 text-xs text-surface-400" onclick={(e) => e.stopPropagation()}>
+						<td class="px-4 py-2.5 text-xs {isOverdue(item) ? 'text-red-600 font-medium' : 'text-surface-400'}" onclick={(e) => e.stopPropagation()}>
 							{#if editingDateId === item.id}
 								<div class="flex items-center gap-1">
 									<input
