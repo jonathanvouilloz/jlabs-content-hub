@@ -566,6 +566,16 @@
 				<span class="text-xs text-surface-500">
 					{data.assignedGmbLocations.length} location{data.assignedGmbLocations.length !== 1 ? 's' : ''} assignee{data.assignedGmbLocations.length !== 1 ? 's' : ''}
 				</span>
+				<button
+					class="btn preset-outlined-error-500 text-xs"
+					onclick={async () => {
+						if (!confirm('Deconnecter le compte Google ? Les tokens seront supprimes.')) return;
+						await fetch('/api/auth/google', { method: 'DELETE' });
+						location.reload();
+					}}
+				>
+					Deconnecter Google
+				</button>
 			</div>
 
 			<!-- Assigned locations -->

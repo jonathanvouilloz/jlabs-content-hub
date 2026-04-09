@@ -17,6 +17,7 @@
 		BarChart3
 	} from 'lucide-svelte';
 	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
+	import SyncToast from '$lib/components/SyncToast.svelte';
 
 	let { data, children } = $props();
 
@@ -247,3 +248,5 @@
 		</div>
 	</main>
 </div>
+
+<SyncToast />

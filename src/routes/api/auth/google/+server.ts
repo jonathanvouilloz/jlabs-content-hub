@@ -1,5 +1,8 @@
 import { redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { db } from '$lib/server/db';
+import { gmbSettings } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -18,4 +21,15 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	});
 
 	redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+};
+
+export const DELETE: RequestHandler = async ({ locals }) => {
+	if (!locals.user) {
+		return new Response('Unauthorized', { status: 401 });
+	}
+
+	await db.delete(gmbSettings).where(eq(gmbSettings.key, 'account_tokens'));
+	await db.delete(gmbSettings).where(eq(gmbSettings.key, 'account_id'));
+
+	return Response.json({ ok: true });
 };

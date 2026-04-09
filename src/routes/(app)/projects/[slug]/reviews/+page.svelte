@@ -1,21 +1,22 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { RefreshCw, Send, Save, Star } from 'lucide-svelte';
+	import { RefreshCw, Send, Save, Star, BarChart3, Trash2 } from 'lucide-svelte';
 	import { formatDate } from '$lib/utils/dates.js';
 	import { ratingColor } from '$lib/config/design-tokens.js';
 	import EmployeeMentionsReport from '$lib/components/EmployeeMentionsReport.svelte';
+	import { getSyncState, startReviewsSync } from '$lib/stores/sync.svelte';
 
 	let { data } = $props();
 
 	type Review = typeof data.reviews[number];
 
+	const sync = getSyncState();
+
 	let selectedId = $state<string | null>(null);
-	let syncing = $state(false);
 	let replyText = $state('');
 	let submitting = $state(false);
 	let saving = $state(false);
 	let replyError = $state('');
-	let syncMessage = $state('');
 	let filterLocation = $state('all');
 	let batching = $state(false);
 	let batchProgress = $state({ current: 0, total: 0, currentAuthor: '' });
@@ -73,22 +74,20 @@
 		selectedIds = next;
 	}
 
-	async function syncReviews() {
-		syncing = true;
-		syncMessage = '';
-		try {
-			const res = await fetch(`/api/projects/${data.project.slug}/reviews/sync`, { method: 'POST' });
-			const json = await res.json();
-			if (!res.ok) throw new Error(json.error);
-			syncMessage = json.synced > 0
-				? `${json.synced} nouvel avis synchronise${json.synced > 1 ? 's' : ''}`
-				: 'Aucun nouvel avis';
+	function syncReviews() {
+		startReviewsSync(data.project.slug);
+	}
+
+	async function cleanRepliedReviews() {
+		if (!confirm('Supprimer definitivement tous les avis deja repondus ? Cette action est irreversible. Assurez-vous d\'avoir consulte le rapport du mois avant.')) return;
+		const res = await fetch(`/api/projects/${data.project.slug}/reviews/clean`, { method: 'DELETE' });
+		const json = await res.json();
+		if (res.ok) {
+			alert(`${json.deleted} avis supprime(s).`);
 			invalidateAll();
-		} catch (err) {
-			syncMessage = (err as Error).message;
+		} else {
+			alert('Erreur: ' + (json.error || 'Echec'));
 		}
-		syncing = false;
-		setTimeout(() => { syncMessage = ''; }, 4000);
 	}
 
 	async function saveDraft() {
@@ -198,13 +197,13 @@
 				</p>
 			</div>
 			<div class="flex items-center gap-2">
-				{#if syncMessage || batchMessage}
-					<span class="text-xs text-surface-500">{syncMessage || batchMessage}</span>
+				{#if batchMessage}
+					<span class="text-xs text-surface-500">{batchMessage}</span>
 				{/if}
 				{#if data.locations.length > 1}
 					<select
 						bind:value={filterLocation}
-						class="rounded-md border border-surface-200 bg-white px-2.5 py-1 text-xs text-surface-600 outline-none"
+						class="rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs text-surface-600 outline-none"
 					>
 						<option value="all">Tous les etablissements</option>
 						{#each data.locations as loc}
@@ -234,10 +233,25 @@
 					<button
 						onclick={syncReviews}
 						class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-						disabled={syncing}
+						disabled={sync.syncing}
 					>
-						<RefreshCw size={12} class={syncing ? 'animate-spin' : ''} />
-						{syncing ? 'Sync...' : 'Mettre a jour'}
+						<RefreshCw size={12} class={sync.syncing ? 'animate-spin' : ''} />
+						{sync.syncing ? 'Sync...' : 'Mettre a jour'}
+					</button>
+					<a
+						href="/report/{data.project.slug}/{new Date().getFullYear()}-{String(new Date().getMonth() + 1).padStart(2, '0')}?token={data.project.accessToken}"
+						target="_blank"
+						class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
+					>
+						<BarChart3 size={12} />
+						Rapport du mois
+					</a>
+					<button
+						onclick={cleanRepliedReviews}
+						class="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
+					>
+						<Trash2 size={12} />
+						Nettoyer
 					</button>
 				{/if}
 			</div>
@@ -254,9 +268,9 @@
 				<button
 					onclick={syncReviews}
 					class="mt-3 rounded-md bg-primary-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-600"
-					disabled={syncing}
+					disabled={sync.syncing}
 				>
-					{syncing ? 'Synchronisation...' : 'Synchroniser les avis'}
+					{sync.syncing ? 'Synchronisation...' : 'Synchroniser les avis'}
 				</button>
 			</div>
 		</div>
@@ -272,10 +286,10 @@
 								<th class="w-10 px-4 py-2.5">
 									<input type="checkbox" checked={allSelected} onchange={toggleAll} class="rounded" />
 								</th>
-								<th class="px-4 py-2.5">Auteur</th>
-								<th class="w-24 px-4 py-2.5">Note</th>
-								<th class="w-32 px-4 py-2.5">Location</th>
-								<th class="w-20 px-4 py-2.5">Statut</th>
+								<th class="w-40 px-4 py-2.5">Auteur</th>
+								<th class="w-20 px-4 py-2.5">Note</th>
+								<th class="w-36 px-4 py-2.5">Location</th>
+								<th class="w-24 px-4 py-2.5">Statut</th>
 								<th class="w-28 px-4 py-2.5">Date</th>
 							</tr>
 						</thead>
@@ -294,8 +308,8 @@
 											class="rounded"
 										/>
 									</td>
-									<td class="px-4 py-2.5">
-										<span class="font-medium text-surface-900">{review.authorName}</span>
+									<td class="max-w-[9rem] px-4 py-2.5">
+										<span class="block truncate font-medium text-surface-900">{review.authorName}</span>
 									</td>
 									<td class="px-4 py-2.5">
 										<span class="{ratingColor(review.rating)} text-xs">{renderStars(review.rating)}</span>

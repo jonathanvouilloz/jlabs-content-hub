@@ -1,10 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews } from '$lib/server/db/schema.js';
-import { eq, desc, isNull, and } from 'drizzle-orm';
+import { eq, and, isNotNull } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+export const DELETE: RequestHandler = async ({ params, locals }) => {
 	if (!locals.user) {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
@@ -14,11 +14,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	});
 	if (!project) return json({ error: 'Project not found' }, { status: 404 });
 
-	const reviews = await db
-		.select()
-		.from(gmbReviews)
-		.where(and(eq(gmbReviews.projectId, project.id), isNull(gmbReviews.repliedAt)))
-		.orderBy(desc(gmbReviews.createTime));
+	const result = await db
+		.delete(gmbReviews)
+		.where(and(
+			eq(gmbReviews.projectId, project.id),
+			isNotNull(gmbReviews.repliedAt)
+		));
 
-	return json({ reviews });
+	return json({ ok: true, deleted: result.rowsAffected });
 };

@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { projects } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { replyToReview, deleteReviewFromDb } from '$lib/server/gmb.js';
+import { replyToReview, markReviewAsReplied } from '$lib/server/gmb.js';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
@@ -25,7 +25,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const result = await replyToReview(locationId, reviewId, reply);
 
 	if (result.success) {
-		await deleteReviewFromDb(reviewId);
+		await markReviewAsReplied(reviewId);
 	}
 
 	return json(result, { status: result.success ? 200 : 500 });

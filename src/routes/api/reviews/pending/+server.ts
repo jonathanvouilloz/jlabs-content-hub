@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews, projectContexts } from '$lib/server/db/schema.js';
-import { eq, desc, isNull } from 'drizzle-orm';
+import { eq, desc, isNull, and } from 'drizzle-orm';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import type { RequestHandler } from './$types';
 
@@ -21,7 +21,7 @@ export const GET: RequestHandler = async (event) => {
 		const reviews = await db
 			.select()
 			.from(gmbReviews)
-			.where(eq(gmbReviews.projectId, project.id))
+			.where(and(eq(gmbReviews.projectId, project.id), isNull(gmbReviews.repliedAt)))
 			.orderBy(desc(gmbReviews.createTime));
 
 		if (reviews.length === 0) continue;

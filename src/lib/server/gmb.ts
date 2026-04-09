@@ -435,8 +435,10 @@ export async function syncProjectReviews(projectId: string): Promise<number> {
 	return synced;
 }
 
-export async function deleteReviewFromDb(reviewId: string): Promise<void> {
-	await db.delete(gmbReviews).where(eq(gmbReviews.reviewId, reviewId));
+export async function markReviewAsReplied(reviewId: string): Promise<void> {
+	await db.update(gmbReviews)
+		.set({ repliedAt: new Date().toISOString() })
+		.where(eq(gmbReviews.reviewId, reviewId));
 }
 
 /** Parse gmbPostId field — handles legacy string and new JSON map */

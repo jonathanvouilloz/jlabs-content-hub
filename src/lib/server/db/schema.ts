@@ -171,6 +171,7 @@ export const gmbReviews = sqliteTable('gmb_reviews', {
 	createTime: text('create_time').notNull(),
 	draftReply: text('draft_reply'),
 	mentionedEmployees: text('mentioned_employees'),
+	repliedAt: text('replied_at'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
 });
 
