@@ -24,6 +24,7 @@
 		createTime: string;
 	}
 
+	let collapsed = $state(true);
 	let loading = $state(false);
 	let error = $state('');
 	let employees = $state<Employee[]>([]);
@@ -69,20 +70,31 @@
 </script>
 
 <section class="rounded-lg border border-surface-200 bg-white p-4">
-	<div class="flex items-center justify-between gap-3 mb-3">
+	<button
+		type="button"
+		onclick={() => collapsed = !collapsed}
+		class="flex w-full items-center justify-between gap-3 text-left"
+	>
 		<h2 class="text-sm font-semibold text-surface-900">Mentions employés — rapport mensuel</h2>
-		<div class="flex items-center gap-2">
-			<select bind:value={month} class="rounded border border-surface-200 bg-white px-2 py-1 text-xs">
-				{#each monthNames as name, i}
-					<option value={i + 1}>{name}</option>
-				{/each}
-			</select>
-			<select bind:value={year} class="rounded border border-surface-200 bg-white px-2 py-1 text-xs">
-				{#each yearOptions() as y}
-					<option value={y}>{y}</option>
-				{/each}
-			</select>
-		</div>
+		{#if collapsed}
+			<ChevronDown size={14} class="text-surface-400 flex-shrink-0" />
+		{:else}
+			<ChevronUp size={14} class="text-surface-400 flex-shrink-0" />
+		{/if}
+	</button>
+
+	{#if !collapsed}
+	<div class="flex items-center justify-end gap-2 mt-3 mb-3">
+		<select bind:value={month} class="rounded border border-surface-200 bg-white px-2 py-1 text-xs">
+			{#each monthNames as name, i}
+				<option value={i + 1}>{name}</option>
+			{/each}
+		</select>
+		<select bind:value={year} class="rounded border border-surface-200 bg-white px-2 py-1 text-xs">
+			{#each yearOptions() as y}
+				<option value={y}>{y}</option>
+			{/each}
+		</select>
 	</div>
 
 	{#if loading}
@@ -160,5 +172,6 @@
 				</div>
 			{/each}
 		</div>
+	{/if}
 	{/if}
 </section>
