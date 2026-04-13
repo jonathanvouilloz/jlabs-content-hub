@@ -300,6 +300,24 @@
 		savingLocation = false;
 		invalidateAll();
 	}
+
+	// ── GMB Reviews export ──────────────────────────────────────────────
+	let reviewsExporting = $state(false);
+	let reviewsExportJson = $state<string | null>(null);
+
+	async function exportReviews() {
+		reviewsExporting = true;
+		reviewsExportJson = null;
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}/reviews/export`);
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			reviewsExportJson = JSON.stringify(json, null, 2);
+		} catch (err) {
+			reviewsExportJson = `Erreur: ${(err as Error).message}`;
+		}
+		reviewsExporting = false;
+	}
 </script>
 
 <div>
@@ -600,6 +618,36 @@
 						</div>
 					{/each}
 				</div>
+			{/if}
+
+			<!-- Export avis Google -->
+			{#if data.assignedGmbLocations.length > 0}
+				<div class="mt-3 flex items-center gap-3">
+					<button
+						onclick={exportReviews}
+						class="btn preset-outlined-surface-200 text-xs"
+						disabled={reviewsExporting}
+					>
+						{reviewsExporting ? 'Chargement...' : 'Exporter les avis Google (top 20 / salon)'}
+					</button>
+					{#if reviewsExportJson}
+						<button
+							onclick={() => navigator.clipboard.writeText(reviewsExportJson!)}
+							class="btn preset-outlined-surface-200 text-xs"
+						>
+							Copier le JSON
+						</button>
+						<button
+							onclick={() => { reviewsExportJson = null; }}
+							class="text-xs text-surface-400 hover:text-surface-600"
+						>
+							Fermer
+						</button>
+					{/if}
+				</div>
+				{#if reviewsExportJson}
+					<pre class="mt-3 max-h-80 overflow-auto rounded-md border border-surface-200 bg-surface-50 p-3 text-xs text-surface-700 whitespace-pre-wrap">{reviewsExportJson}</pre>
+				{/if}
 			{/if}
 
 			<!-- Add locations -->
