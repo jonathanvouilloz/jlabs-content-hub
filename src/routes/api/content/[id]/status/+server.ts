@@ -1,8 +1,9 @@
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents, statusHistory } from '$lib/server/db/schema.js';
+import { contents, indexingCredentials, statusHistory } from '$lib/server/db/schema.js';
 import { createId } from '$lib/server/utils.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
+import { publishUrl } from '$lib/server/indexing.js';
 import { eq } from 'drizzle-orm';
 
 const VALID_STATUSES = ['draft', 'review', 'approved', 'published'];
@@ -45,6 +46,22 @@ export const PATCH: RequestHandler = async (event) => {
 		toStatus: status,
 		changedBy: 'admin'
 	});
+
+	// Auto-submit a la Google Indexing API si configure pour ce projet
+	if (status === 'published' && content.status !== 'published') {
+		const cred = await db.query.indexingCredentials.findFirst({
+			where: eq(indexingCredentials.projectId, content.projectId)
+		});
+		if (cred?.autoSubmitOnPublish && cred.publicUrlTemplate && content.slug) {
+			const publicUrl = cred.publicUrlTemplate.replace('{slug}', content.slug);
+			publishUrl({
+				projectId: content.projectId,
+				url: publicUrl,
+				type: 'URL_UPDATED',
+				source: 'auto-publish'
+			}).catch(() => { /* fire-and-forget, erreurs loggees en DB */ });
+		}
+	}
 
 	return jsonResponse({ id: event.params.id, status });
 };

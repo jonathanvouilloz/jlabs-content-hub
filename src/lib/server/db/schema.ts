@@ -219,3 +219,35 @@ export const linkedinSettings = sqliteTable('linkedin_settings', {
 	value: text('value').notNull()
 });
 
+// ── Google Indexing API ────────────────────────────────────────────
+
+export const indexingCredentials = sqliteTable('indexing_credentials', {
+	id: text('id').primaryKey(),
+	projectId: text('project_id')
+		.notNull()
+		.references(() => projects.id)
+		.unique(),
+	serviceAccountEmail: text('service_account_email').notNull(),
+	serviceAccountJson: text('service_account_json').notNull(),
+	siteUrl: text('site_url'),
+	sitemapUrl: text('sitemap_url'),
+	publicUrlTemplate: text('public_url_template'),
+	autoSubmitOnPublish: integer('auto_submit_on_publish', { mode: 'boolean' }).notNull().default(false),
+	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+});
+
+export const indexingSubmissions = sqliteTable('indexing_submissions', {
+	id: text('id').primaryKey(),
+	projectId: text('project_id')
+		.notNull()
+		.references(() => projects.id),
+	url: text('url').notNull(),
+	type: text('type').notNull(),
+	status: text('status').notNull(),
+	httpStatus: integer('http_status'),
+	response: text('response'),
+	source: text('source'),
+	submittedAt: text('submitted_at').notNull().default(sql`(datetime('now'))`)
+});
+
