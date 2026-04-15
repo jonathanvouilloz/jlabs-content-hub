@@ -318,6 +318,153 @@
 		}
 		reviewsExporting = false;
 	}
+
+	// ── Google Indexing API ─────────────────────────────────────────
+	let idxCred = $state(data.indexingCredentials);
+	let idxSubs = $state(data.indexingSubmissions as Array<{ id: string; url: string; type: string; status: string; httpStatus: number | null; response: string | null; source: string | null; submittedAt: string }>);
+	let idxSubsTotal = $state(data.indexingSubmissionsTotal ?? 0);
+	let idxSubsOffset = $state(0);
+	const idxSubsPageSize = 20;
+	let idxJson = $state('');
+	let idxSiteUrl = $state(data.indexingCredentials?.siteUrl ?? '');
+	let idxSitemapUrl = $state(data.indexingCredentials?.sitemapUrl ?? '');
+	let idxTemplate = $state(data.indexingCredentials?.publicUrlTemplate ?? '');
+	let idxAutoSubmit = $state(data.indexingCredentials?.autoSubmitOnPublish ?? false);
+	let idxSaving = $state(false);
+	let idxMessage = $state('');
+	let idxManualUrl = $state('');
+	let idxManualType = $state<'URL_UPDATED' | 'URL_DELETED'>('URL_UPDATED');
+	let idxSubmitting = $state(false);
+	let idxSitemapBusy = $state(false);
+
+	async function refreshIndexing(resetOffset = true) {
+		if (resetOffset) idxSubsOffset = 0;
+		const [credRes, subsRes] = await Promise.all([
+			fetch(`/api/projects/${data.project.slug}/indexing/credentials`),
+			fetch(`/api/projects/${data.project.slug}/indexing/submissions?limit=${idxSubsPageSize}&offset=${idxSubsOffset}`)
+		]);
+		if (credRes.ok) idxCred = (await credRes.json()).credentials;
+		if (subsRes.ok) {
+			const json = await subsRes.json();
+			idxSubs = json.submissions;
+			idxSubsTotal = json.total ?? idxSubsTotal;
+		}
+	}
+
+	async function goToSubsPage(newOffset: number) {
+		idxSubsOffset = Math.max(0, newOffset);
+		const res = await fetch(`/api/projects/${data.project.slug}/indexing/submissions?limit=${idxSubsPageSize}&offset=${idxSubsOffset}`);
+		if (res.ok) {
+			const json = await res.json();
+			idxSubs = json.submissions;
+			idxSubsTotal = json.total ?? idxSubsTotal;
+		}
+	}
+
+	async function saveIndexingCredentials() {
+		idxSaving = true;
+		idxMessage = '';
+		try {
+			const body: Record<string, unknown> = {
+				siteUrl: idxSiteUrl || null,
+				sitemapUrl: idxSitemapUrl || null,
+				publicUrlTemplate: idxTemplate || null,
+				autoSubmitOnPublish: idxAutoSubmit
+			};
+			if (idxJson.trim()) body.serviceAccountJson = idxJson.trim();
+			else if (!idxCred) {
+				idxMessage = 'Colle le JSON du service account';
+				idxSaving = false;
+				return;
+			}
+			const res = await fetch(`/api/projects/${data.project.slug}/indexing/credentials`, {
+				method: idxCred && !idxJson.trim() ? 'POST' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			idxMessage = 'Configuration sauvegardee';
+			idxJson = '';
+			await refreshIndexing();
+		} catch (err) {
+			idxMessage = (err as Error).message;
+		}
+		idxSaving = false;
+		setTimeout(() => { idxMessage = ''; }, 4000);
+	}
+
+	async function removeIndexingCredentials() {
+		if (!confirm('Supprimer la configuration Indexing API pour ce projet ?')) return;
+		const res = await fetch(`/api/projects/${data.project.slug}/indexing/credentials`, { method: 'DELETE' });
+		if (res.ok) {
+			idxCred = null;
+			idxJson = '';
+			idxSiteUrl = '';
+			idxSitemapUrl = '';
+			idxTemplate = '';
+			idxAutoSubmit = false;
+		}
+	}
+
+	async function submitManualUrl() {
+		if (!idxManualUrl.trim()) return;
+		idxSubmitting = true;
+		idxMessage = '';
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}/indexing/submit`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ urls: [idxManualUrl.trim()], type: idxManualType })
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			idxMessage = `Soumis: ${json.success}/${json.total} (echecs: ${json.failed})`;
+			idxManualUrl = '';
+			await refreshIndexing();
+		} catch (err) {
+			idxMessage = (err as Error).message;
+		}
+		idxSubmitting = false;
+		setTimeout(() => { idxMessage = ''; }, 4000);
+	}
+
+	async function submitFromSitemap() {
+		if (!idxSitemapUrl.trim() && !idxCred?.sitemapUrl) {
+			idxMessage = 'Renseigne un sitemap URL d\'abord';
+			return;
+		}
+		idxSitemapBusy = true;
+		idxMessage = 'Lecture du sitemap...';
+		try {
+			const dryRes = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, dryRun: true })
+			});
+			const dry = await dryRes.json();
+			if (!dryRes.ok) throw new Error(dry.error);
+			if (!confirm(`${dry.count} URL(s) trouvees dans le sitemap. Lancer l'indexation ?`)) {
+				idxSitemapBusy = false;
+				idxMessage = '';
+				return;
+			}
+			idxMessage = `Soumission de ${dry.count} URL(s)...`;
+			const res = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined })
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			idxMessage = `Termine: ${json.success}/${json.total} OK, ${json.failed} echec(s)`;
+			await refreshIndexing();
+		} catch (err) {
+			idxMessage = (err as Error).message;
+		}
+		idxSitemapBusy = false;
+		setTimeout(() => { idxMessage = ''; }, 6000);
+	}
 </script>
 
 <div>
@@ -822,15 +969,15 @@
 			<div>
 				<label class="text-xs font-medium text-surface-600">Equipe</label>
 				{#if ctx.teamMembers.length > 0}
-					<div class="mt-1 space-y-1">
+					<div class="mt-1 flex flex-wrap gap-1.5">
 						{#each ctx.teamMembers as member, i}
-							<div class="flex items-center gap-2 rounded-md border border-surface-100 px-3 py-1.5 text-sm">
-								<span class="font-medium text-surface-800">{member.name}</span>
+							<span class="inline-flex items-center gap-1 rounded-full bg-surface-100 px-2.5 py-1 text-xs">
+								<span class="text-surface-700">{member.name}</span>
 								{#if member.role}
-									<span class="text-xs text-surface-400">{member.role}</span>
+									<span class="text-surface-400">· {member.role}</span>
 								{/if}
-								<button onclick={() => removeMember(i)} class="ml-auto text-xs text-surface-400 hover:text-red-500">&times;</button>
-							</div>
+								<button onclick={() => removeMember(i)} class="ml-1 text-surface-400 hover:text-red-500">&times;</button>
+							</span>
 						{/each}
 					</div>
 				{/if}
@@ -884,5 +1031,151 @@
 				{/if}
 			</div>
 		</div>
+	</div>
+
+	<!-- ── Google Indexing API ──────────────────────────────────── -->
+	<div class="card mt-6 p-6">
+		<div class="mb-4 flex items-center justify-between">
+			<div>
+				<h2 class="text-lg font-semibold">Indexation Google</h2>
+				<p class="text-xs text-surface-500">Soumet des URLs a la Google Indexing API (service account).</p>
+			</div>
+			{#if idxCred}
+				<button onclick={removeIndexingCredentials} class="btn preset-outlined-error-500 text-xs">Supprimer la config</button>
+			{/if}
+		</div>
+
+		{#if idxCred}
+			<div class="mb-4 rounded-md bg-surface-50 p-3 text-sm">
+				<div class="font-medium">Service account connecte</div>
+				<div class="mt-1 font-mono text-xs text-surface-600 break-all">{idxCred.serviceAccountEmail}</div>
+				<div class="mt-2 text-xs text-surface-500">
+					Ajoute cet email comme <b>Proprietaire</b> dans Google Search Console &gt; Parametres &gt; Utilisateurs et autorisations.
+				</div>
+			</div>
+		{/if}
+
+		<div class="space-y-3">
+			<div>
+				<label class="text-xs font-medium text-surface-600">Service account JSON {idxCred ? '(colle pour remplacer)' : '(obligatoire)'}</label>
+				<textarea
+					bind:value={idxJson}
+					rows="4"
+					placeholder={'{"type":"service_account","client_email":"...","private_key":"..."}'}
+					class="textarea preset-outlined-surface-200 mt-1 w-full font-mono text-xs"
+				></textarea>
+			</div>
+
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label class="text-xs font-medium text-surface-600">Site URL (propriete Search Console)</label>
+					<input type="text" bind:value={idxSiteUrl} placeholder="https://barberconcept.ch" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+				<div>
+					<label class="text-xs font-medium text-surface-600">Sitemap URL</label>
+					<input type="text" bind:value={idxSitemapUrl} placeholder="https://barberconcept.ch/sitemap.xml" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				</div>
+			</div>
+
+			<div>
+				<label class="text-xs font-medium text-surface-600">Template d'URL publique (auto-submit)</label>
+				<input type="text" bind:value={idxTemplate} placeholder="https://barberconcept.ch/blog/{'{slug}'}" class="input preset-outlined-surface-200 mt-1 w-full text-sm" />
+				<p class="mt-1 text-xs text-surface-400">Utilise <code>{'{slug}'}</code> comme placeholder. Laisse vide pour desactiver l'auto-submit.</p>
+			</div>
+
+			<label class="flex items-center gap-2 text-sm">
+				<input type="checkbox" bind:checked={idxAutoSubmit} class="checkbox" />
+				<span>Soumettre automatiquement a la publication d'un contenu</span>
+			</label>
+
+			<div class="flex items-center gap-3 pt-1">
+				<button onclick={saveIndexingCredentials} class="btn preset-filled-primary-500 text-sm" disabled={idxSaving}>
+					{idxSaving ? 'Sauvegarde...' : (idxCred ? 'Mettre a jour' : 'Enregistrer')}
+				</button>
+				{#if idxMessage}
+					<span class="text-xs text-surface-500">{idxMessage}</span>
+				{/if}
+			</div>
+		</div>
+
+		{#if idxCred}
+			<div class="mt-6 border-t border-surface-200 pt-4">
+				<h3 class="mb-2 text-sm font-semibold">Soumettre une URL</h3>
+				<div class="flex flex-wrap items-center gap-2">
+					<input type="text" bind:value={idxManualUrl} placeholder="https://barberconcept.ch/..." class="input preset-outlined-surface-200 min-w-[260px] flex-1 text-sm" />
+					<select bind:value={idxManualType} class="select preset-outlined-surface-200 text-sm">
+						<option value="URL_UPDATED">URL_UPDATED</option>
+						<option value="URL_DELETED">URL_DELETED</option>
+					</select>
+					<button onclick={submitManualUrl} class="btn preset-filled-primary-500 text-sm" disabled={idxSubmitting || !idxManualUrl.trim()}>
+						{idxSubmitting ? 'Envoi...' : 'Soumettre'}
+					</button>
+					<button onclick={submitFromSitemap} class="btn preset-outlined-primary-500 text-sm" disabled={idxSitemapBusy}>
+						{idxSitemapBusy ? 'Traitement...' : 'Indexer depuis sitemap'}
+					</button>
+				</div>
+			</div>
+
+			<div class="mt-6 border-t border-surface-200 pt-4">
+				<div class="mb-2 flex items-center justify-between">
+					<h3 class="text-sm font-semibold">Soumissions <span class="text-surface-500 font-normal">({idxSubsTotal} au total)</span></h3>
+					{#if idxSubsTotal > idxSubsPageSize}
+						<span class="text-xs text-surface-500">
+							{idxSubsOffset + 1}–{Math.min(idxSubsOffset + idxSubsPageSize, idxSubsTotal)} sur {idxSubsTotal}
+						</span>
+					{/if}
+				</div>
+				{#if idxSubs.length === 0}
+					<p class="text-xs text-surface-500">Aucune soumission pour l'instant.</p>
+				{:else}
+					<div class="overflow-x-auto">
+						<table class="table w-full text-xs">
+							<thead>
+								<tr>
+									<th class="text-left">Date</th>
+									<th class="text-left">URL</th>
+									<th class="text-left">Type</th>
+									<th class="text-left">Source</th>
+									<th class="text-left">Statut</th>
+									<th class="text-left">HTTP</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each idxSubs as s (s.id)}
+									<tr>
+										<td class="whitespace-nowrap text-surface-500">{new Date(s.submittedAt).toLocaleString('fr-CH')}</td>
+										<td class="max-w-[320px] truncate font-mono" title={s.url}>{s.url}</td>
+										<td>{s.type}</td>
+										<td class="text-surface-500">{s.source ?? '-'}</td>
+										<td>
+											<span class={s.status === 'success' ? 'text-green-600' : 'text-red-600'}>{s.status}</span>
+										</td>
+										<td class="text-surface-500">{s.httpStatus ?? '-'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					{#if idxSubsTotal > idxSubsPageSize}
+						<div class="mt-3 flex items-center justify-end gap-2">
+							<button
+								onclick={() => goToSubsPage(idxSubsOffset - idxSubsPageSize)}
+								class="btn preset-outlined-surface-200 text-xs"
+								disabled={idxSubsOffset === 0}
+							>
+								Precedent
+							</button>
+							<button
+								onclick={() => goToSubsPage(idxSubsOffset + idxSubsPageSize)}
+								class="btn preset-outlined-surface-200 text-xs"
+								disabled={idxSubsOffset + idxSubsPageSize >= idxSubsTotal}
+							>
+								Suivant
+							</button>
+						</div>
+					{/if}
+				{/if}
+			</div>
+		{/if}
 	</div>
 </div>

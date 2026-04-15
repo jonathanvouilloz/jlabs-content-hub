@@ -29,8 +29,16 @@
 	--color-surface-900: #141413;
 }
 
-.input {
+.input,
+.textarea,
+.select {
 	background-color: white;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+	color: var(--color-surface-400);
+	opacity: 1;
 }
 
 .btn {
