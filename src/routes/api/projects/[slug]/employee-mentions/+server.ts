@@ -21,7 +21,7 @@ function monthRange(year: number, month: number): { start: string; end: string }
 }
 
 export const POST: RequestHandler = async (event) => {
-	const { params, request, locals } = event;
+	const { params, request, locals, url } = event;
 	const isApi = validateApiKey(event);
 	const isSession = !!locals.user;
 	if (!isApi && !isSession) {
@@ -44,6 +44,8 @@ export const POST: RequestHandler = async (event) => {
 	let skipped = 0;
 	const errors: string[] = [];
 
+	const force = url.searchParams.get('force') === 'true';
+
 	for (const item of items) {
 		if (!item?.reviewId) { skipped++; continue; }
 
@@ -52,8 +54,40 @@ export const POST: RequestHandler = async (event) => {
 		});
 		if (!review) { skipped++; errors.push(`review ${item.reviewId} not found`); continue; }
 
-		// Idempotence : si déjà analysé, on ne réincrémente pas
-		if (review.mentionedEmployees) { skipped++; continue; }
+		// Idempotence : si déjà analysé, on ne réincrémente pas (sauf si force=true)
+		if (review.mentionedEmployees && !force) { skipped++; continue; }
+
+		// Si force=true et déjà analysé, on décrémente les anciens compteurs
+		if (review.mentionedEmployees && force) {
+			let oldMentions: { name: string; sentiment: Sentiment }[] = [];
+			try { oldMentions = JSON.parse(review.mentionedEmployees); } catch { /* ignore */ }
+			const dt = new Date(review.createTime);
+			for (const m of oldMentions) {
+				const name = m.name.trim();
+				const existing = await db.query.employeeMentions.findFirst({
+					where: and(
+						eq(employeeMentions.projectId, project.id),
+						eq(employeeMentions.employeeName, name),
+						eq(employeeMentions.year, dt.getUTCFullYear()),
+						eq(employeeMentions.month, dt.getUTCMonth() + 1)
+					)
+				});
+				if (existing && existing.mentionCount > 1) {
+					await db.update(employeeMentions).set({
+						mentionCount: existing.mentionCount - 1,
+						positiveCount: existing.positiveCount - (m.sentiment === 'positive' ? 1 : 0),
+						neutralCount: existing.neutralCount - (m.sentiment === 'neutral' ? 1 : 0),
+						negativeCount: existing.negativeCount - (m.sentiment === 'negative' ? 1 : 0),
+						updatedAt: new Date().toISOString()
+					}).where(eq(employeeMentions.id, existing.id));
+				} else if (existing) {
+					await db.delete(employeeMentions).where(eq(employeeMentions.id, existing.id));
+				}
+			}
+			await db.update(gmbReviews)
+				.set({ mentionedEmployees: null })
+				.where(eq(gmbReviews.id, review.id));
+		}
 
 		const mentions = Array.isArray(item.mentions) ? item.mentions : [];
 		const cleanMentions = mentions.filter(
