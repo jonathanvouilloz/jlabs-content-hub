@@ -1,0 +1,50 @@
+[
+  {
+    "type": "gmb",
+    "title": "Boxe cadres — coupure mentale",
+    "content": "Une heure de boxe anglaise vide la tête mieux qu'un footing. Le cerveau ne peut pas ruminer quand il esquive des combinaisons. Coaching privé à Genève, créneaux midi disponibles. Séance d'essai gratuite.",
+    "post_type": "whats_new",
+    "scheduled_at": "2026-04-27T09:00:00",
+    "cta": {
+      "action": "BOOK",
+      "url": "https://bisrepetita.ch/contact"
+    },
+    "location_target": "all",
+    "image_template": "split-vertical",
+    "image_style": "photo-object",
+    "image_text": "Tête vide en 60 minutes",
+    "image_prompt": "4:3 aspect ratio, landscape orientation, 1200x900 pixels, image must be wider than tall.\n\nSplit-vertical layout: left zone 55% solid #1a1a1a background, 'Tête vide en 60 minutes' in bold Bricolage Grotesque, high contrast white text. Right zone 45%: close-up of hand wrapping boxing bandages on a clean white background, calm and precise gesture, warm natural light.\n\nPremium athletic lifestyle, clean, minimal, confident atmosphere, photo-object style.\n\nNo realistic human faces, no identifiable people, no geographic landmarks, no visible text except the designated text zone.\nNo visual clutter, no complex patterns, no busy backgrounds."
+  },
+  {
+    "type": "gmb",
+    "title": "Boxe cadres — décision sous pression",
+    "content": "Lire une situation et décider vite : c'est ce que la boxe entraîne concrètement. Sous pression physique, les réflexes s'affûtent. Plusieurs de nos membres cadres le retrouvent en réunion.",
+    "post_type": "whats_new",
+    "scheduled_at": "2026-04-29T13:00:00",
+    "cta": {
+      "action": "LEARN_MORE",
+      "url": "https://bisrepetita.ch/services/coaching-prive"
+    },
+    "location_target": "all",
+    "image_template": "centered-minimal",
+    "image_style": "photo-object",
+    "image_text": "Décider vite. Boxer mieux.",
+    "image_prompt": "4:3 aspect ratio, landscape orientation, 1200x900 pixels, image must be wider than tall.\n\nCentered-minimal layout: solid #1a1a1a background. Centered visual: a single pair of focus mitts (coaching pads) in golden-brown leather tones (#B8A47E), clean minimal placement on dark surface. Generous negative space around the object. Text 'Décider vite. Boxer mieux.' below in Bricolage Grotesque white.\n\nPremium athletic lifestyle, clean, minimal, confident atmosphere, photo-object style.\n\nNo realistic human faces, no identifiable people, no geographic landmarks, no visible text except the designated text zone.\nNo visual clutter, no complex patterns, no busy backgrounds."
+  },
+  {
+    "type": "gmb",
+    "title": "Boxe cadres — créneau midi",
+    "content": "Séance de 60 min entre midi et 14h. Douche, serviette fournie, vous repartez au bureau. Studio de boxe privé à Genève, ouvert 7j/7 de 9h à 20h. Coaching individuel ou en duo.",
+    "post_type": "whats_new",
+    "scheduled_at": "2026-05-01T09:00:00",
+    "cta": {
+      "action": "BOOK",
+      "url": "https://bisrepetita.ch/contact"
+    },
+    "location_target": "all",
+    "image_template": "split-horizontal",
+    "image_style": "photo-object",
+    "image_text": "Séance midi. Retour au bureau.",
+    "image_prompt": "4:3 aspect ratio, landscape orientation, 1200x900 pixels, image must be wider than tall.\n\nSplit-horizontal layout: top 60% visual zone — clean private locker room with neat wooden lockers, folded white towels on a bench, soft warm lighting, no people. Bottom 40% solid #B8A47E band with 'Séance midi. Retour au bureau.' in bold Bricolage Grotesque, high contrast dark text.\n\nPremium athletic lifestyle, clean, minimal, confident atmosphere, photo-object style.\n\nNo realistic human faces, no identifiable people, no geographic landmarks, no visible text except the designated text zone.\nNo visual clutter, no complex patterns, no busy backgrounds."
+  }
+]
