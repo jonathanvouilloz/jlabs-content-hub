@@ -75,13 +75,16 @@ Tables auth (Better Auth) :
 
 Tables application :
 
-- `projects` : id, name, slug (unique), color, access_token, archived
+- `projects` : id, name, slug (unique), color, access_token, archived, client_email, weekly_digest_enabled
 - `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta, github_synced, github_path — unique (project_id, type, slug)
 - `comments` : id, content_id (FK), author_name, author_email, body
 - `content_types` : id, slug (unique), label, icon — seed: article, linkedin, gmb
 - `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
+- `publish_logs` : id, content_id (FK), project_id (FK), channel, location_id, location_label, success, gmb_post_id, error_message, attempted_at, duration_ms, source — 1 row par tentative de publication par location (cron ou manual). Lu par /projects/[slug]/gmb-logs et le digest quotidien.
 
 Statuts : draft → review → approved → published
+
+**GMB auto-approve (epic 18) :** POST /api/content avec type=gmb insère directement en `status='approved'` (au lieu de draft). Le cron /api/cron/gmb-publish (9h00) prend tous les posts approved + plannedDate<=now et publie sur Google API. → Pipeline full-auto : `/publish-hub` GMB → posts publiés aux dates prévues sans validation manuelle. **À garder en tête : checker /projects/{slug}/gmb après chaque /publish-hub** (un calendrier mal calibré sera publié sans relecture).
 
 **Tracking employes mentionnes dans les avis :**
 - `gmb_reviews.mentioned_employees` (JSON `[{name, sentiment}]`) — rempli par /gmb-review-responder via POST /api/projects/{slug}/employee-mentions (idempotent par reviewId).
@@ -111,6 +114,31 @@ npm run db:studio    # Drizzle Studio
 GITHUB_OWNER=jonathanvouilloz
 GITHUB_REPO=jlabs-content-hub
 ```
+
+## Notifications email + Vercel Blob (epic 18)
+
+Variables d'env requises (voir `.env.example`) :
+
+- `RESEND_API_KEY` — Resend (domaine `jonlabs.ch` à vérifier dans le dashboard, DKIM/SPF/DMARC)
+- `ADMIN_EMAIL`, `FROM_EMAIL` — destinataire admin / expéditeur
+- `BLOB_READ_WRITE_TOKEN` — Vercel Blob store (auto-injecté si lié au projet via dashboard)
+- `CRON_SECRET` — bearer attendu par les routes `/api/cron/*`
+
+Crons (vercel.json) :
+- `/api/cron/gmb-publish` — quotidien 9h00 — publie les posts GMB dus + envoie le digest admin (idempotent via `gmb_settings.last_daily_digest_date`)
+- `/api/cron/gmb-weekly-digest` — lundi 8h00 — récap hebdo aux clients opt-in (`projects.weekly_digest_enabled = true` + `client_email` renseigné)
+- `/api/cron/linkedin-publish` — quotidien 9h00
+
+Critical errors (email immédiat à `ADMIN_EMAIL`, dedup 1h via `gmb_settings.critical_sent_*`) :
+- Refresh token Google échoué
+- Une location GMB échoue 3x de suite
+
+## Skill /publish-hub + Vercel Blob
+
+Pour les images GMB, le skill `/publish-hub` doit :
+1. Pour chaque image locale référencée dans le calendrier GMB JSON, POST multipart vers `/api/blob/upload` (champs `file`, `project_slug`, `filename`, max 4 MB)
+2. Substituer `image_url` dans le JSON par l'URL Blob retournée
+3. POST le calendrier enrichi vers `/api/content`
 
 ## Conventions de commit
 

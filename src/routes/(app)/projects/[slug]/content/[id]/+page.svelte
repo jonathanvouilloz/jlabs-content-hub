@@ -362,6 +362,14 @@
 			<span>Publie : {formatDate(data.content.publishedAt)}</span>
 		{/if}
 		<span>Cree : {formatDate(data.content.createdAt)}</span>
+		{#if data.content.type === 'gmb' && data.publishLogsCount > 0}
+			<a
+				href="/projects/{data.project.slug}/gmb-logs?contentId={data.content.id}"
+				class="text-primary-600 hover:underline"
+			>
+				Logs ({data.publishLogsCount})
+			</a>
+		{/if}
 	</div>
 
 	{#if parsedTags().length > 0}

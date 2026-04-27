@@ -3,6 +3,7 @@ import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { resolveTargetLocations, publishToLocations, buildGmbPostIdMap } from '$lib/server/gmb.js';
+import { recordPublishLog } from '$lib/server/publish-logs.js';
 import { createId } from '$lib/server/utils.js';
 import type { RequestHandler } from './$types';
 
@@ -67,6 +68,21 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	};
 
 	const { results, allSuccess } = await publishToLocations(post, locations);
+
+	for (const r of results) {
+		await recordPublishLog({
+			contentId: content.id,
+			projectId: project.id,
+			locationId: r.locationId,
+			locationLabel: r.label,
+			success: r.success,
+			gmbPostId: r.gmb_post_id,
+			errorMessage: r.error,
+			durationMs: r.durationMs,
+			source: 'manual'
+		});
+	}
+
 	const hasAnySuccess = results.some((r) => r.success);
 
 	if (hasAnySuccess) {

@@ -64,6 +64,9 @@ export const POST: RequestHandler = async (event) => {
 			updatedAt: new Date().toISOString()
 		}).where(eq(contents.id, id));
 	} else {
+		const initialStatus = type === 'gmb' ? 'approved' : 'draft';
+		const initialChangedBy = type === 'gmb' ? 'api-auto-approve' : 'api';
+
 		await db.insert(contents).values({
 			id,
 			projectId: project.id,
@@ -71,7 +74,7 @@ export const POST: RequestHandler = async (event) => {
 			title,
 			slug,
 			body: content,
-			status: 'draft',
+			status: initialStatus,
 			plannedDate: planned_date ?? null,
 			tags: tags ? JSON.stringify(tags) : null,
 			meta: meta ? JSON.stringify(meta) : null,
@@ -83,8 +86,8 @@ export const POST: RequestHandler = async (event) => {
 			id: createId(),
 			contentId: id,
 			fromStatus: null,
-			toStatus: 'draft',
-			changedBy: 'api'
+			toStatus: initialStatus,
+			changedBy: initialChangedBy
 		});
 	}
 
@@ -181,7 +184,7 @@ export const POST: RequestHandler = async (event) => {
 					title: rawTitle,
 					slug: postSlug,
 					body: postBody,
-					status: 'draft',
+					status: 'approved',
 					plannedDate: scheduledAt ?? planned_date ?? null,
 					meta: postMeta,
 					githubSynced: false,
@@ -192,8 +195,8 @@ export const POST: RequestHandler = async (event) => {
 					id: createId(),
 					contentId: postId,
 					fromStatus: null,
-					toStatus: 'draft',
-					changedBy: 'api'
+					toStatus: 'approved',
+					changedBy: 'api-auto-approve'
 				});
 
 				createdIds.push(postId);

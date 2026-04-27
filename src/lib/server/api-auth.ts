@@ -1,5 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit';
-import { API_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { db } from './db/index.js';
 import { projects } from './db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -11,7 +11,7 @@ export type ApiResult<T> =
 export function validateApiKey(event: RequestEvent): boolean {
 	const authHeader = event.request.headers.get('authorization');
 	if (!authHeader?.startsWith('Bearer ')) return false;
-	return authHeader.slice(7) === API_KEY;
+	return authHeader.slice(7) === env.API_KEY;
 }
 
 export async function validateClientToken(

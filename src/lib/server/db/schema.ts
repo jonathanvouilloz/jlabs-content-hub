@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ── Better Auth tables ──────────────────────────────────────────────
@@ -65,6 +65,8 @@ export const projects = sqliteTable('projects', {
 	accessToken: text('access_token').notNull().unique(),
 	archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
 	gmbLocationId: text('gmb_location_id'),
+	clientEmail: text('client_email'),
+	weeklyDigestEnabled: integer('weekly_digest_enabled', { mode: 'boolean' }).notNull().default(false),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 });
@@ -198,6 +200,32 @@ export const gmbSettings = sqliteTable('gmb_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
 });
+
+export const publishLogs = sqliteTable(
+	'publish_logs',
+	{
+		id: text('id').primaryKey(),
+		contentId: text('content_id')
+			.notNull()
+			.references(() => contents.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		channel: text('channel').notNull().default('gmb'),
+		locationId: text('location_id'),
+		locationLabel: text('location_label'),
+		success: integer('success', { mode: 'boolean' }).notNull(),
+		gmbPostId: text('gmb_post_id'),
+		errorMessage: text('error_message'),
+		attemptedAt: text('attempted_at').notNull().default(sql`(datetime('now'))`),
+		durationMs: integer('duration_ms'),
+		source: text('source').notNull().default('cron')
+	},
+	(table) => [
+		index('idx_publish_logs_project_date').on(table.projectId, table.attemptedAt),
+		index('idx_publish_logs_content').on(table.contentId)
+	]
+);
 
 // ── Project contexts ──────────────────────────────────────────────
 

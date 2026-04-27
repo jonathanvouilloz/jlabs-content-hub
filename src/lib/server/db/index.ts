@@ -1,11 +1,15 @@
 import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
+import { env } from '$env/dynamic/private';
 import * as schema from './schema.js';
-import { DATABASE_URL, DATABASE_AUTH_TOKEN } from '$env/static/private';
+
+if (!env.DATABASE_URL) {
+	throw new Error('DATABASE_URL is not set');
+}
 
 const client = createClient({
-	url: DATABASE_URL,
-	authToken: DATABASE_AUTH_TOKEN
+	url: env.DATABASE_URL,
+	authToken: env.DATABASE_AUTH_TOKEN
 });
 
 export const db = drizzle(client, { schema });

@@ -4,6 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { contents, comments, statusHistory, cmsConnections, linkedinSettings, projectGmbLocations } from '$lib/server/db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { parseFrontmatter } from '$lib/utils/content.js';
+import { countLogsForContent } from '$lib/server/publish-logs.js';
 
 export const load: PageServerLoad = async ({ params, parent }) => {
 	const { project } = await parent();
@@ -42,6 +43,8 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 		? await db.select().from(projectGmbLocations).where(eq(projectGmbLocations.projectId, content.projectId))
 		: [];
 
+	const publishLogsCount = content.type === 'gmb' ? await countLogsForContent(params.id) : 0;
+
 	return {
 		content: { ...content, body: strippedBody },
 		project,
@@ -51,6 +54,7 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 			? { cmsType: cmsConnection.cmsType, config: JSON.parse(cmsConnection.config) }
 			: null,
 		linkedinConnected,
-		gmbLocations
+		gmbLocations,
+		publishLogsCount
 	};
 };

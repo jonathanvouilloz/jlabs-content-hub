@@ -35,6 +35,7 @@ interface PublishResult {
 	success: boolean;
 	gmb_post_id?: string;
 	error?: string;
+	durationMs?: number;
 }
 
 // ── Settings helpers ───────────────────────────────────────────────
@@ -96,6 +97,9 @@ export async function refreshAccountToken(): Promise<Tokens> {
 
 	if (!res.ok) {
 		const text = await res.text();
+		// Non-blocking critical alert (deduped 1h)
+		const { sendCriticalError } = await import('./notifications.js');
+		sendCriticalError('Refresh token Google échoué', `Status ${res.status}\n${text}`).catch(() => {});
 		throw new Error(`Account token refresh failed: ${res.status} ${text}`);
 	}
 
@@ -262,13 +266,16 @@ export async function publishToLocations(
 	const results: PublishResult[] = [];
 
 	for (const loc of locations) {
+		const start = Date.now();
 		const result = await publishPost(loc.gmbLocationId, post);
+		const durationMs = Date.now() - start;
 		results.push({
 			locationId: loc.gmbLocationId,
 			label: loc.label,
 			success: result.success,
 			gmb_post_id: result.gmb_post_id,
-			error: result.error
+			error: result.error,
+			durationMs
 		});
 	}
 

@@ -1,9 +1,9 @@
 import { Octokit } from 'octokit';
-import { GITHUB_PAT, GITHUB_OWNER, GITHUB_REPO } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
-const octokit = new Octokit({ auth: GITHUB_PAT });
+const octokit = new Octokit({ auth: env.GITHUB_PAT });
 
-const repo = { owner: GITHUB_OWNER, repo: GITHUB_REPO };
+const repo = { owner: env.GITHUB_OWNER ?? '', repo: env.GITHUB_REPO ?? '' };
 
 export function buildGitHubPath(
 	projectSlug: string,

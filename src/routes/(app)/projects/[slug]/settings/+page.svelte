@@ -263,6 +263,38 @@
 		invalidateAll();
 	}
 
+	// ── Client notifications (weekly digest) ─────────────────────────
+	let clientEmail = $state(data.project.clientEmail ?? '');
+	let weeklyDigestEnabled = $state(!!data.project.weeklyDigestEnabled);
+	let savingNotif = $state(false);
+	let notifMessage = $state('');
+
+	async function saveNotifications() {
+		savingNotif = true;
+		notifMessage = '';
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					clientEmail: clientEmail.trim(),
+					weeklyDigestEnabled
+				})
+			});
+			if (!res.ok) {
+				const json = await res.json().catch(() => ({}));
+				throw new Error(json.error ?? 'Erreur de sauvegarde');
+			}
+			notifMessage = 'Sauvegardé.';
+			invalidateAll();
+		} catch (e) {
+			notifMessage = (e as Error).message;
+		} finally {
+			savingNotif = false;
+			setTimeout(() => (notifMessage = ''), 3000);
+		}
+	}
+
 	// ── GMB locations (multi) ────────────────────────────────────────
 	interface GmbLocation { name: string; title: string; address: string; }
 	let gmbAvailableLocations = $state<GmbLocation[]>([]);
@@ -834,6 +866,50 @@
 				</div>
 			{/if}
 		{/if}
+	</div>
+
+	<!-- Section 2.5: Notifications client -->
+	<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
+		<h2 class="text-sm font-semibold text-surface-900">Notifications client</h2>
+		<p class="mt-1 text-xs text-surface-500">
+			Envoie un récap email hebdomadaire au client (lundi 8h) listant les posts GMB publiés sur ses fiches la semaine précédente.
+		</p>
+
+		<div class="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+			<div>
+				<label for="client-email" class="block text-xs font-medium text-surface-600">Email du client</label>
+				<input
+					id="client-email"
+					type="email"
+					bind:value={clientEmail}
+					placeholder="contact@client.ch"
+					class="mt-1 w-full rounded-md border border-surface-200 bg-white px-3 py-1.5 text-sm text-surface-900 placeholder:text-surface-400 focus:border-primary-300 focus:outline-none"
+				/>
+			</div>
+
+			<label class="flex items-center gap-2 text-sm text-surface-700">
+				<input
+					type="checkbox"
+					bind:checked={weeklyDigestEnabled}
+					class="h-4 w-4 rounded border-surface-300 text-primary-500 focus:ring-primary-300"
+				/>
+				Récap hebdo activé
+			</label>
+		</div>
+
+		<div class="mt-3 flex items-center gap-3">
+			<button
+				type="button"
+				onclick={saveNotifications}
+				disabled={savingNotif}
+				class="rounded-md bg-primary-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-600 disabled:opacity-50"
+			>
+				{savingNotif ? 'Sauvegarde…' : 'Sauvegarder'}
+			</button>
+			{#if notifMessage}
+				<span class="text-xs text-surface-500">{notifMessage}</span>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Section 3: LinkedIn -->

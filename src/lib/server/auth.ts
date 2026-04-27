@@ -1,11 +1,17 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { env } from '$env/dynamic/private';
 import { db } from './db/index.js';
-import { BETTER_AUTH_SECRET, BETTER_AUTH_URL } from '$env/static/private';
+
+const trustedOrigins = (env.BETTER_AUTH_TRUSTED_ORIGINS ?? '')
+	.split(',')
+	.map((s) => s.trim())
+	.filter(Boolean);
 
 export const auth = betterAuth({
-	baseURL: BETTER_AUTH_URL,
-	secret: BETTER_AUTH_SECRET,
+	baseURL: env.BETTER_AUTH_URL,
+	secret: env.BETTER_AUTH_SECRET,
+	trustedOrigins,
 	database: drizzleAdapter(db, { provider: 'sqlite' }),
 	emailAndPassword: {
 		enabled: true
