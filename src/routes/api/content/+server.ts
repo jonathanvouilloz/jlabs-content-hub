@@ -272,5 +272,23 @@ export const GET: RequestHandler = async (event) => {
 		? await query.where(and(...conditions))
 		: await query;
 
-	return jsonResponse(results);
+	// Flatten GMB-specific fields from meta to top-level so consumers (UI, scripts, cron)
+	// don't have to JSON.parse every row to access image_url / image_text / etc.
+	const enriched = results.map((row) => {
+		if (row.type !== 'gmb') return row;
+		let meta: Record<string, unknown> = {};
+		try { meta = row.meta ? JSON.parse(row.meta) : {}; } catch { /* keep empty */ }
+		return {
+			...row,
+			scheduled_at: row.plannedDate,
+			image_url: meta.image_url ?? null,
+			image_text: meta.image_text ?? null,
+			image_template: meta.image_template ?? null,
+			image_prompt: meta.image_prompt ?? null,
+			image_style: meta.image_style ?? null,
+			source_article_slug: meta.source_article_slug ?? null
+		};
+	});
+
+	return jsonResponse(enriched);
 };
