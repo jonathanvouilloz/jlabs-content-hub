@@ -1,6 +1,6 @@
 # Plan d'execution — JLabs Content Hub
 
-> Derniere mise a jour : 2026-04-21
+> Derniere mise a jour : 2026-04-27
 
 ---
 
@@ -32,6 +32,8 @@
 | 15 | Avis Google — consultation, reponse, stockage DB, cron sync | L | DONE | `4c8a5de`, `ad19986`, `93ba9ad` |
 | 16 | Profil business par projet | S | DONE | `93ba9ad` |
 | 17 | Cleanup contenu MVP (DB + GitHub backup) | S | DONE | `3b6e35b`, `70baaee` |
+| 18 | GMB full-auto pipeline (logs, emails, blob, auto-approve) | M | DONE | `d800f70` |
+| 19 | Fix /publish-hub GMB pipeline (upsert idempotent + CSRF + /api/whoami) | S | DONE | _en cours_ |
 
 ---
 

@@ -151,62 +151,94 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	// Auto-split GMB calendar (array of posts) into individual posts
+	// Auto-split GMB calendar (array of posts) into individual posts.
+	// Idempotent: postSlug = `${batchSlug}-${i+1}` is title-independent so a re-POST updates instead of inserting duplicates.
 	if (type === 'gmb') {
 		let parsed: unknown = null;
 		try { parsed = JSON.parse(content); } catch { /* not JSON, skip */ }
 		if (Array.isArray(parsed) && parsed.length > 0) {
 			const posts = parsed as Array<Record<string, unknown>>;
 			const createdIds: string[] = [];
-			const usedSlugs = new Set<string>();
+			const updatedIds: string[] = [];
 
 			for (let i = 0; i < posts.length; i++) {
 				const post = posts[i];
-				const postId = createId();
 				const rawTitle = (post.title as string | undefined) ?? `Post ${i + 1}`;
-				let postSlug = `${slug}-${slugify(rawTitle)}`;
-				if (usedSlugs.has(postSlug)) postSlug = `${slug}-${i + 1}`;
-				usedSlugs.add(postSlug);
+				const postSlug = `${slug}-${i + 1}`;
+
+				const postPlannedDate =
+					(post.scheduled_at as string | undefined) ??
+					(post.scheduledAt as string | undefined) ??
+					(post.planned_date as string | undefined) ??
+					(post.plannedDate as string | undefined) ??
+					planned_date ??
+					null;
 
 				const postBody = JSON.stringify(post);
-				const scheduledAt = (post.scheduled_at as string | undefined) ?? null;
 				const postMeta = JSON.stringify({
 					image_template: post.image_template ?? null,
 					image_style: post.image_style ?? null,
 					image_text: post.image_text ?? null,
-					image_prompt: post.image_prompt ?? null
+					image_prompt: post.image_prompt ?? null,
+					image_url: post.image_url ?? null,
+					source_article_slug: post.source_article_slug ?? null,
+					position: i + 1
 				});
 
-				await db.insert(contents).values({
-					id: postId,
-					projectId: project.id,
-					type: 'gmb',
-					title: rawTitle,
-					slug: postSlug,
-					body: postBody,
-					status: 'approved',
-					plannedDate: scheduledAt ?? planned_date ?? null,
-					meta: postMeta,
-					githubSynced: false,
-					githubPath
+				const existingPost = await db.query.contents.findFirst({
+					where: and(
+						eq(contents.projectId, project.id),
+						eq(contents.type, 'gmb'),
+						eq(contents.slug, postSlug)
+					)
 				});
 
-				await db.insert(statusHistory).values({
-					id: createId(),
-					contentId: postId,
-					fromStatus: null,
-					toStatus: 'approved',
-					changedBy: 'api-auto-approve'
-				});
-
-				createdIds.push(postId);
+				if (existingPost) {
+					await db.update(contents).set({
+						title: rawTitle,
+						body: postBody,
+						plannedDate: postPlannedDate,
+						meta: postMeta,
+						updatedAt: new Date().toISOString()
+					}).where(eq(contents.id, existingPost.id));
+					updatedIds.push(existingPost.id);
+				} else {
+					const postId = createId();
+					await db.insert(contents).values({
+						id: postId,
+						projectId: project.id,
+						type: 'gmb',
+						title: rawTitle,
+						slug: postSlug,
+						body: postBody,
+						status: 'approved',
+						plannedDate: postPlannedDate,
+						meta: postMeta,
+						githubSynced: false,
+						githubPath
+					});
+					await db.insert(statusHistory).values({
+						id: createId(),
+						contentId: postId,
+						fromStatus: null,
+						toStatus: 'approved',
+						changedBy: 'api-auto-approve'
+					});
+					createdIds.push(postId);
+				}
 			}
 
-			// Delete the original batch row (kept on GitHub as backup via pushFileToGitHub above)
+			// Delete the transient envelope row (kept on GitHub as backup via pushFileToGitHub above).
 			await db.delete(statusHistory).where(eq(statusHistory.contentId, id));
 			await db.delete(contents).where(eq(contents.id, id));
 
-			return jsonResponse({ ids: createdIds, split: true, count: createdIds.length }, 201);
+			return jsonResponse({
+				created_ids: createdIds,
+				updated_ids: updatedIds,
+				ids: [...createdIds, ...updatedIds],
+				split: true,
+				count: createdIds.length + updatedIds.length
+			}, 201);
 		}
 	}
 
