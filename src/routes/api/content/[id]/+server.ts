@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents } from '$lib/server/db/schema.js';
+import { contents, statusHistory, comments, publishLogs } from '$lib/server/db/schema.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { pushFileToGitHub, deleteFileFromGitHub } from '$lib/server/github.js';
 import { eq } from 'drizzle-orm';
@@ -49,7 +49,7 @@ export const PUT: RequestHandler = async (event) => {
 };
 
 export const DELETE: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
+	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
 	}
 
@@ -58,7 +58,16 @@ export const DELETE: RequestHandler = async (event) => {
 	});
 	if (!content) return errorResponse('Content not found', 404);
 
-	await db.delete(contents).where(eq(contents.id, event.params.id));
+	// Cascade: contents has 3 FKs pointing to it (status_history, comments, publish_logs).
+	// Delete dependents first to avoid FOREIGN KEY constraint failures.
+	try {
+		await db.delete(statusHistory).where(eq(statusHistory.contentId, event.params.id));
+		await db.delete(comments).where(eq(comments.contentId, event.params.id));
+		await db.delete(publishLogs).where(eq(publishLogs.contentId, event.params.id));
+		await db.delete(contents).where(eq(contents.id, event.params.id));
+	} catch (e) {
+		return errorResponse(`Delete failed: ${(e as Error).message}`, 500);
+	}
 
 	if (content.githubPath) {
 		deleteFileFromGitHub(content.githubPath, `delete: ${content.slug}`);
