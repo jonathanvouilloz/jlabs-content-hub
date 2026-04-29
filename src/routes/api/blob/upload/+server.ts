@@ -4,6 +4,11 @@ import { uploadGmbImage } from '$lib/server/blob.js';
 
 const MAX_BYTES = 4 * 1024 * 1024; // 4 MB (Vercel Functions Node body limit)
 
+// GMB API n'accepte que JPG/PNG/GIF — webp rejeté à l'upload pour éviter
+// que les posts publient une URL morte (cf. erreur "Image format is not supported").
+const UNSUPPORTED_IMAGE_TYPES = new Set(['image/webp']);
+const UNSUPPORTED_EXTENSIONS = /\.webp$/i;
+
 export const POST: RequestHandler = async (event) => {
 	if (!validateApiKey(event) && !event.locals.user) {
 		return errorResponse('Unauthorized', 401);
@@ -32,6 +37,13 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const filename = (typeof filenameField === 'string' && filenameField) || file.name;
+
+	if (UNSUPPORTED_IMAGE_TYPES.has(file.type) || UNSUPPORTED_EXTENSIONS.test(filename)) {
+		return errorResponse(
+			'Unsupported image format: GMB API only accepts JPG, PNG or GIF. Convert WebP to JPEG before upload.',
+			415
+		);
+	}
 
 	try {
 		const buffer = Buffer.from(await file.arrayBuffer());
