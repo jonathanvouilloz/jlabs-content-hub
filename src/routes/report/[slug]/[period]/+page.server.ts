@@ -37,12 +37,17 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const period = `${year}-${String(month).padStart(2, '0')}`;
 	const cached = await findCachedReport(projectId, period);
 
+	const prevStars = Object.fromEntries(
+		[1, 2, 3, 4, 5].map((s) => [s, aggregate.prevReviews.filter((r) => r.rating === s).length])
+	) as Record<number, number>;
+
 	return {
 		project: { name: aggregate.project.name, color: aggregate.project.color, slug: aggregate.project.slug },
 		period: { year, month, label: aggregate.period.label },
 		prevPeriod: aggregate.prevPeriod,
 		stats: aggregate.stats,
 		trends: aggregate.trends,
+		prevStars,
 		locations: aggregate.locations,
 		employees: aggregate.employees,
 		employeeSamples: aggregate.employeeSamples,

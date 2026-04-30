@@ -142,19 +142,110 @@
 					{/if}
 				</div>
 
-				{#if aiSummary.trend_vs_previous?.highlights?.length}
-					<div class="mt-4 rounded-xl bg-surface-50 px-4 py-3">
+				{#if aiSummary.trend_vs_previous}
+					{@const maxVol = Math.max(data.stats.totalReviews, data.trends.prevTotal, 1)}
+					{@const maxRating = 5}
+					{@const maxStarCount = Math.max(data.stats.totalReviews, data.trends.prevTotal, 1)}
+					<div class="mt-4 rounded-xl bg-surface-50 px-4 py-4">
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-surface-500">Évolution vs {data.prevPeriod.label}</p>
-						<ul class="mt-2 space-y-1 text-sm text-surface-700">
-							{#each aiSummary.trend_vs_previous.highlights as h}
-								<li class="flex gap-2"><span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-surface-400"></span>{h}</li>
-							{/each}
-						</ul>
+
+						<!-- Volume + Note côte à côte -->
+						<div class="mt-3 grid grid-cols-2 gap-4">
+							<!-- Volume -->
+							<div>
+								<p class="mb-2 text-[10px] font-medium text-surface-400 uppercase tracking-wide">Volume</p>
+								<div class="space-y-1.5">
+									<div class="flex items-center gap-2">
+										<span class="w-16 shrink-0 text-[10px] text-surface-400">{data.prevPeriod.label.split(' ').slice(0,1).join('')}</span>
+										<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:6px">
+											<div class="h-full rounded-full bg-surface-400" style="width:{(data.trends.prevTotal/maxVol*100).toFixed(1)}%"></div>
+										</div>
+										<span class="w-8 text-right text-[11px] font-medium text-surface-500">{data.trends.prevTotal}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<span class="w-16 shrink-0 text-[10px] font-semibold text-surface-700">{data.period.label.split(' ').slice(0,1).join('')}</span>
+										<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:6px">
+											<div class="h-full rounded-full {data.trends.deltaVolume >= 0 ? 'bg-emerald-500' : 'bg-red-400'}" style="width:{(data.stats.totalReviews/maxVol*100).toFixed(1)}%"></div>
+										</div>
+										<span class="w-8 text-right text-[11px] font-bold {trendColor(data.trends.deltaVolume)}">{data.stats.totalReviews}</span>
+									</div>
+								</div>
+								{#if data.trends.prevTotal > 0}
+									<p class="mt-1 text-[10px] {trendColor(data.trends.deltaVolume)}">{trendIcon(data.trends.deltaVolume)} {data.trends.deltaVolume > 0 ? '+' : ''}{data.trends.deltaVolume} avis</p>
+								{/if}
+							</div>
+
+							<!-- Note moyenne -->
+							<div>
+								<p class="mb-2 text-[10px] font-medium text-surface-400 uppercase tracking-wide">Note moyenne</p>
+								<div class="space-y-1.5">
+									<div class="flex items-center gap-2">
+										<span class="w-16 shrink-0 text-[10px] text-surface-400">{data.prevPeriod.label.split(' ').slice(0,1).join('')}</span>
+										<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:6px">
+											<div class="h-full rounded-full bg-surface-400" style="width:{(data.trends.prevAvgRating/maxRating*100).toFixed(1)}%"></div>
+										</div>
+										<span class="w-8 text-right text-[11px] font-medium text-surface-500">{data.trends.prevAvgRating}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<span class="w-16 shrink-0 text-[10px] font-semibold text-surface-700">{data.period.label.split(' ').slice(0,1).join('')}</span>
+										<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:6px">
+											<div class="h-full rounded-full {data.trends.deltaRating >= 0 ? 'bg-emerald-500' : 'bg-red-400'}" style="width:{(data.stats.avgRating/maxRating*100).toFixed(1)}%"></div>
+										</div>
+										<span class="w-8 text-right text-[11px] font-bold {trendColor(data.trends.deltaRating)}">{data.stats.avgRating}</span>
+									</div>
+								</div>
+								{#if data.trends.prevTotal > 0}
+									<p class="mt-1 text-[10px] {trendColor(data.trends.deltaRating)}">{trendIcon(data.trends.deltaRating)} {data.trends.deltaRating > 0 ? '+' : ''}{data.trends.deltaRating} étoile</p>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Distribution étoiles comparée -->
+						{#if data.trends.prevTotal > 0}
+							<div class="mt-4 space-y-2">
+								<p class="text-[10px] font-medium uppercase tracking-wide text-surface-400">Distribution étoiles</p>
+								{#each [5,4,3,2,1] as star}
+									{@const curr = data.stats.stars[star] ?? 0}
+									{@const prev = data.prevStars[star] ?? 0}
+									{@const colorClass = star >= 4 ? 'bg-emerald-500' : star === 3 ? 'bg-amber-400' : 'bg-red-400'}
+									<div class="flex items-center gap-2">
+										<span class="w-5 shrink-0 text-right text-[10px] text-surface-500">{star}★</span>
+										<div class="flex flex-1 flex-col gap-0.5">
+											<div class="flex items-center gap-1">
+												<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:4px">
+													<div class="h-full rounded-full {colorClass}" style="width:{(curr/maxStarCount*100).toFixed(1)}%"></div>
+												</div>
+												<span class="w-5 text-right text-[9px] font-medium text-surface-600">{curr}</span>
+											</div>
+											<div class="flex items-center gap-1">
+												<div class="flex-1 overflow-hidden rounded-full bg-surface-200" style="height:4px">
+													<div class="h-full rounded-full bg-surface-300" style="width:{(prev/maxStarCount*100).toFixed(1)}%"></div>
+												</div>
+												<span class="w-5 text-right text-[9px] text-surface-400">{prev}</span>
+											</div>
+										</div>
+									</div>
+								{/each}
+								<div class="flex gap-3 pt-1 text-[9px] text-surface-400">
+									<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>Ce mois</span>
+									<span class="flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full bg-surface-300"></span>{data.prevPeriod.label}</span>
+								</div>
+							</div>
+						{/if}
+
+						<!-- Highlights IA -->
+						{#if aiSummary.trend_vs_previous.highlights?.length}
+							<ul class="mt-4 space-y-1 border-t border-surface-200 pt-3 text-sm text-surface-700">
+								{#each aiSummary.trend_vs_previous.highlights as h}
+									<li class="flex gap-2"><span class="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-surface-400"></span>{h}</li>
+								{/each}
+							</ul>
+						{/if}
 					</div>
 				{/if}
 
 				{#if aiSummary.by_location?.length}
-					<div class="mt-5 grid gap-3 {aiSummary.by_location.length > 1 ? 'sm:grid-cols-2' : ''}">
+					<div class="mt-5 space-y-3">
 						{#each aiSummary.by_location as loc}
 							<div class="rounded-xl border border-surface-200 bg-surface-50/40 p-4">
 								<div class="flex items-center justify-between gap-3">
@@ -194,7 +285,7 @@
 				{#if aiSummary.team_highlights?.length}
 					<div class="mt-5">
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-surface-500">Équipe</p>
-						<div class="mt-2 space-y-2">
+						<div class="mt-2 grid gap-2 sm:grid-cols-2">
 							{#each aiSummary.team_highlights as t}
 								<div class="rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm">
 									<div class="font-medium text-surface-900">{t.employee}</div>
@@ -211,14 +302,12 @@
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-surface-500">Actions recommandées pour le mois suivant</p>
 						<ol class="mt-3 space-y-2">
 							{#each aiSummary.actions_recommended as a}
-								<li class="flex items-start gap-3">
-									<span class="mt-0.5 shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset {priorityTone(a.priority)}">
+								<li class="rounded-xl border border-surface-100 bg-surface-50/60 p-3">
+									<span class="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset {priorityTone(a.priority)}">
 										{priorityLabel(a.priority)}
 									</span>
-									<div class="text-sm">
-										<p class="font-medium text-surface-800">{a.action}</p>
-										<p class="mt-0.5 text-xs text-surface-500">{a.reason}</p>
-									</div>
+									<p class="mt-1.5 text-sm font-medium text-surface-800">{a.action}</p>
+									<p class="mt-0.5 text-xs text-surface-500">{a.reason}</p>
 								</li>
 							{/each}
 						</ol>
