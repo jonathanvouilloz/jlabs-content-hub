@@ -211,8 +211,8 @@
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-surface-500">Actions recommandées pour le mois suivant</p>
 						<ol class="mt-3 space-y-2">
 							{#each aiSummary.actions_recommended as a}
-								<li class="flex gap-3">
-									<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset {priorityTone(a.priority)}">
+								<li class="flex items-start gap-3">
+									<span class="mt-0.5 shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset {priorityTone(a.priority)}">
 										{priorityLabel(a.priority)}
 									</span>
 									<div class="text-sm">
