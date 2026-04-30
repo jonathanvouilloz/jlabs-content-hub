@@ -1,0 +1,1437 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Carousel — Barber Concept Media</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,400;1,9..144,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; }
+
+  .tweaks-panel {
+    position: fixed; right: 20px; bottom: 20px;
+    background: #0a0a0a; color: #f4f0e8;
+    border-radius: 8px; padding: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    font-family: 'Inter', sans-serif; font-size: 13px;
+    max-height: 82vh; overflow-y: auto; width: 340px;
+    z-index: 1000;
+    border: 1px solid rgba(244,240,232,0.1);
+    display: none;
+  }
+  .tweaks-panel.visible { display: block; }
+  .tweaks-panel h3 {
+    margin: 0 0 4px;
+    font-family: 'Fraunces', Georgia, serif; font-weight: 400;
+    font-size: 22px; letter-spacing: -0.5px;
+  }
+  .tweaks-panel .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: #b08d57; margin-bottom: 18px;
+  }
+  .tweaks-panel .group {
+    padding-top: 14px; margin-top: 14px;
+    border-top: 1px solid rgba(244,240,232,0.1);
+  }
+  .tweaks-panel .group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+  .tweaks-panel label {
+    display: block; margin-bottom: 10px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    color: rgba(244,240,232,0.55);
+  }
+  .tweaks-panel textarea, .tweaks-panel input[type=text] {
+    width: 100%; padding: 9px 10px;
+    background: rgba(244,240,232,0.06);
+    border: 1px solid rgba(244,240,232,0.15);
+    color: #f4f0e8; font-family: 'Inter', sans-serif;
+    font-size: 12px; line-height: 1.4;
+    border-radius: 4px; resize: vertical;
+  }
+  .tweaks-panel textarea:focus, .tweaks-panel input:focus {
+    outline: none; border-color: #b08d57;
+  }
+  .tweaks-panel .dir-label {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: 16px; color: #d4a96a;
+    margin-bottom: 12px; letter-spacing: -0.3px;
+  }
+  .tweaks-panel button.reset {
+    margin-top: 14px;
+    background: none; border: 1px solid rgba(244,240,232,0.25);
+    color: #f4f0e8; padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    border-radius: 4px; cursor: pointer;
+  }
+  .tweaks-panel button.reset:hover { border-color: #b08d57; color: #d4a96a; }
+
+  #root { width: 100%; min-height: 100vh; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+
+// DesignCanvas.jsx — Figma-ish design canvas wrapper
+// Warm gray grid bg + Sections + Artboards + PostIt notes.
+// No assets, no deps.
+
+const DC = {
+  bg: '#f0eee9',
+  grid: 'rgba(0,0,0,0.06)',
+  label: 'rgba(60,50,40,0.7)',
+  title: 'rgba(40,30,20,0.85)',
+  subtitle: 'rgba(60,50,40,0.6)',
+  postitBg: '#fef4a8',
+  postitText: '#5a4a2a',
+  font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+};
+
+// ─────────────────────────────────────────────────────────────
+// Main canvas — transform-based pan/zoom viewport
+//
+// Input mapping (Figma-style):
+//   • trackpad pinch  → zoom   (ctrlKey wheel; Safari gesture* events)
+//   • trackpad scroll → pan    (two-finger)
+//   • mouse wheel     → zoom   (notched; distinguished from trackpad scroll)
+//   • middle-drag / primary-drag-on-bg → pan
+//
+// Transform state lives in a ref and is written straight to the DOM
+// (translate3d + will-change) so wheel ticks don't go through React —
+// keeps pans at 60fps on dense canvases.
+// ─────────────────────────────────────────────────────────────
+function DesignCanvas({ children, minScale = 0.1, maxScale = 8, style = {} }) {
+  const vpRef = React.useRef(null);
+  const worldRef = React.useRef(null);
+  const tf = React.useRef({ x: 0, y: 0, scale: 1 });
+
+  const apply = React.useCallback(() => {
+    const { x, y, scale } = tf.current;
+    const el = worldRef.current;
+    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+  }, []);
+
+  React.useEffect(() => {
+    const vp = vpRef.current;
+    if (!vp) return;
+
+    const zoomAt = (cx, cy, factor) => {
+      const r = vp.getBoundingClientRect();
+      const px = cx - r.left, py = cy - r.top;
+      const t = tf.current;
+      const next = Math.min(maxScale, Math.max(minScale, t.scale * factor));
+      const k = next / t.scale;
+      // keep the world point under the cursor fixed
+      t.x = px - (px - t.x) * k;
+      t.y = py - (py - t.y) * k;
+      t.scale = next;
+      apply();
+    };
+
+    // Mouse-wheel vs trackpad-scroll heuristic. A physical wheel sends
+    // line-mode deltas (Firefox) or large integer pixel deltas with no X
+    // component (Chrome/Safari, typically multiples of 100/120). Trackpad
+    // two-finger scroll sends small/fractional pixel deltas, often with
+    // non-zero deltaX. ctrlKey is set by the browser for trackpad pinch.
+    const isMouseWheel = (e) =>
+      e.deltaMode !== 0 ||
+      (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      if (isGesturing) return; // Safari: gesture* owns the pinch — discard concurrent wheels
+      if (e.ctrlKey) {
+        // trackpad pinch (or explicit ctrl+wheel)
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+      } else if (isMouseWheel(e)) {
+        // notched mouse wheel — fixed-ratio step per click
+        zoomAt(e.clientX, e.clientY, Math.exp(-Math.sign(e.deltaY) * 0.18));
+      } else {
+        // trackpad two-finger scroll — pan
+        tf.current.x -= e.deltaX;
+        tf.current.y -= e.deltaY;
+        apply();
+      }
+    };
+
+    // Safari sends native gesture* events for trackpad pinch with a smooth
+    // e.scale; preferring these over the ctrl+wheel fallback gives a much
+    // better feel there. No-ops on other browsers. Safari also fires
+    // ctrlKey wheel events during the same pinch — isGesturing makes
+    // onWheel drop those entirely so they neither zoom nor pan.
+    let gsBase = 1;
+    let isGesturing = false;
+    const onGestureStart = (e) => { e.preventDefault(); isGesturing = true; gsBase = tf.current.scale; };
+    const onGestureChange = (e) => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, (gsBase * e.scale) / tf.current.scale);
+    };
+    const onGestureEnd = (e) => { e.preventDefault(); isGesturing = false; };
+
+    // Drag-pan: middle button anywhere, or primary button starting on the
+    // canvas background (not inside an artboard).
+    let drag = null;
+    const onPointerDown = (e) => {
+      const onBg = e.target === vp || e.target === worldRef.current;
+      if (!(e.button === 1 || (e.button === 0 && onBg))) return;
+      e.preventDefault();
+      vp.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
+      vp.style.cursor = 'grabbing';
+    };
+    const onPointerMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      tf.current.x += e.clientX - drag.lx;
+      tf.current.y += e.clientY - drag.ly;
+      drag.lx = e.clientX; drag.ly = e.clientY;
+      apply();
+    };
+    const onPointerUp = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      vp.releasePointerCapture(e.pointerId);
+      drag = null;
+      vp.style.cursor = '';
+    };
+
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    vp.addEventListener('gesturestart', onGestureStart, { passive: false });
+    vp.addEventListener('gesturechange', onGestureChange, { passive: false });
+    vp.addEventListener('gestureend', onGestureEnd, { passive: false });
+    vp.addEventListener('pointerdown', onPointerDown);
+    vp.addEventListener('pointermove', onPointerMove);
+    vp.addEventListener('pointerup', onPointerUp);
+    vp.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      vp.removeEventListener('wheel', onWheel);
+      vp.removeEventListener('gesturestart', onGestureStart);
+      vp.removeEventListener('gesturechange', onGestureChange);
+      vp.removeEventListener('gestureend', onGestureEnd);
+      vp.removeEventListener('pointerdown', onPointerDown);
+      vp.removeEventListener('pointermove', onPointerMove);
+      vp.removeEventListener('pointerup', onPointerUp);
+      vp.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [apply, minScale, maxScale]);
+
+  const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
+  return (
+    <div
+      ref={vpRef}
+      className="design-canvas"
+      style={{
+        height: '100vh', width: '100vw',
+        background: DC.bg,
+        overflow: 'hidden',
+        overscrollBehavior: 'none',
+        touchAction: 'none',
+        position: 'relative',
+        fontFamily: DC.font,
+        boxSizing: 'border-box',
+        ...style,
+      }}
+    >
+      <div
+        ref={worldRef}
+        style={{
+          position: 'absolute', top: 0, left: 0,
+          transformOrigin: '0 0',
+          willChange: 'transform',
+          width: 'max-content', minWidth: '100%',
+          minHeight: '100%',
+          padding: '60px 0 80px',
+          backgroundImage: gridSvg,
+          backgroundSize: '120px 120px',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Section — title + subtitle + h-stack of artboards (no wrap)
+// ─────────────────────────────────────────────────────────────
+function DCSection({ title, subtitle, children, gap = 48 }) {
+  return (
+    <div style={{ marginBottom: 80, position: 'relative' }}>
+      <div style={{ padding: '0 60px 36px' }}>
+        <div style={{
+          fontSize: 22, fontWeight: 600, color: DC.title,
+          letterSpacing: -0.3, marginBottom: 4,
+        }}>{title}</div>
+        {subtitle && (
+          <div style={{
+            fontSize: 14, fontWeight: 400, color: DC.subtitle,
+          }}>{subtitle}</div>
+        )}
+      </div>
+      {/* h-stack — clips offscreen, never wraps */}
+      <div style={{
+        display: 'flex', gap, padding: '0 60px',
+        alignItems: 'flex-start', width: 'max-content',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Artboard — labeled card
+// ─────────────────────────────────────────────────────────────
+function DCArtboard({ label, children, width, height, style = {} }) {
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      {label && (
+        <div style={{
+          position: 'absolute', bottom: '100%', left: 0,
+          paddingBottom: 8,
+          fontSize: 12, fontWeight: 500, color: DC.label,
+          whiteSpace: 'nowrap',
+        }}>{label}</div>
+      )}
+      <div style={{
+        borderRadius: 2,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06)',
+        overflow: 'hidden',
+        width, height,
+        background: '#fff',
+        ...style,
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Post-it — absolute-positioned sticky note
+// ─────────────────────────────────────────────────────────────
+function DCPostIt({ children, top, left, right, bottom, rotate = -2, width = 180 }) {
+  return (
+    <div style={{
+      position: 'absolute', top, left, right, bottom, width,
+      background: DC.postitBg, padding: '14px 16px',
+      fontFamily: '"Comic Sans MS", "Marker Felt", "Segoe Print", cursive',
+      fontSize: 14, lineHeight: 1.4, color: DC.postitText,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+      transform: `rotate(${rotate}deg)`,
+      zIndex: 5,
+    }}>{children}</div>
+  );
+}
+
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt });
+
+
+</script>
+<script type="text/babel" data-presets="react">
+// Slides for Barber Concept Media carousel
+// 3 directions × 6 slides each
+// Format Story 1080x1920 rendered at scale via CSS transform in artboard
+
+// ─── Tokens ───────────────────────────────────────────────────
+const BC = {
+  ink: '#0a0a0a',        // deep black
+  bone: '#f4f0e8',       // warm bone / off-white
+  paper: '#ebe4d4',      // slightly darker paper
+  brass: '#b08d57',      // brass/gold accent
+  brassHi: '#d4a96a',    // lighter brass
+  muted: '#6b6660',
+  line: 'rgba(10,10,10,0.12)',
+  lineOnInk: 'rgba(244,240,232,0.18)',
+};
+
+const FONTS = {
+  display: '"Fraunces", "Playfair Display", Georgia, serif',
+  sans: '"Inter", -apple-system, BlinkMacSystemFont, sans-serif',
+  mono: '"JetBrains Mono", "SF Mono", Menlo, monospace',
+};
+
+// ─── Frame ────────────────────────────────────────────────────
+// The actual story is 1080×1920; we render at that size and let the
+// Artboard shrink via transform.
+const STORY_W = 1080;
+const STORY_H = 1920;
+
+function StoryFrame({ bg = BC.bone, ink = BC.ink, children, paginator, idx, total, brand = true }) {
+  return (
+    <div style={{
+      width: STORY_W, height: STORY_H,
+      background: bg, color: ink,
+      position: 'relative', overflow: 'hidden',
+      fontFamily: FONTS.sans,
+    }}>
+      {/* safe-zone guides (invisible in design, useful for you) */}
+      {/* top bar: brand + paginator */}
+      {brand && (
+        <div style={{
+          position: 'absolute', top: 80, left: 80, right: 80,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          color: ink, opacity: 0.7,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <BCLogo color={ink} size={28} />
+            <span>Barber Concept Media</span>
+          </div>
+          {paginator !== false && (
+            <span>{String(idx).padStart(2,'0')} / {String(total).padStart(2,'0')}</span>
+          )}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// Simple brand mark — razor glyph + initials
+function BCLogo({ color = BC.ink, size = 32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="15" stroke={color} strokeWidth="1.5"/>
+      <path d="M10 22 L22 10 M10 10 L22 22" stroke={color} strokeWidth="1.5"/>
+      <circle cx="16" cy="16" r="3" fill={color}/>
+    </svg>
+  );
+}
+
+// ─── Abstract shapes ─────────────────────────────────────────
+function OrbShape({ size = 400, color = BC.brass, style }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      background: `radial-gradient(circle at 35% 30%, ${color}ee, ${color}22 70%)`,
+      ...style,
+    }}/>
+  );
+}
+
+function RingShape({ size = 400, color = BC.brass, thickness = 2, style }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      border: `${thickness}px solid ${color}`,
+      ...style,
+    }}/>
+  );
+}
+
+function GridBg({ color = BC.ink, opacity = 0.05 }) {
+  const svg = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpath d='M60 0H0v60' stroke='${encodeURIComponent(color)}' stroke-width='1' fill='none'/%3E%3C/svg%3E")`;
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      backgroundImage: svg, backgroundSize: '60px 60px',
+      opacity,
+      pointerEvents: 'none',
+    }}/>
+  );
+}
+
+// ─── CTA card (shared) ───────────────────────────────────────
+function CTABlock({ copy, ink = BC.ink, accent = BC.brass, buttonLabel }) {
+  return (
+    <div style={{
+      position: 'absolute', left: 80, right: 80, bottom: 120,
+      display: 'flex', flexDirection: 'column', gap: 32,
+    }}>
+      <div style={{
+        fontFamily: FONTS.display,
+        fontSize: 84, lineHeight: 0.95, letterSpacing: -2,
+        color: ink,
+        fontWeight: 400,
+      }}>
+        {copy}
+      </div>
+      <div style={{
+        background: ink, color: BC.bone,
+        padding: '36px 48px', borderRadius: 4,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.sans, fontWeight: 600, fontSize: 32,
+        letterSpacing: -0.3,
+      }}>
+        <span>{buttonLabel}</span>
+        <span style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: accent, color: ink,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 28, fontWeight: 700,
+        }}>→</span>
+      </div>
+      <div style={{
+        fontFamily: FONTS.mono, fontSize: 20, letterSpacing: 1,
+        color: ink, opacity: 0.5, textTransform: 'uppercase',
+        textAlign: 'center',
+      }}>
+        barbermedia.ch · Genève · Lausanne · Sion
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DIRECTION A — "PROOF-DRIVEN"
+// Stats-first. Each slide a single massive number.
+// Light bone background, serif numerals, brass accent.
+// ═══════════════════════════════════════════════════════════════
+
+function A_Slide({ idx, total, eyebrow, stat, unit, description, bg = BC.bone, ink = BC.ink, accent = BC.brass, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={bg} ink={ink}>
+      <GridBg color={ink} opacity={0.04}/>
+
+      {/* eyebrow */}
+      <div style={{
+        position: 'absolute', top: 280, left: 80, right: 80,
+        fontFamily: FONTS.mono, fontSize: 28, letterSpacing: 3,
+        textTransform: 'uppercase', color: ink, opacity: 0.55,
+      }}>
+        {eyebrow}
+      </div>
+
+      {/* big stat */}
+      <div style={{
+        position: 'absolute', top: 380, left: 80, right: 80,
+        fontFamily: FONTS.display,
+        fontSize: 420, lineHeight: 0.82,
+        letterSpacing: -18,
+        fontWeight: 300,
+        color: ink,
+        fontFeatureSettings: '"lnum", "tnum"',
+      }}>
+        {stat}
+        {unit && <span style={{
+          fontSize: 120, letterSpacing: -4, color: accent,
+          marginLeft: 8,
+        }}>{unit}</span>}
+      </div>
+
+      {/* supporting copy */}
+      <div style={{
+        position: 'absolute', bottom: 380, left: 80, right: 80,
+        fontFamily: FONTS.sans, fontSize: 42, lineHeight: 1.25,
+        letterSpacing: -0.5, fontWeight: 400,
+        color: ink, maxWidth: 820,
+      }}>
+        {description}
+      </div>
+
+      {/* accent rule */}
+      <div style={{
+        position: 'absolute', bottom: 340, left: 80,
+        width: 120, height: 4, background: accent,
+      }}/>
+
+      {/* footer pager */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+        fontFamily: FONTS.mono, fontSize: 22, color: ink, opacity: 0.55,
+        letterSpacing: 1, textTransform: 'uppercase',
+      }}>
+        <span>{copy || 'Swipe →'}</span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} style={{
+              width: i + 1 === idx ? 32 : 8, height: 8,
+              background: i + 1 === idx ? ink : ink,
+              opacity: i + 1 === idx ? 1 : 0.2,
+              borderRadius: 4, transition: 'all .2s',
+            }}/>
+          ))}
+        </div>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function A_Slide1_Hero({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.ink} ink={BC.bone}>
+      <GridBg color={BC.bone} opacity={0.08}/>
+
+      {/* brass orb behind */}
+      <div style={{ position: 'absolute', top: -160, right: -160 }}>
+        <OrbShape size={900} color={BC.brass}/>
+      </div>
+
+      <div style={{
+        position: 'absolute', top: 560, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 28, letterSpacing: 4,
+          textTransform: 'uppercase', color: BC.brass, marginBottom: 48,
+        }}>
+          Édition 2026 — Le guide
+        </div>
+        <h1 style={{
+          fontFamily: FONTS.display,
+          fontSize: 180, lineHeight: 0.88, letterSpacing: -6,
+          fontWeight: 300,
+          color: BC.bone, margin: 0,
+        }}>
+          Toucher <br/>
+          <em style={{ color: BC.brassHi, fontStyle: 'italic' }}>un homme</em><br/>
+          qui écoute.
+        </h1>
+        <div style={{
+          marginTop: 56,
+          fontFamily: FONTS.sans, fontSize: 36, lineHeight: 1.3,
+          color: BC.bone, opacity: 0.75, maxWidth: 820,
+          letterSpacing: -0.2,
+        }}>
+          {copy || 'Le guide complet de la publicité locale en salons de barbier — Suisse romande.'}
+        </div>
+      </div>
+
+      {/* bottom rail */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.mono, fontSize: 22, color: BC.bone, opacity: 0.6,
+        letterSpacing: 1.5, textTransform: 'uppercase',
+        paddingTop: 32, borderTop: `1px solid ${BC.lineOnInk}`,
+      }}>
+        <span>barbermedia.ch</span>
+        <span>Swipe pour découvrir →</span>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function A_Slide6_CTA({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink}>
+      <GridBg color={BC.ink} opacity={0.05}/>
+
+      {/* brass arc */}
+      <div style={{ position: 'absolute', top: -400, left: -200 }}>
+        <RingShape size={1200} color={BC.brass} thickness={1}/>
+      </div>
+      <div style={{ position: 'absolute', top: -250, left: -50 }}>
+        <RingShape size={900} color={BC.brass} thickness={1}/>
+      </div>
+
+      <div style={{
+        position: 'absolute', top: 380, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 28, letterSpacing: 4,
+          textTransform: 'uppercase', color: BC.brass, marginBottom: 48,
+        }}>
+          06 — Passez à l'action
+        </div>
+        <h2 style={{
+          fontFamily: FONTS.display,
+          fontSize: 140, lineHeight: 0.9, letterSpacing: -4,
+          fontWeight: 300, color: BC.ink, margin: 0,
+        }}>
+          Le guide <br/>
+          <em style={{ fontStyle: 'italic', color: BC.brass }}>gratuit</em>
+          <span style={{ color: BC.ink }}>, </span><br/>
+          chez vous <br/>
+          en 10 secondes.
+        </h2>
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: 360, left: 80, right: 80,
+        fontFamily: FONTS.sans, fontSize: 34, lineHeight: 1.3,
+        color: BC.ink, opacity: 0.75, letterSpacing: -0.2,
+      }}>
+        {copy || '32 pages · benchmarks sectoriels · grille tarifaire · checklist créative.'}
+      </div>
+
+      {/* CTA button */}
+      <div style={{
+        position: 'absolute', bottom: 140, left: 80, right: 80,
+        background: BC.ink, color: BC.bone,
+        padding: '44px 56px', borderRadius: 4,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.sans, fontWeight: 600, fontSize: 40,
+        letterSpacing: -0.5,
+      }}>
+        <span>Télécharger le guide</span>
+        <div style={{
+          width: 72, height: 72, borderRadius: '50%',
+          background: BC.brass, color: BC.ink,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 36, fontWeight: 700,
+        }}>→</div>
+      </div>
+    </StoryFrame>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DIRECTION B — "ANTI-SCROLL"
+// Opposition classique vs Barber. Split layouts, strikethrough.
+// ═══════════════════════════════════════════════════════════════
+
+function B_Slide_Split({ idx, total, eyebrow, badLabel, badStat, badNote, goodLabel, goodStat, goodNote, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink}>
+      <div style={{
+        position: 'absolute', top: 260, left: 80, right: 80,
+        fontFamily: FONTS.mono, fontSize: 26, letterSpacing: 3,
+        textTransform: 'uppercase', color: BC.muted,
+      }}>
+        {eyebrow}
+      </div>
+
+      {/* BAD half — paper, struck through */}
+      <div style={{
+        position: 'absolute', top: 360, left: 80, right: 80, height: 560,
+        background: BC.paper, padding: '48px 56px',
+        borderRadius: 4,
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 24, letterSpacing: 2,
+          textTransform: 'uppercase', color: BC.muted,
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}>
+          <span style={{
+            width: 12, height: 12, borderRadius: 6, background: '#c44',
+          }}/>
+          {badLabel}
+        </div>
+        <div style={{
+          fontFamily: FONTS.display, fontSize: 180, lineHeight: 0.9,
+          letterSpacing: -6, fontWeight: 300, color: BC.muted,
+          textDecoration: 'line-through',
+          textDecorationColor: '#c44',
+          textDecorationThickness: 6,
+        }}>
+          {badStat}
+        </div>
+        <div style={{
+          fontFamily: FONTS.sans, fontSize: 30, lineHeight: 1.3,
+          color: BC.muted, letterSpacing: -0.2,
+        }}>
+          {badNote}
+        </div>
+      </div>
+
+      {/* GOOD half — ink, confident */}
+      <div style={{
+        position: 'absolute', top: 960, left: 80, right: 80, height: 560,
+        background: BC.ink, color: BC.bone,
+        padding: '48px 56px', borderRadius: 4,
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 24, letterSpacing: 2,
+          textTransform: 'uppercase', color: BC.brass,
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}>
+          <span style={{
+            width: 12, height: 12, borderRadius: 6, background: BC.brass,
+          }}/>
+          {goodLabel}
+        </div>
+        <div style={{
+          fontFamily: FONTS.display, fontSize: 200, lineHeight: 0.88,
+          letterSpacing: -8, fontWeight: 400, color: BC.bone,
+        }}>
+          {goodStat}
+        </div>
+        <div style={{
+          fontFamily: FONTS.sans, fontSize: 32, lineHeight: 1.3,
+          color: BC.bone, opacity: 0.85, letterSpacing: -0.2,
+        }}>
+          {goodNote}
+        </div>
+      </div>
+
+      {/* pager */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.mono, fontSize: 22, color: BC.ink, opacity: 0.6,
+        letterSpacing: 1, textTransform: 'uppercase',
+      }}>
+        <span>{copy || 'Comparez →'}</span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} style={{
+              width: i + 1 === idx ? 32 : 8, height: 8,
+              background: BC.ink,
+              opacity: i + 1 === idx ? 1 : 0.2,
+              borderRadius: 4,
+            }}/>
+          ))}
+        </div>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function B_Slide1_Hero({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink}>
+      <GridBg color={BC.ink} opacity={0.04}/>
+
+      <div style={{
+        position: 'absolute', top: 480, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 28, letterSpacing: 4,
+          textTransform: 'uppercase', color: BC.brass, marginBottom: 64,
+        }}>
+          Publicité locale · 2026
+        </div>
+        <h1 style={{
+          fontFamily: FONTS.display, margin: 0,
+          fontSize: 220, lineHeight: 0.85, letterSpacing: -8,
+          fontWeight: 300,
+        }}>
+          Votre pub
+          <br/>
+          <span style={{ position: 'relative' }}>
+            scrollée.
+            <svg style={{
+              position: 'absolute', left: -10, right: -10, top: '40%',
+              width: 'calc(100% + 20px)', height: 40,
+            }} viewBox="0 0 600 40" preserveAspectRatio="none">
+              <path d="M5 25 Q 150 5, 300 20 T 595 18" stroke={BC.brass} strokeWidth="8" fill="none" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <br/>
+          <em style={{ fontStyle: 'italic' }}>ou vue ?</em>
+        </h1>
+
+        <div style={{
+          marginTop: 72,
+          fontFamily: FONTS.sans, fontSize: 36, lineHeight: 1.3,
+          color: BC.ink, opacity: 0.75, maxWidth: 840,
+          letterSpacing: -0.2,
+        }}>
+          {copy || 'On vous paie en impressions. Nous, on facture des regards.'}
+        </div>
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.mono, fontSize: 22, color: BC.ink, opacity: 0.6,
+        letterSpacing: 1.5, textTransform: 'uppercase',
+        paddingTop: 32, borderTop: `1px solid ${BC.line}`,
+      }}>
+        <span>Le guide — 01/06</span>
+        <span>Swipe →</span>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function B_Slide6_CTA({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.ink} ink={BC.bone}>
+      <div style={{ position: 'absolute', top: -300, right: -300 }}>
+        <OrbShape size={1100} color={BC.brass}/>
+      </div>
+      <GridBg color={BC.bone} opacity={0.06}/>
+
+      <div style={{
+        position: 'absolute', top: 420, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 28, letterSpacing: 4,
+          textTransform: 'uppercase', color: BC.brassHi, marginBottom: 56,
+        }}>
+          Le guide complet · offert
+        </div>
+        <h2 style={{
+          fontFamily: FONTS.display, margin: 0,
+          fontSize: 160, lineHeight: 0.88, letterSpacing: -5,
+          fontWeight: 300, color: BC.bone,
+        }}>
+          Arrêtez <br/>
+          de payer <br/>
+          <em style={{ fontStyle: 'italic', color: BC.brassHi }}>des bots.</em>
+        </h2>
+        <div style={{
+          marginTop: 64,
+          fontFamily: FONTS.sans, fontSize: 34, lineHeight: 1.3,
+          color: BC.bone, opacity: 0.8, maxWidth: 860,
+          letterSpacing: -0.2,
+        }}>
+          {copy || 'Recevez le guide 2026 de la publicité locale en Suisse romande. 32 pages, benchmarks, tarifs.'}
+        </div>
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: 140, left: 80, right: 80,
+        background: BC.brass, color: BC.ink,
+        padding: '44px 56px', borderRadius: 4,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.sans, fontWeight: 700, fontSize: 40,
+        letterSpacing: -0.5,
+      }}>
+        <span>Télécharger le guide</span>
+        <div style={{
+          width: 72, height: 72, borderRadius: '50%',
+          background: BC.ink, color: BC.brass,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 36, fontWeight: 700,
+        }}>→</div>
+      </div>
+    </StoryFrame>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DIRECTION C — "EDITORIAL"
+// Magazine-style. Typo XL italique, numérotation romaine, rails.
+// ═══════════════════════════════════════════════════════════════
+
+function C_Slide({ idx, total, roman, kicker, headline, body, cite, accent = BC.brass, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink} paginator={false}>
+      {/* vertical rule */}
+      <div style={{
+        position: 'absolute', left: 80, top: 220, bottom: 220,
+        width: 1, background: BC.line,
+      }}/>
+
+      {/* roman numeral */}
+      <div style={{
+        position: 'absolute', top: 260, left: 120,
+        fontFamily: FONTS.display, fontStyle: 'italic',
+        fontSize: 48, color: BC.ink, opacity: 0.4,
+        letterSpacing: -1,
+      }}>
+        {roman}
+      </div>
+
+      {/* kicker */}
+      <div style={{
+        position: 'absolute', top: 340, left: 120, right: 80,
+        fontFamily: FONTS.mono, fontSize: 26, letterSpacing: 3,
+        textTransform: 'uppercase', color: accent,
+      }}>
+        {kicker}
+      </div>
+
+      {/* headline */}
+      <div style={{
+        position: 'absolute', top: 420, left: 120, right: 80,
+      }}>
+        <h2 style={{
+          fontFamily: FONTS.display, margin: 0,
+          fontSize: 140, lineHeight: 0.92, letterSpacing: -4,
+          fontWeight: 300, color: BC.ink,
+        }}>
+          {headline}
+        </h2>
+      </div>
+
+      {/* body */}
+      <div style={{
+        position: 'absolute', bottom: 480, left: 120, right: 120,
+        fontFamily: FONTS.display, fontStyle: 'italic',
+        fontSize: 42, lineHeight: 1.35, color: BC.ink,
+        letterSpacing: -0.3, maxWidth: 820,
+      }}>
+        {body}
+      </div>
+
+      {/* cite */}
+      {cite && (
+        <div style={{
+          position: 'absolute', bottom: 380, left: 120, right: 80,
+          fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 2,
+          textTransform: 'uppercase', color: BC.muted,
+        }}>
+          — {cite}
+        </div>
+      )}
+
+      {/* footer rail */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        paddingTop: 32, borderTop: `1px solid ${BC.line}`,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 1.5,
+        textTransform: 'uppercase', color: BC.ink, opacity: 0.6,
+      }}>
+        <span>Barber Concept Media · Le Guide</span>
+        <span>{String(idx).padStart(2,'0')}/{String(total).padStart(2,'0')}</span>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function C_Slide1_Cover({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink} paginator={false}>
+      {/* top masthead */}
+      <div style={{
+        position: 'absolute', top: 80, left: 80, right: 80,
+        paddingBottom: 24, borderBottom: `1px solid ${BC.line}`,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 2,
+        textTransform: 'uppercase',
+      }}>
+        <span style={{ fontWeight: 700 }}>Barber Concept · Media</span>
+        <span style={{ opacity: 0.6 }}>N° 01 · 2026</span>
+      </div>
+
+      {/* ISSUE / CHF / PAGES rail */}
+      <div style={{
+        position: 'absolute', top: 180, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between',
+        fontFamily: FONTS.mono, fontSize: 20, letterSpacing: 1.5,
+        color: BC.muted, textTransform: 'uppercase',
+      }}>
+        <span>Genève · Lausanne · Sion</span>
+        <span>Gratuit · 32 pages</span>
+      </div>
+
+      {/* giant headline */}
+      <div style={{
+        position: 'absolute', top: 380, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.display, fontStyle: 'italic',
+          fontSize: 56, color: BC.brass, marginBottom: 32,
+          letterSpacing: -1,
+        }}>
+          Le guide
+        </div>
+        <h1 style={{
+          fontFamily: FONTS.display, margin: 0,
+          fontSize: 280, lineHeight: 0.82, letterSpacing: -12,
+          fontWeight: 300, color: BC.ink,
+        }}>
+          Parler <br/>
+          aux <br/>
+          <em style={{ fontStyle: 'italic' }}>hommes</em>.
+        </h1>
+      </div>
+
+      {/* sub */}
+      <div style={{
+        position: 'absolute', bottom: 340, left: 80, right: 80,
+        fontFamily: FONTS.sans, fontSize: 38, lineHeight: 1.3,
+        color: BC.ink, opacity: 0.75, maxWidth: 820,
+        letterSpacing: -0.3,
+      }}>
+        {copy || 'Comment les commerces locaux de Suisse romande captent une audience masculine, 30 minutes d\'affilée, sans AdBlocker.'}
+      </div>
+
+      {/* bottom rail */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        paddingTop: 32, borderTop: `1px solid ${BC.line}`,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 2,
+        textTransform: 'uppercase', color: BC.ink,
+      }}>
+        <span>Édition inaugurale</span>
+        <span style={{ color: BC.brass }}>Swipe →</span>
+      </div>
+    </StoryFrame>
+  );
+}
+
+function C_Slide6_CTA({ idx, total, copy }) {
+  return (
+    <StoryFrame idx={idx} total={total} bg={BC.bone} ink={BC.ink} paginator={false}>
+      {/* top masthead */}
+      <div style={{
+        position: 'absolute', top: 80, left: 80, right: 80,
+        paddingBottom: 24, borderBottom: `1px solid ${BC.line}`,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        fontFamily: FONTS.mono, fontSize: 22, letterSpacing: 2,
+        textTransform: 'uppercase',
+      }}>
+        <span style={{ fontWeight: 700 }}>Dernière page</span>
+        <span style={{ opacity: 0.6 }}>Colophon · 06</span>
+      </div>
+
+      <div style={{
+        position: 'absolute', top: 320, left: 80, right: 80,
+      }}>
+        <div style={{
+          fontFamily: FONTS.display, fontStyle: 'italic',
+          fontSize: 48, color: BC.brass, marginBottom: 24,
+        }}>
+          Pour conclure —
+        </div>
+        <h2 style={{
+          fontFamily: FONTS.display, margin: 0,
+          fontSize: 170, lineHeight: 0.88, letterSpacing: -5,
+          fontWeight: 300, color: BC.ink,
+        }}>
+          Emportez <br/>
+          le guide <br/>
+          <em style={{ fontStyle: 'italic' }}>chez vous.</em>
+        </h2>
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: 460, left: 80, right: 80,
+        fontFamily: FONTS.display, fontStyle: 'italic',
+        fontSize: 40, lineHeight: 1.35, color: BC.ink,
+        letterSpacing: -0.3, opacity: 0.85,
+      }}>
+        {copy || '32 pages d\'analyses, benchmarks sectoriels, grille tarifaire complète et checklist créative pour vos visuels 1920×1080.'}
+      </div>
+
+      {/* CTA — bordered, not filled */}
+      <div style={{
+        position: 'absolute', bottom: 200, left: 80, right: 80,
+        border: `2px solid ${BC.ink}`,
+        padding: '40px 48px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: FONTS.display, fontStyle: 'italic', fontWeight: 400,
+        fontSize: 44, letterSpacing: -0.5, color: BC.ink,
+      }}>
+        <span>Télécharger le guide</span>
+        <div style={{
+          width: 72, height: 72, borderRadius: '50%',
+          border: `2px solid ${BC.ink}`, color: BC.ink,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 36, fontWeight: 300, fontStyle: 'normal',
+        }}>→</div>
+      </div>
+
+      {/* bottom rail */}
+      <div style={{
+        position: 'absolute', bottom: 120, left: 80, right: 80,
+        display: 'flex', justifyContent: 'space-between',
+        fontFamily: FONTS.mono, fontSize: 20, letterSpacing: 2,
+        textTransform: 'uppercase', color: BC.muted,
+      }}>
+        <span>barbermedia.ch</span>
+        <span>info@barbermedia.ch</span>
+      </div>
+    </StoryFrame>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Direction builders — consume editable copy map
+// ═══════════════════════════════════════════════════════════════
+
+function DirectionA({ copy }) {
+  const total = 6;
+  return [
+    <A_Slide1_Hero key="a1" idx={1} total={total} copy={copy.a1}/>,
+    <A_Slide key="a2" idx={2} total={total}
+      eyebrow="01 — L'audience"
+      stat="8 400" unit="/mois"
+      description={copy.a2 || "Hommes 18–35 ans, actifs urbains, touchés chaque mois dans nos 6 salons de Suisse romande."}/>,
+    <A_Slide key="a3" idx={3} total={total}
+      eyebrow="02 — L'attention"
+      stat="30" unit="min"
+      description={copy.a3 || "C'est le temps qu'un client passe immobile face à votre publicité. Sans AdBlocker. Sans skip. Sans scroll."}/>,
+    <A_Slide key="a4" idx={4} total={total}
+      eyebrow="03 — La répétition"
+      stat="×6"
+      description={copy.a4 || "Chaque visiteur voit votre publicité 6 fois par visite. Les clients fidèles la revoient 12 à 18 fois par mois."}/>,
+    <A_Slide key="a5" idx={5} total={total}
+      eyebrow="04 — Le ticket d'entrée"
+      stat="135" unit="CHF"
+      description={copy.a5 || "C'est tout ce qu'il faut pour lancer votre première campagne sur un salon. Résiliable à 30 jours."}/>,
+    <A_Slide6_CTA key="a6" idx={6} total={total} copy={copy.a6}/>,
+  ];
+}
+
+function DirectionB({ copy }) {
+  const total = 6;
+  return [
+    <B_Slide1_Hero key="b1" idx={1} total={total} copy={copy.b1}/>,
+    <B_Slide_Split key="b2" idx={2} total={total}
+      eyebrow="01 — L'attention"
+      badLabel="Publicité mobile" badStat="1,7s" badNote="La durée moyenne d'une impression sur Instagram avant le scroll."
+      goodLabel="Barber Concept Media" goodStat="30 min" goodNote="Votre pub, en face d'un client immobile. Six fois par visite."
+      copy={copy.b2}/>,
+    <B_Slide_Split key="b3" idx={3} total={total}
+      eyebrow="02 — Les vues réelles"
+      badLabel="Trafic digital classique" badStat="40 %" badNote="Trafic bot ou frauduleux sur les plateformes d'ads."
+      goodLabel="Notre réseau DOOH" goodStat="100 %" goodNote="Vues humaines vérifiées. Zéro impression fantôme."
+      copy={copy.b3}/>,
+    <B_Slide_Split key="b4" idx={4} total={total}
+      eyebrow="03 — Le souvenir"
+      badLabel="Recall publicitaire" badStat="< 10 %" badNote="Le taux de mémorisation d'une pub digitale classique."
+      goodLabel="Dans un salon Barber" goodStat="×6" goodNote="Répétitions par visite. Mémorisation multipliée, sans être agressif."
+      copy={copy.b4}/>,
+    <B_Slide_Split key="b5" idx={5} total={total}
+      eyebrow="04 — Le ciblage"
+      badLabel="Ciblage algorithmique" badStat="?" badNote="Une boîte noire. Vous payez pour un profil supposé."
+      goodLabel="Ciblage quartier" goodStat="6" goodNote="Salons. Vous choisissez précisément votre zone : Genève, Lausanne, Sion."
+      copy={copy.b5}/>,
+    <B_Slide6_CTA key="b6" idx={6} total={total} copy={copy.b6}/>,
+  ];
+}
+
+function DirectionC({ copy }) {
+  const total = 6;
+  return [
+    <C_Slide1_Cover key="c1" idx={1} total={total} copy={copy.c1}/>,
+    <C_Slide key="c2" idx={2} total={total}
+      roman="I."
+      kicker="Chapitre un — Le lieu"
+      headline={<>Un fauteuil. <em style={{fontStyle:'italic'}}>Un miroir.</em><br/>Trente minutes.</>}
+      body={copy.c2 || "Dans un salon de barbier, le temps ralentit. Le client est assis, captif, à regarder droit devant lui. C'est exactement là que vit votre publicité."}
+      cite="Les salons Barber Concept — Genève · Lausanne · Sion"/>,
+    <C_Slide key="c3" idx={3} total={total}
+      roman="II."
+      kicker="Chapitre deux — Les hommes"
+      headline={<>Ceux qui <em style={{fontStyle:'italic'}}>investissent</em><br/>dans leur image.</>}
+      body={copy.c3 || "Ce ne sont pas des spectateurs passifs. Ils reviennent 2 à 3 fois par mois. Ils ont un panier moyen de 40 CHF. Ils dépensent. Ils recommandent."}
+      cite="Audience type · 18–35 ans · actifs urbains"/>,
+    <C_Slide key="c4" idx={4} total={total}
+      roman="III."
+      kicker="Chapitre trois — Le réseau"
+      headline={<>Six salons. <em style={{fontStyle:'italic'}}>Trois villes.</em><br/>Votre quartier.</>}
+      body={copy.c4 || "Cornavin, Jonction, Eaux-Vives, Rive à Genève. Lausanne centre. Sion centre. Vous choisissez. Nous diffusons. Aucune fuite hors de votre zone."}
+      cite="24 écrans · 8 400 clients par mois"/>,
+    <C_Slide key="c5" idx={5} total={total}
+      roman="IV."
+      kicker="Chapitre quatre — La méthode"
+      headline={<>Trois étapes, <em style={{fontStyle:'italic'}}>zéro friction.</em></>}
+      body={copy.c5 || "Choisissez votre formule. Envoyez votre visuel 1920×1080. Diffusion en 48 heures. Rapport mensuel, QR tracking, page annonceur — tout est compris."}
+      cite="Service clé en main · résiliable à 30 jours"/>,
+    <C_Slide6_CTA key="c6" idx={6} total={total} copy={copy.c6}/>,
+  ];
+}
+
+Object.assign(window, {
+  BC, FONTS, STORY_W, STORY_H,
+  DirectionA, DirectionB, DirectionC,
+});
+
+</script>
+
+<script type="text/babel">
+// ─── Default copy — editable via Tweaks ───────────────────────
+const DEFAULT_COPY = /*EDITMODE-BEGIN*/{
+  "a1": "Le guide complet de la publicité locale en salons de barbier — Suisse romande.",
+  "a2": "Hommes 18–35 ans, actifs urbains, touchés chaque mois dans nos 6 salons de Suisse romande.",
+  "a3": "C'est le temps qu'un client passe immobile face à votre publicité. Sans AdBlocker. Sans skip. Sans scroll.",
+  "a4": "Chaque visiteur voit votre publicité 6 fois par visite. Les clients fidèles la revoient 12 à 18 fois par mois.",
+  "a5": "C'est tout ce qu'il faut pour lancer votre première campagne sur un salon. Résiliable à 30 jours.",
+  "a6": "32 pages · benchmarks sectoriels · grille tarifaire · checklist créative.",
+  "b1": "On vous paie en impressions. Nous, on facture des regards.",
+  "b2": "1,7 seconde vs 30 minutes.",
+  "b3": "40% de bots vs 100% humains.",
+  "b4": "Recall < 10% vs ×6 répétitions.",
+  "b5": "Boîte noire vs 6 salons choisis.",
+  "b6": "Recevez le guide 2026 de la publicité locale en Suisse romande. 32 pages, benchmarks, tarifs.",
+  "c1": "Comment les commerces locaux de Suisse romande captent une audience masculine, 30 minutes d'affilée, sans AdBlocker.",
+  "c2": "Dans un salon de barbier, le temps ralentit. Le client est assis, captif, à regarder droit devant lui. C'est exactement là que vit votre publicité.",
+  "c3": "Ce ne sont pas des spectateurs passifs. Ils reviennent 2 à 3 fois par mois. Ils ont un panier moyen de 40 CHF. Ils dépensent. Ils recommandent.",
+  "c4": "Cornavin, Jonction, Eaux-Vives, Rive à Genève. Lausanne centre. Sion centre. Vous choisissez. Nous diffusons. Aucune fuite hors de votre zone.",
+  "c5": "Choisissez votre formule. Envoyez votre visuel 1920×1080. Diffusion en 48 heures. Rapport mensuel, QR tracking, page annonceur — tout est compris.",
+  "c6": "32 pages d'analyses, benchmarks sectoriels, grille tarifaire complète et checklist créative pour vos visuels 1920×1080."
+}/*EDITMODE-END*/;
+
+// ─── Artboard scale — 1080×1920 → displayed width ─────────────
+const DISPLAY_W = 360;          // shown width per story
+const SCALE = DISPLAY_W / 1080;
+const DISPLAY_H = 1920 * SCALE;
+
+function ScaledStory({ children }) {
+  return (
+    <div style={{
+      width: DISPLAY_W, height: DISPLAY_H,
+      position: 'relative', overflow: 'hidden',
+      background: '#0a0a0a',
+      borderRadius: 20,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.1), 0 12px 40px rgba(0,0,0,0.12)',
+    }}>
+      <div style={{
+        width: 1080, height: 1920,
+        transform: `scale(${SCALE})`, transformOrigin: '0 0',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Tweaks panel ─────────────────────────────────────────────
+function TweaksPanel({ visible, copy, onChange, onReset }) {
+  return (
+    <div className={`tweaks-panel ${visible ? 'visible' : ''}`}>
+      <h3>Tweaks</h3>
+      <div className="sub">Accroches & copy · par slide</div>
+
+      {[
+        { key: 'a', label: 'Direction A — Proof-driven', slides: ['a1','a2','a3','a4','a5','a6'] },
+        { key: 'b', label: 'Direction B — Anti-scroll', slides: ['b1','b2','b3','b4','b5','b6'] },
+        { key: 'c', label: 'Direction C — Editorial', slides: ['c1','c2','c3','c4','c5','c6'] },
+      ].map(group => (
+        <div className="group" key={group.key}>
+          <div className="dir-label">{group.label}</div>
+          {group.slides.map((k, i) => (
+            <div key={k} style={{ marginBottom: 10 }}>
+              <label>Slide {String(i+1).padStart(2,'0')}</label>
+              <textarea
+                rows={2}
+                value={copy[k]}
+                onChange={e => onChange(k, e.target.value)}
+              />
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <button className="reset" onClick={onReset}>Réinitialiser</button>
+    </div>
+  );
+}
+
+// ─── Main app ─────────────────────────────────────────────────
+function App() {
+  const [copy, setCopy] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem('bcm-copy');
+      if (stored) return { ...DEFAULT_COPY, ...JSON.parse(stored) };
+    } catch (e) {}
+    return DEFAULT_COPY;
+  });
+  const [tweaksVisible, setTweaksVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      if (!e.data) return;
+      if (e.data.type === '__activate_edit_mode') setTweaksVisible(true);
+      if (e.data.type === '__deactivate_edit_mode') setTweaksVisible(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const updateCopy = (key, value) => {
+    const next = { ...copy, [key]: value };
+    setCopy(next);
+    try { localStorage.setItem('bcm-copy', JSON.stringify(next)); } catch(e){}
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: value } }, '*');
+  };
+  const resetCopy = () => {
+    setCopy(DEFAULT_COPY);
+    try { localStorage.removeItem('bcm-copy'); } catch(e){}
+  };
+
+  const dirA = DirectionA({ copy });
+  const dirB = DirectionB({ copy });
+  const dirC = DirectionC({ copy });
+
+  const renderStory = (slide, i) => (
+    <DCArtboard
+      key={i}
+      label={`Slide ${String(i+1).padStart(2,'0')} — 1080×1920`}
+      width={DISPLAY_W} height={DISPLAY_H}
+      style={{ borderRadius: 20, background: '#0a0a0a' }}
+    >
+      <ScaledStory>{slide}</ScaledStory>
+    </DCArtboard>
+  );
+
+  return (
+    <>
+      <DesignCanvas>
+        {/* Header */}
+        <div style={{ padding: '0 60px 40px', maxWidth: 1400 }}>
+          <div style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
+            color: 'rgba(40,30,20,0.55)', marginBottom: 8,
+          }}>
+            Carousel publicitaire · Meta Stories 1080×1920 · Google Discovery compatible
+          </div>
+          <h1 style={{
+            fontFamily: '"Fraunces", Georgia, serif',
+            fontSize: 42, fontWeight: 400, letterSpacing: -1,
+            color: 'rgba(40,30,20,0.9)', margin: '0 0 8px',
+          }}>
+            Barber Concept Media — <em style={{ fontStyle: 'italic', color: '#b08d57' }}>Le guide</em>
+          </h1>
+          <p style={{
+            fontFamily: 'Inter, sans-serif', fontSize: 14,
+            color: 'rgba(60,50,40,0.7)', maxWidth: 780, margin: 0,
+            lineHeight: 1.6,
+          }}>
+            Trois directions narratives pour un même carousel de 6 slides, chacune lead-magnet → téléchargement du guide.
+            Palette commune : ink (#0a0a0a), bone (#f4f0e8), brass (#b08d57). Fraunces + Inter + JetBrains Mono.
+            Active <strong>Tweaks</strong> dans la barre d'outils pour éditer les accroches.
+          </p>
+        </div>
+
+        <DCSection
+          title="Direction A — Proof-driven"
+          subtitle="Stats-first. Chaque slide est un chiffre. Pour les annonceurs data-driven qui veulent des preuves chiffrées."
+        >
+          {dirA.map(renderStory)}
+        </DCSection>
+
+        <DCSection
+          title="Direction B — Anti-scroll"
+          subtitle="Opposition. On compare Instagram/digital classique à notre réseau. Slides duales, strikethrough, visuellement polarisées."
+        >
+          {dirB.map(renderStory)}
+        </DCSection>
+
+        <DCSection
+          title="Direction C — Editorial"
+          subtitle="Magazine. Typographie XL, italiques, numérotation romaine, rails et règles. Pour capter par le ton, pas par la data."
+        >
+          {dirC.map(renderStory)}
+        </DCSection>
+
+        <div style={{ padding: '20px 60px 80px', maxWidth: 1200 }}>
+          <div style={{
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
+            color: 'rgba(40,30,20,0.45)', marginBottom: 12,
+          }}>
+            Prochaines étapes
+          </div>
+          <ul style={{
+            fontFamily: 'Inter, sans-serif', fontSize: 13,
+            color: 'rgba(60,50,40,0.7)', lineHeight: 1.7,
+            paddingLeft: 18, margin: 0,
+          }}>
+            <li>Remplacer les formes abstraites par des photos de tes salons (ambiance fauteuil, laiton, miroir, barbier au travail)</li>
+            <li>Valider les chiffres en direction A — actuellement tirés de ton site (8 400, 30 min, ×6, 135 CHF)</li>
+            <li>Décliner en 1080×1080 (Instagram feed) et 1200×1200 (Google Discovery) — layout à adapter</li>
+            <li>Ajouter un QR code sur la slide CTA pour tracking du téléchargement</li>
+            <li>Export PNG slide par slide pour Meta Ads Manager / Google Ads</li>
+          </ul>
+        </div>
+      </DesignCanvas>
+
+      <TweaksPanel
+        visible={tweaksVisible}
+        copy={copy}
+        onChange={updateCopy}
+        onReset={resetCopy}
+      />
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
