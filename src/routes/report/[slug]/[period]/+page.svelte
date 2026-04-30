@@ -9,6 +9,10 @@
 	let aiModel = $state<string | null>(data.aiSummary?.model ?? null);
 	let aiBusy = $state(false);
 	let aiError = $state<string | null>(null);
+	let reportJobId = $state<string | null>(null);
+	let reportPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+
+	$effect(() => () => { if (reportPollTimer) clearInterval(reportPollTimer); });
 
 	async function generateAiSummary(force = false) {
 		aiBusy = true;
@@ -22,15 +26,40 @@
 				`/api/projects/${data.project.slug}/reviews/ai-summary?period=${period}${forceQs}${tokenQs}`,
 				{ method: 'POST' }
 			);
-			const json = await res.json();
-			if (!res.ok) throw new Error(json.error ?? 'Erreur lors de la génération');
-			aiSummary = json.summary;
-			aiGeneratedAt = json.generatedAt;
-			aiModel = json.model;
+			const j = await res.json();
+			if (!res.ok) throw new Error(j.error ?? 'Erreur lors de la génération');
+
+			// Chemin sync (token client) — réponse directe
+			if ('summary' in j) {
+				aiSummary = j.summary;
+				aiGeneratedAt = j.generatedAt;
+				aiModel = j.model;
+				aiBusy = false;
+				return;
+			}
+
+			// Chemin admin — background job
+			reportJobId = j.jobId;
+			reportPollTimer = setInterval(async () => {
+				const pr = await fetch(`/api/jobs/${reportJobId}`);
+				const pj = await pr.json();
+				if (pj.status === 'done') {
+					clearInterval(reportPollTimer!);
+					reportPollTimer = null;
+					aiBusy = false;
+					aiSummary = pj.result.summary;
+					aiGeneratedAt = pj.result.generatedAt;
+					aiModel = pj.result.model;
+				} else if (pj.status === 'error') {
+					clearInterval(reportPollTimer!);
+					reportPollTimer = null;
+					aiBusy = false;
+					aiError = pj.error ?? 'Erreur';
+				}
+			}, 2000);
 		} catch (err) {
-			aiError = (err as Error).message;
-		} finally {
 			aiBusy = false;
+			aiError = (err as Error).message;
 		}
 	}
 

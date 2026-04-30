@@ -183,26 +183,58 @@
 
 	let aiGenerating = $state(false);
 	let aiMessage = $state('');
+	let replyJobId = $state<string | null>(null);
+	let replyPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+
+	$effect(() => () => { if (replyPollTimer) clearInterval(replyPollTimer); });
+
+	function handleRepliesResult(generated: number, skipped: number) {
+		aiGenerating = false;
+		const parts = [];
+		if (generated > 0) parts.push(`${generated} brouillon${generated > 1 ? 's' : ''} g\u00e9n\u00e9r\u00e9${generated > 1 ? 's' : ''}`);
+		if (skipped > 0) parts.push(`${skipped} d\u00e9j\u00e0 existant${skipped > 1 ? 's' : ''}`);
+		aiMessage = parts.join(', ') || 'Aucun avis \u00e0 traiter';
+		if (generated > 0) invalidateAll();
+		setTimeout(() => { aiMessage = ''; }, 6000);
+	}
 
 	async function generateAiReplies(force = false) {
 		aiGenerating = true;
-		aiMessage = '';
+		aiMessage = 'G\u00e9n\u00e9ration en cours\u2026';
+		replyJobId = null;
 		try {
 			const url = `/api/projects/${data.project.slug}/reviews/ai-replies${force ? '?force=1' : ''}`;
 			const res = await fetch(url, { method: 'POST' });
-			const json = await res.json();
-			if (!res.ok) throw new Error(json.error);
-			const { generated, skipped } = json;
-			const parts = [];
-			if (generated > 0) parts.push(`${generated} brouillon${generated > 1 ? 's' : ''} gener\u00e9${generated > 1 ? 's' : ''}`);
-			if (skipped > 0) parts.push(`${skipped} deja existant${skipped > 1 ? 's' : ''}`);
-			aiMessage = parts.join(', ') || 'Aucun avis a traiter';
-			if (generated > 0) invalidateAll();
+			const j = await res.json();
+			if (!res.ok) throw new Error(j.error);
+
+			// R\u00e9ponse directe si 0 avis \u00e0 traiter
+			if ('generated' in j) {
+				handleRepliesResult(j.generated, j.skipped);
+				return;
+			}
+
+			replyJobId = j.jobId;
+			replyPollTimer = setInterval(async () => {
+				const pr = await fetch(`/api/jobs/${replyJobId}`);
+				const pj = await pr.json();
+				if (pj.status === 'done') {
+					clearInterval(replyPollTimer!);
+					replyPollTimer = null;
+					handleRepliesResult(pj.result.generated, pj.result.skipped);
+				} else if (pj.status === 'error') {
+					clearInterval(replyPollTimer!);
+					replyPollTimer = null;
+					aiGenerating = false;
+					aiMessage = pj.error ?? 'Erreur';
+					setTimeout(() => { aiMessage = ''; }, 6000);
+				}
+			}, 2000);
 		} catch (err) {
+			aiGenerating = false;
 			aiMessage = (err as Error).message;
+			setTimeout(() => { aiMessage = ''; }, 6000);
 		}
-		aiGenerating = false;
-		setTimeout(() => { aiMessage = ''; }, 6000);
 	}
 
 	function renderStars(rating: number): string {

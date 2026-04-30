@@ -4,6 +4,7 @@ import { projects } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { validateApiKey, validateClientToken } from '$lib/server/api-auth.js';
 import { findCachedReport, getOrGenerateReport } from '$lib/server/reviews/ai-report.js';
+import { createJob, updateJob } from '$lib/server/ai/jobs.js';
 import type { RequestHandler } from './$types';
 
 function parsePeriod(period: string | null): { year: number; month: number } | null {
@@ -72,16 +73,48 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'La régénération est réservée à l\'administrateur.' }, { status: 403 });
 	}
 
-	try {
-		const { record } = await getOrGenerateReport(project.id, parsed.year, parsed.month, { force });
-		return json({
-			summary: record.summary,
-			generatedAt: record.generatedAt,
-			model: record.model,
-			cached: record.cached
-		});
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Erreur inconnue';
-		return json({ error: message }, { status: 500 });
+	// Token-only client path → synchronous (no polling endpoint access)
+	if (!event.locals.user) {
+		try {
+			const { record } = await getOrGenerateReport(project.id, parsed.year, parsed.month, { force: false });
+			return json({
+				summary: record.summary,
+				generatedAt: record.generatedAt,
+				model: record.model,
+				cached: record.cached
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Erreur inconnue';
+			return json({ error: message }, { status: 500 });
+		}
 	}
+
+	// Admin path → background job
+	const job = await createJob(project.id, 'monthly-report');
+
+	const projectId = project.id;
+	async function run() {
+		try {
+			await updateJob(job.id, { status: 'running' });
+			const { record } = await getOrGenerateReport(projectId, parsed!.year, parsed!.month, { force });
+			await updateJob(job.id, {
+				status: 'done',
+				result: {
+					summary: record.summary,
+					generatedAt: record.generatedAt,
+					model: record.model,
+					cached: record.cached
+				}
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Erreur inconnue';
+			await updateJob(job.id, { status: 'error', error: msg });
+		}
+	}
+
+	const p = run();
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	(event.platform as any)?.context?.waitUntil(p);
+
+	return json({ jobId: job.id });
 };

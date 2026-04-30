@@ -120,13 +120,13 @@ function buildReviewsBlock(reviews: ReviewInput[]): string {
 		.join('\n\n');
 }
 
-export async function generateAiReplies(
+const BATCH_SIZE = 4;
+
+async function generateBatch(
 	reviews: ReviewInput[],
 	context: ProjectContext,
 	isMultiLocation: boolean
 ): Promise<ReviewReply[]> {
-	if (reviews.length === 0) return [];
-
 	const llm = getClient();
 
 	const userPayload = `# Contexte business
@@ -159,4 +159,22 @@ ${buildReviewsBlock(reviews)}`;
 
 	const parsed = JSON.parse(fn.arguments) as { replies: ReviewReply[] };
 	return parsed.replies ?? [];
+}
+
+export async function generateAiReplies(
+	reviews: ReviewInput[],
+	context: ProjectContext,
+	isMultiLocation: boolean
+): Promise<ReviewReply[]> {
+	if (reviews.length === 0) return [];
+
+	const chunks: ReviewInput[][] = [];
+	for (let i = 0; i < reviews.length; i += BATCH_SIZE) {
+		chunks.push(reviews.slice(i, i + BATCH_SIZE));
+	}
+
+	const results = await Promise.all(
+		chunks.map((chunk) => generateBatch(chunk, context, isMultiLocation))
+	);
+	return results.flat();
 }

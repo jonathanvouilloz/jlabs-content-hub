@@ -295,3 +295,20 @@ export const indexingSubmissions = sqliteTable('indexing_submissions', {
 	submittedAt: text('submitted_at').notNull().default(sql`(datetime('now'))`)
 });
 
+export const aiJobs = sqliteTable(
+	'ai_jobs',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		type: text('type').notNull(),
+		status: text('status').notNull().default('pending'),
+		result: text('result'),
+		error: text('error'),
+		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [index('idx_ai_jobs_project').on(table.projectId, table.status)]
+);
+
