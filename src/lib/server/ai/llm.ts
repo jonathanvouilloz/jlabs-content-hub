@@ -42,7 +42,7 @@ export interface AiReportSummary {
 
 let client: OpenAI | null = null;
 
-function getClient(): OpenAI {
+export function getClient(): OpenAI {
 	if (!client) {
 		const apiKey = env.LLM_API_KEY;
 		if (!apiKey) throw new Error('LLM_API_KEY missing in environment');

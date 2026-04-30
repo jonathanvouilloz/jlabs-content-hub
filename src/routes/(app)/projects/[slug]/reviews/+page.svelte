@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { RefreshCw, Send, Save, Star, BarChart3, Trash2 } from 'lucide-svelte';
+	import { RefreshCw, Send, Save, Star, BarChart3, Trash2, Sparkles } from 'lucide-svelte';
 	import { formatDate } from '$lib/utils/dates.js';
 	import { ratingColor } from '$lib/config/design-tokens.js';
 	import EmployeeMentionsReport from '$lib/components/EmployeeMentionsReport.svelte';
@@ -181,6 +181,30 @@
 		setTimeout(() => { batchMessage = ''; }, 5000);
 	}
 
+	let aiGenerating = $state(false);
+	let aiMessage = $state('');
+
+	async function generateAiReplies(force = false) {
+		aiGenerating = true;
+		aiMessage = '';
+		try {
+			const url = `/api/projects/${data.project.slug}/reviews/ai-replies${force ? '?force=1' : ''}`;
+			const res = await fetch(url, { method: 'POST' });
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			const { generated, skipped } = json;
+			const parts = [];
+			if (generated > 0) parts.push(`${generated} brouillon${generated > 1 ? 's' : ''} gener\u00e9${generated > 1 ? 's' : ''}`);
+			if (skipped > 0) parts.push(`${skipped} deja existant${skipped > 1 ? 's' : ''}`);
+			aiMessage = parts.join(', ') || 'Aucun avis a traiter';
+			if (generated > 0) invalidateAll();
+		} catch (err) {
+			aiMessage = (err as Error).message;
+		}
+		aiGenerating = false;
+		setTimeout(() => { aiMessage = ''; }, 6000);
+	}
+
 	function renderStars(rating: number): string {
 		return '\u2605'.repeat(rating) + '\u2606'.repeat(5 - rating);
 	}
@@ -199,6 +223,9 @@
 			<div class="flex items-center gap-2">
 				{#if batchMessage}
 					<span class="text-xs text-surface-500">{batchMessage}</span>
+				{/if}
+				{#if aiMessage}
+					<span class="text-xs text-violet-600">{aiMessage}</span>
 				{/if}
 				{#if data.locations.length > 1}
 					<select
@@ -228,6 +255,24 @@
 							class="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-600"
 						>
 							Repondre a tous ({draftsToSend.length})
+						</button>
+					{/if}
+					<button
+						onclick={() => generateAiReplies(false)}
+						class="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-50"
+						disabled={aiGenerating || filteredReviews.length === 0}
+						title={filteredReviews.every((r: Review) => r.draftReply?.trim()) ? 'Tous les avis ont deja un brouillon — cliquez sur Tout regenerer pour ecraser' : 'Generer des brouillons IA pour les avis sans reponse'}
+					>
+						<Sparkles size={12} class={aiGenerating ? 'animate-pulse' : ''} />
+						{aiGenerating ? 'Generation...' : 'Brouillons IA'}
+					</button>
+					{#if filteredReviews.every((r: Review) => r.draftReply?.trim()) && !aiGenerating}
+						<button
+							onclick={() => generateAiReplies(true)}
+							class="rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs font-medium text-surface-500 transition-colors hover:bg-surface-50"
+							title="Ecraser tous les brouillons existants"
+						>
+							Tout regenerer
 						</button>
 					{/if}
 					<button
