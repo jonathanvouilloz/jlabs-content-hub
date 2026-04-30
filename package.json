@@ -26,6 +26,7 @@
 		"lucide-svelte": "^1.0.1",
 		"marked": "latest",
 		"octokit": "latest",
+		"openai": "^6.35.0",
 		"resend": "^6.12.2",
 		"svelte": "^5.54.0"
 	},

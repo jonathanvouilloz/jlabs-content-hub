@@ -950,7 +950,7 @@
 			{/if}
 		</div>
 		<p class="mt-1 text-xs text-surface-400">
-			Contexte utilise pour generer les reponses aux avis Google et adapter le ton des communications.
+			Contexte utilise pour generer les reponses aux avis Google, la synthese mensuelle IA, et adapter le ton des communications.
 		</p>
 
 		<div class="mt-4 space-y-4">

@@ -201,6 +201,22 @@ export const gmbSettings = sqliteTable('gmb_settings', {
 	value: text('value').notNull()
 });
 
+export const gmbAiReports = sqliteTable(
+	'gmb_ai_reports',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		period: text('period').notNull(),
+		model: text('model').notNull(),
+		summaryJson: text('summary_json').notNull(),
+		inputHash: text('input_hash').notNull(),
+		generatedAt: text('generated_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [uniqueIndex('gmb_ai_reports_unique').on(table.projectId, table.period)]
+);
+
 export const publishLogs = sqliteTable(
 	'publish_logs',
 	{
