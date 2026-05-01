@@ -21,7 +21,10 @@ interface CachedToken {
 const tokenCache = new Map<string, CachedToken>();
 
 const INDEXING_SCOPE = 'https://www.googleapis.com/auth/indexing';
+const WEBMASTERS_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
+const COMBINED_SCOPE = `${INDEXING_SCOPE} ${WEBMASTERS_SCOPE}`;
 const PUBLISH_ENDPOINT = 'https://indexing.googleapis.com/v3/urlNotifications:publish';
+const INSPECT_ENDPOINT = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect';
 
 function base64url(input: Buffer | string): string {
 	const buf = typeof input === 'string' ? Buffer.from(input) : input;
@@ -33,7 +36,7 @@ function signJwt(sa: ServiceAccountJson): string {
 	const header = { alg: 'RS256', typ: 'JWT' };
 	const claim = {
 		iss: sa.client_email,
-		scope: INDEXING_SCOPE,
+		scope: COMBINED_SCOPE,
 		aud: sa.token_uri || 'https://oauth2.googleapis.com/token',
 		exp: now + 3600,
 		iat: now
@@ -261,19 +264,152 @@ export async function batchSubmit(params: {
 	type: IndexingType;
 	source?: string;
 	delayMs?: number;
-}): Promise<{ total: number; success: number; failed: number; results: Array<{ url: string; success: boolean; httpStatus: number }> }> {
+}): Promise<{
+	total: number;
+	success: number;
+	failed: number;
+	skipped: number;
+	stoppedOnQuota: boolean;
+	results: Array<{ url: string; success: boolean; httpStatus: number }>;
+}> {
 	const delay = params.delayMs ?? 100;
 	const results: Array<{ url: string; success: boolean; httpStatus: number }> = [];
 	let success = 0;
 	let failed = 0;
-	for (const url of params.urls) {
+	let stoppedOnQuota = false;
+	let i = 0;
+	for (; i < params.urls.length; i++) {
+		const url = params.urls[i];
 		const r = await publishUrl({ projectId: params.projectId, url, type: params.type, source: params.source });
 		results.push({ url, success: r.success, httpStatus: r.httpStatus });
 		if (r.success) success++;
 		else failed++;
+		if (r.httpStatus === 429) {
+			stoppedOnQuota = true;
+			break;
+		}
 		if (delay > 0) await new Promise((res) => setTimeout(res, delay));
 	}
-	return { total: params.urls.length, success, failed, results };
+	const skipped = Math.max(0, params.urls.length - (i + 1));
+	return { total: params.urls.length, success, failed, skipped, stoppedOnQuota, results };
+}
+
+export interface InspectionResult {
+	url: string;
+	verdict: string | null;
+	coverageState: string | null;
+	httpStatus: number;
+	error?: string;
+}
+
+export type IndexedClassification = 'indexed' | 'not_indexed' | 'unknown';
+
+export function classifyIndexStatus(coverageState: string | null): IndexedClassification {
+	if (!coverageState) return 'unknown';
+	const cs = coverageState.toLowerCase();
+	if (cs.includes('not indexed')) return 'not_indexed';
+	if (cs.includes('unknown to google')) return 'not_indexed';
+	if (cs.includes('indexed')) return 'indexed';
+	if (cs.includes('excluded')) return 'indexed'; // intentional exclusion (noindex, robots), don't resubmit
+	if (cs.includes('not selected as canonical')) return 'indexed';
+	return 'unknown';
+}
+
+export async function inspectUrl(params: {
+	projectId: string;
+	url: string;
+	siteUrl: string;
+}): Promise<InspectionResult> {
+	let token: string;
+	try {
+		const auth = await getAccessTokenForProject(params.projectId);
+		token = auth.token;
+	} catch (err) {
+		return {
+			url: params.url,
+			verdict: null,
+			coverageState: null,
+			httpStatus: 0,
+			error: err instanceof Error ? err.message : String(err)
+		};
+	}
+
+	const res = await fetch(INSPECT_ENDPOINT, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ inspectionUrl: params.url, siteUrl: params.siteUrl })
+	});
+
+	type InspectResponse = {
+		inspectionResult?: {
+			indexStatusResult?: {
+				verdict?: string;
+				coverageState?: string;
+			};
+		};
+		error?: { message?: string };
+	};
+	const json = (await res.json().catch(() => ({}))) as InspectResponse;
+
+	if (!res.ok) {
+		return {
+			url: params.url,
+			verdict: null,
+			coverageState: null,
+			httpStatus: res.status,
+			error: json.error?.message ?? `HTTP ${res.status}`
+		};
+	}
+
+	const idx = json.inspectionResult?.indexStatusResult;
+	return {
+		url: params.url,
+		verdict: idx?.verdict ?? null,
+		coverageState: idx?.coverageState ?? null,
+		httpStatus: res.status
+	};
+}
+
+export async function batchInspect(params: {
+	projectId: string;
+	urls: string[];
+	siteUrl: string;
+	delayMs?: number;
+}): Promise<{
+	indexed: string[];
+	notIndexed: string[];
+	unknown: string[];
+	errors: Array<{ url: string; httpStatus: number; error: string }>;
+	stoppedOnQuota: boolean;
+}> {
+	const delay = params.delayMs ?? 100;
+	const indexed: string[] = [];
+	const notIndexed: string[] = [];
+	const unknownList: string[] = [];
+	const errors: Array<{ url: string; httpStatus: number; error: string }> = [];
+	let stoppedOnQuota = false;
+
+	for (const url of params.urls) {
+		const r = await inspectUrl({ projectId: params.projectId, url, siteUrl: params.siteUrl });
+		if (r.error || r.httpStatus !== 200) {
+			errors.push({ url, httpStatus: r.httpStatus, error: r.error ?? 'unknown' });
+			if (r.httpStatus === 429) {
+				stoppedOnQuota = true;
+				break;
+			}
+		} else {
+			const cls = classifyIndexStatus(r.coverageState);
+			if (cls === 'indexed') indexed.push(url);
+			else if (cls === 'not_indexed') notIndexed.push(url);
+			else unknownList.push(url);
+		}
+		if (delay > 0) await new Promise((res) => setTimeout(res, delay));
+	}
+
+	return { indexed, notIndexed, unknown: unknownList, errors, stoppedOnQuota };
 }
 
 export async function fetchSitemapUrls(sitemapUrl: string): Promise<string[]> {

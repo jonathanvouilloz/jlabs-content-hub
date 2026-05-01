@@ -372,6 +372,7 @@
 	let idxSubmitting = $state(false);
 	let idxSitemapBusy = $state(false);
 	let idxDeindexBusy = $state(false);
+	let idxSmartBusy = $state(false);
 
 	async function refreshIndexing(resetOffset = true) {
 		if (resetOffset) idxSubsOffset = 0;
@@ -512,6 +513,61 @@
 		}
 		idxSitemapBusy = false;
 		setTimeout(() => { idxMessage = ''; }, 6000);
+	}
+
+	async function submitSmartFromSitemap() {
+		if (!idxSitemapUrl.trim() && !idxCred?.sitemapUrl) {
+			idxMessage = 'Renseigne un sitemap URL d\'abord';
+			return;
+		}
+		if (!idxCred?.siteUrl && !idxSiteUrl.trim()) {
+			idxMessage = 'Site URL (property GSC) requis pour le mode smart';
+			return;
+		}
+		idxSmartBusy = true;
+		idxMessage = 'Lecture du sitemap...';
+		try {
+			const dryRes = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, dryRun: true, mode: 'index-not-indexed' })
+			});
+			const dry = await dryRes.json();
+			if (!dryRes.ok) throw new Error(dry.error);
+			const msg =
+				`${dry.kept} URL(s) à inspecter via Search Console (${dry.excluded} exclues par patterns).\n\n` +
+				`Étape 1 : inspection (~${Math.ceil(dry.kept * 0.1)}s, quota 2000/jour)\n` +
+				`Étape 2 : soumission URL_UPDATED uniquement des non-indexées (quota 200/jour)\n\nLancer ?`;
+			if (!confirm(msg)) {
+				idxSmartBusy = false;
+				idxMessage = '';
+				return;
+			}
+			idxMessage = `Inspection + soumission de ${dry.kept} URL(s)...`;
+			const res = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, mode: 'index-not-indexed' })
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			const parts = [
+				`${json.alreadyIndexed} déjà indexée(s) (skip)`,
+				`${json.notIndexed} à soumettre`,
+				`${json.success}/${json.total} URL_UPDATED OK`,
+				json.failed > 0 ? `${json.failed} échec(s)` : null,
+				json.inspectionUnknown > 0 ? `${json.inspectionUnknown} statut inconnu` : null,
+				json.inspectionErrors > 0 ? `${json.inspectionErrors} erreur(s) inspection` : null,
+				json.stoppedOnQuota ? '⚠ stoppé sur quota publish' : null,
+				json.inspectionStoppedOnQuota ? '⚠ stoppé sur quota inspect' : null
+			].filter(Boolean);
+			idxMessage = `Terminé — ${parts.join(' · ')}`;
+			await refreshIndexing();
+		} catch (err) {
+			idxMessage = (err as Error).message;
+		}
+		idxSmartBusy = false;
+		setTimeout(() => { idxMessage = ''; }, 10000);
 	}
 
 	async function deindexExcluded() {
@@ -1268,8 +1324,11 @@
 					<button onclick={submitManualUrl} class="btn preset-filled-primary-500 text-sm" disabled={idxSubmitting || !idxManualUrl.trim()}>
 						{idxSubmitting ? 'Envoi...' : 'Soumettre'}
 					</button>
-					<button onclick={submitFromSitemap} class="btn preset-outlined-primary-500 text-sm" disabled={idxSitemapBusy}>
-						{idxSitemapBusy ? 'Traitement...' : 'Indexer depuis sitemap'}
+					<button onclick={submitSmartFromSitemap} class="btn preset-filled-primary-500 text-sm" disabled={idxSmartBusy} title="Inspecte chaque URL via Search Console et ne soumet que les non-indexées (économise le quota Indexing).">
+						{idxSmartBusy ? 'Traitement...' : 'Indexer (smart, skip déjà indexées)'}
+					</button>
+					<button onclick={submitFromSitemap} class="btn preset-outlined-primary-500 text-sm" disabled={idxSitemapBusy} title="Soumet toutes les URLs filtrées sans inspection préalable.">
+						{idxSitemapBusy ? 'Traitement...' : 'Indexer toutes (legacy)'}
 					</button>
 					{#if (idxCred?.excludePatterns ?? []).length > 0}
 						<button onclick={deindexExcluded} class="btn preset-outlined-error-500 text-sm" disabled={idxDeindexBusy}>
