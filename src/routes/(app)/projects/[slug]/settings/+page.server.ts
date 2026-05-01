@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations, projectContexts, indexingCredentials, indexingSubmissions } from '$lib/server/db/schema.js';
+import { parseExcludePatterns } from '$lib/server/indexing.js';
 import { desc, eq, sql } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -50,6 +51,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 					sitemapUrl: indexingCred.sitemapUrl,
 					publicUrlTemplate: indexingCred.publicUrlTemplate,
 					autoSubmitOnPublish: indexingCred.autoSubmitOnPublish,
+					excludePatterns: parseExcludePatterns(indexingCred.excludePatterns),
 					updatedAt: indexingCred.updatedAt
 				}
 			: null,

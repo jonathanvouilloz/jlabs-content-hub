@@ -277,6 +277,7 @@ export const indexingCredentials = sqliteTable('indexing_credentials', {
 	sitemapUrl: text('sitemap_url'),
 	publicUrlTemplate: text('public_url_template'),
 	autoSubmitOnPublish: integer('auto_submit_on_publish', { mode: 'boolean' }).notNull().default(false),
+	excludePatterns: text('exclude_patterns'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 });

@@ -3,7 +3,13 @@ import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import { projects } from '$lib/server/db/schema.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
-import { deleteCredentials, getCredentials, saveCredentials } from '$lib/server/indexing.js';
+import {
+	deleteCredentials,
+	getCredentials,
+	parseExcludePatterns,
+	saveCredentials,
+	updateSettings
+} from '$lib/server/indexing.js';
 import type { RequestHandler } from './$types';
 
 async function requireAuth(event: Parameters<RequestHandler>[0]) {
@@ -34,6 +40,7 @@ export const GET: RequestHandler = async (event) => {
 			sitemapUrl: row.sitemapUrl,
 			publicUrlTemplate: row.publicUrlTemplate,
 			autoSubmitOnPublish: row.autoSubmitOnPublish,
+			excludePatterns: parseExcludePatterns(row.excludePatterns),
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt
 		}
@@ -48,20 +55,36 @@ export const POST: RequestHandler = async (event) => {
 	if (!project) return json({ error: 'Project not found' }, { status: 404 });
 
 	const body = await event.request.json();
-	if (!body.serviceAccountJson || typeof body.serviceAccountJson !== 'string') {
-		return json({ error: 'serviceAccountJson is required' }, { status: 400 });
-	}
+	const excludePatterns = Array.isArray(body.excludePatterns) ? body.excludePatterns : undefined;
+	const existing = await getCredentials(project.id);
 
 	try {
-		const { serviceAccountEmail } = await saveCredentials({
+		if (body.serviceAccountJson && typeof body.serviceAccountJson === 'string') {
+			const { serviceAccountEmail } = await saveCredentials({
+				projectId: project.id,
+				serviceAccountJsonRaw: body.serviceAccountJson,
+				siteUrl: body.siteUrl ?? null,
+				sitemapUrl: body.sitemapUrl ?? null,
+				publicUrlTemplate: body.publicUrlTemplate ?? null,
+				autoSubmitOnPublish: !!body.autoSubmitOnPublish,
+				excludePatterns: excludePatterns ?? null
+			});
+			return json({ ok: true, serviceAccountEmail });
+		}
+
+		if (!existing) {
+			return json({ error: 'serviceAccountJson is required' }, { status: 400 });
+		}
+
+		await updateSettings({
 			projectId: project.id,
-			serviceAccountJsonRaw: body.serviceAccountJson,
 			siteUrl: body.siteUrl ?? null,
 			sitemapUrl: body.sitemapUrl ?? null,
 			publicUrlTemplate: body.publicUrlTemplate ?? null,
-			autoSubmitOnPublish: !!body.autoSubmitOnPublish
+			autoSubmitOnPublish: !!body.autoSubmitOnPublish,
+			excludePatterns: excludePatterns
 		});
-		return json({ ok: true, serviceAccountEmail });
+		return json({ ok: true, serviceAccountEmail: existing.serviceAccountEmail });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : 'Invalid credentials';
 		return json({ error: msg }, { status: 400 });

@@ -99,9 +99,11 @@ export async function saveCredentials(params: {
 	sitemapUrl?: string | null;
 	publicUrlTemplate?: string | null;
 	autoSubmitOnPublish?: boolean;
+	excludePatterns?: string[] | null;
 }): Promise<{ serviceAccountEmail: string }> {
 	const sa = parseServiceAccount(params.serviceAccountJsonRaw);
 	const encrypted = encrypt(params.serviceAccountJsonRaw);
+	const patternsJson = serializePatterns(params.excludePatterns);
 
 	const existing = await db.query.indexingCredentials.findFirst({
 		where: eq(indexingCredentials.projectId, params.projectId)
@@ -115,6 +117,7 @@ export async function saveCredentials(params: {
 			sitemapUrl: params.sitemapUrl ?? null,
 			publicUrlTemplate: params.publicUrlTemplate ?? null,
 			autoSubmitOnPublish: params.autoSubmitOnPublish ?? false,
+			excludePatterns: patternsJson,
 			updatedAt: new Date().toISOString()
 		}).where(eq(indexingCredentials.id, existing.id));
 	} else {
@@ -126,11 +129,51 @@ export async function saveCredentials(params: {
 			siteUrl: params.siteUrl ?? null,
 			sitemapUrl: params.sitemapUrl ?? null,
 			publicUrlTemplate: params.publicUrlTemplate ?? null,
-			autoSubmitOnPublish: params.autoSubmitOnPublish ?? false
+			autoSubmitOnPublish: params.autoSubmitOnPublish ?? false,
+			excludePatterns: patternsJson
 		});
 	}
 	tokenCache.delete(params.projectId);
 	return { serviceAccountEmail: sa.client_email };
+}
+
+function serializePatterns(patterns: string[] | null | undefined): string | null {
+	if (!patterns) return null;
+	const cleaned = patterns.map((p) => p.trim()).filter((p) => p.length > 0);
+	return cleaned.length === 0 ? null : JSON.stringify(cleaned);
+}
+
+export function parseExcludePatterns(raw: string | null | undefined): string[] {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		if (Array.isArray(parsed)) return parsed.filter((p) => typeof p === 'string');
+	} catch {
+		// fall through
+	}
+	return [];
+}
+
+export function matchesAnyPattern(url: string, patterns: string[]): boolean {
+	if (patterns.length === 0) return false;
+	for (const p of patterns) {
+		if (p && url.includes(p)) return true;
+	}
+	return false;
+}
+
+export function partitionByPatterns(
+	urls: string[],
+	patterns: string[]
+): { kept: string[]; excluded: string[] } {
+	if (patterns.length === 0) return { kept: urls, excluded: [] };
+	const kept: string[] = [];
+	const excluded: string[] = [];
+	for (const u of urls) {
+		if (matchesAnyPattern(u, patterns)) excluded.push(u);
+		else kept.push(u);
+	}
+	return { kept, excluded };
 }
 
 export async function deleteCredentials(projectId: string): Promise<void> {
@@ -144,6 +187,7 @@ export async function updateSettings(params: {
 	sitemapUrl?: string | null;
 	publicUrlTemplate?: string | null;
 	autoSubmitOnPublish?: boolean;
+	excludePatterns?: string[] | null;
 }): Promise<void> {
 	const row = await db.query.indexingCredentials.findFirst({
 		where: eq(indexingCredentials.projectId, params.projectId)
@@ -154,6 +198,8 @@ export async function updateSettings(params: {
 		sitemapUrl: params.sitemapUrl ?? row.sitemapUrl,
 		publicUrlTemplate: params.publicUrlTemplate ?? row.publicUrlTemplate,
 		autoSubmitOnPublish: params.autoSubmitOnPublish ?? row.autoSubmitOnPublish,
+		excludePatterns:
+			params.excludePatterns === undefined ? row.excludePatterns : serializePatterns(params.excludePatterns),
 		updatedAt: new Date().toISOString()
 	}).where(eq(indexingCredentials.id, row.id));
 }

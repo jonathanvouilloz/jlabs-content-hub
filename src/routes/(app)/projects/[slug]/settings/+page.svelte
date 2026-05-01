@@ -362,12 +362,16 @@
 	let idxSitemapUrl = $state(data.indexingCredentials?.sitemapUrl ?? '');
 	let idxTemplate = $state(data.indexingCredentials?.publicUrlTemplate ?? '');
 	let idxAutoSubmit = $state(data.indexingCredentials?.autoSubmitOnPublish ?? false);
+	let idxExcludePatternsText = $state(
+		(data.indexingCredentials?.excludePatterns ?? []).join('\n')
+	);
 	let idxSaving = $state(false);
 	let idxMessage = $state('');
 	let idxManualUrl = $state('');
 	let idxManualType = $state<'URL_UPDATED' | 'URL_DELETED'>('URL_UPDATED');
 	let idxSubmitting = $state(false);
 	let idxSitemapBusy = $state(false);
+	let idxDeindexBusy = $state(false);
 
 	async function refreshIndexing(resetOffset = true) {
 		if (resetOffset) idxSubsOffset = 0;
@@ -375,7 +379,10 @@
 			fetch(`/api/projects/${data.project.slug}/indexing/credentials`),
 			fetch(`/api/projects/${data.project.slug}/indexing/submissions?limit=${idxSubsPageSize}&offset=${idxSubsOffset}`)
 		]);
-		if (credRes.ok) idxCred = (await credRes.json()).credentials;
+		if (credRes.ok) {
+			idxCred = (await credRes.json()).credentials;
+			idxExcludePatternsText = (idxCred?.excludePatterns ?? []).join('\n');
+		}
 		if (subsRes.ok) {
 			const json = await subsRes.json();
 			idxSubs = json.submissions;
@@ -401,7 +408,11 @@
 				siteUrl: idxSiteUrl || null,
 				sitemapUrl: idxSitemapUrl || null,
 				publicUrlTemplate: idxTemplate || null,
-				autoSubmitOnPublish: idxAutoSubmit
+				autoSubmitOnPublish: idxAutoSubmit,
+				excludePatterns: idxExcludePatternsText
+					.split('\n')
+					.map((s) => s.trim())
+					.filter((s) => s.length > 0)
 			};
 			if (idxJson.trim()) body.serviceAccountJson = idxJson.trim();
 			else if (!idxCred) {
@@ -436,6 +447,7 @@
 			idxSitemapUrl = '';
 			idxTemplate = '';
 			idxAutoSubmit = false;
+			idxExcludePatternsText = '';
 		}
 	}
 
@@ -472,29 +484,85 @@
 			const dryRes = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, dryRun: true })
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, dryRun: true, mode: 'index' })
 			});
 			const dry = await dryRes.json();
 			if (!dryRes.ok) throw new Error(dry.error);
-			if (!confirm(`${dry.count} URL(s) trouvees dans le sitemap. Lancer l'indexation ?`)) {
+			const msg =
+				dry.excluded > 0
+					? `${dry.kept} URL(s) à indexer (${dry.excluded} exclues par patterns sur ${dry.total} total). Lancer ?`
+					: `${dry.kept} URL(s) trouvées dans le sitemap. Lancer l'indexation ?`;
+			if (!confirm(msg)) {
 				idxSitemapBusy = false;
 				idxMessage = '';
 				return;
 			}
-			idxMessage = `Soumission de ${dry.count} URL(s)...`;
+			idxMessage = `Soumission de ${dry.kept} URL(s)...`;
 			const res = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined })
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, mode: 'index' })
 			});
 			const json = await res.json();
 			if (!res.ok) throw new Error(json.error);
-			idxMessage = `Termine: ${json.success}/${json.total} OK, ${json.failed} echec(s)`;
+			idxMessage = `Terminé: ${json.success}/${json.total} OK, ${json.failed} échec(s)`;
 			await refreshIndexing();
 		} catch (err) {
 			idxMessage = (err as Error).message;
 		}
 		idxSitemapBusy = false;
+		setTimeout(() => { idxMessage = ''; }, 6000);
+	}
+
+	async function deindexExcluded() {
+		if (!idxSitemapUrl.trim() && !idxCred?.sitemapUrl) {
+			idxMessage = 'Renseigne un sitemap URL d\'abord';
+			return;
+		}
+		const patterns = (idxCred?.excludePatterns ?? []).filter((p) => p.length > 0);
+		if (patterns.length === 0) {
+			idxMessage = 'Aucun pattern d\'exclusion configuré';
+			return;
+		}
+		idxDeindexBusy = true;
+		idxMessage = 'Lecture du sitemap...';
+		try {
+			const dryRes = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, dryRun: true, mode: 'deindex-excluded' })
+			});
+			const dry = await dryRes.json();
+			if (!dryRes.ok) throw new Error(dry.error);
+			if (dry.excluded === 0) {
+				idxMessage = 'Aucune URL ne matche les patterns d\'exclusion dans le sitemap.';
+				idxDeindexBusy = false;
+				setTimeout(() => { idxMessage = ''; }, 4000);
+				return;
+			}
+			const warn =
+				`Désindexer ${dry.excluded} URL(s) (URL_DELETED) ?\n\n` +
+				`Pré-requis : ces pages doivent renvoyer 404, 410 ou avoir noindex sur le site, ` +
+				`sinon Google ignorera la requête.\n\nPatterns : ${patterns.join(', ')}`;
+			if (!confirm(warn)) {
+				idxDeindexBusy = false;
+				idxMessage = '';
+				return;
+			}
+			idxMessage = `Désindexation de ${dry.excluded} URL(s)...`;
+			const res = await fetch(`/api/projects/${data.project.slug}/indexing/from-sitemap`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ sitemapUrl: idxSitemapUrl || undefined, mode: 'deindex-excluded' })
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+			idxMessage = `Terminé: ${json.success}/${json.total} URL_DELETED OK, ${json.failed} échec(s)`;
+			await refreshIndexing();
+		} catch (err) {
+			idxMessage = (err as Error).message;
+		}
+		idxDeindexBusy = false;
 		setTimeout(() => { idxMessage = ''; }, 6000);
 	}
 </script>
@@ -1164,6 +1232,20 @@
 				<span>Soumettre automatiquement a la publication d'un contenu</span>
 			</label>
 
+			<div>
+				<label class="text-xs font-medium text-surface-600">Patterns d'exclusion (1 par ligne)</label>
+				<textarea
+					bind:value={idxExcludePatternsText}
+					rows="3"
+					placeholder={'/tag/\n/category/\n?utm_'}
+					class="textarea preset-outlined-surface-200 mt-1 w-full font-mono text-xs"
+				></textarea>
+				<p class="mt-1 text-xs text-surface-400">
+					Substring match. Toute URL contenant l'un de ces fragments est ignorée à l'indexation.
+					Le bouton « Désindexer URLs filtrées » envoie URL_DELETED sur ces URLs (les pages doivent renvoyer 404/410 ou avoir noindex pour que Google les retire).
+				</p>
+			</div>
+
 			<div class="flex items-center gap-3 pt-1">
 				<button onclick={saveIndexingCredentials} class="btn preset-filled-primary-500 text-sm" disabled={idxSaving}>
 					{idxSaving ? 'Sauvegarde...' : (idxCred ? 'Mettre a jour' : 'Enregistrer')}
@@ -1189,6 +1271,11 @@
 					<button onclick={submitFromSitemap} class="btn preset-outlined-primary-500 text-sm" disabled={idxSitemapBusy}>
 						{idxSitemapBusy ? 'Traitement...' : 'Indexer depuis sitemap'}
 					</button>
+					{#if (idxCred?.excludePatterns ?? []).length > 0}
+						<button onclick={deindexExcluded} class="btn preset-outlined-error-500 text-sm" disabled={idxDeindexBusy}>
+							{idxDeindexBusy ? 'Traitement...' : 'Désindexer URLs filtrées'}
+						</button>
+					{/if}
 				</div>
 			</div>
 
