@@ -134,6 +134,30 @@ function buildReviewsBlock(reviews: ReviewInput[]): string {
 }
 
 const BATCH_SIZE = 4;
+const MAX_CONCURRENCY = 2;
+const MAX_RETRIES = 4;
+
+function sleep(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriable(err: unknown): boolean {
+	const e = err as { status?: number; message?: string };
+	const status = e?.status;
+	if (status === 429 || status === 408 || (typeof status === 'number' && status >= 500)) return true;
+	const msg = e?.message ?? '';
+	return /\b429\b|rate limit|max .* concurrency/i.test(msg);
+}
+
+function parseRetryAfterSec(err: unknown): number | null {
+	const msg = (err as { message?: string })?.message ?? '';
+	const m = msg.match(/(?:try again after|retry after)\s+(\d+)\s*(s|second|seconds|ms|millisecond)?/i);
+	if (!m) return null;
+	const n = parseInt(m[1], 10);
+	if (Number.isNaN(n)) return null;
+	const unit = (m[2] || 's').toLowerCase();
+	return unit.startsWith('ms') ? n / 1000 : n;
+}
 
 async function generateBatch(
 	reviews: ReviewInput[],
@@ -148,30 +172,43 @@ ${buildContextBlock(context, isMultiLocation)}
 # Avis à traiter (${reviews.length})
 ${buildReviewsBlock(reviews)}`;
 
-	const response = await llm.chat.completions.create({
-		model: getReportModel(),
-		max_tokens: 4000,
-		stream: false,
-		messages: [
-			{ role: 'system', content: SYSTEM_INSTRUCTIONS },
-			{ role: 'user', content: userPayload }
-		],
-		tools: [TOOL_SCHEMA],
-		tool_choice: { type: 'function', function: { name: 'submit_replies' } },
-		thinking: { type: 'disabled' }
-	} as Parameters<(typeof llm.chat.completions)['create']>[0] & { stream: false });
+	let lastErr: unknown = null;
+	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+		try {
+			const response = await llm.chat.completions.create({
+				model: getReportModel(),
+				max_tokens: 4000,
+				stream: false,
+				messages: [
+					{ role: 'system', content: SYSTEM_INSTRUCTIONS },
+					{ role: 'user', content: userPayload }
+				],
+				tools: [TOOL_SCHEMA],
+				tool_choice: { type: 'function', function: { name: 'submit_replies' } },
+				thinking: { type: 'disabled' }
+			} as Parameters<(typeof llm.chat.completions)['create']>[0] & { stream: false });
 
-	const toolCall = response.choices[0]?.message?.tool_calls?.[0];
-	if (!toolCall || toolCall.type !== 'function') {
-		throw new Error("Le modèle n'a pas appelé l'outil submit_replies");
-	}
-	const fn = (toolCall as { type: 'function'; function: { name: string; arguments: string } }).function;
-	if (fn.name !== 'submit_replies') {
-		throw new Error(`Outil inattendu : ${fn.name}`);
-	}
+			const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+			if (!toolCall || toolCall.type !== 'function') {
+				throw new Error("Le modèle n'a pas appelé l'outil submit_replies");
+			}
+			const fn = (toolCall as { type: 'function'; function: { name: string; arguments: string } }).function;
+			if (fn.name !== 'submit_replies') {
+				throw new Error(`Outil inattendu : ${fn.name}`);
+			}
 
-	const parsed = JSON.parse(fn.arguments) as { replies: ReviewReply[] };
-	return parsed.replies ?? [];
+			const parsed = JSON.parse(fn.arguments) as { replies: ReviewReply[] };
+			return parsed.replies ?? [];
+		} catch (err) {
+			lastErr = err;
+			if (attempt === MAX_RETRIES || !isRetriable(err)) throw err;
+			const hint = parseRetryAfterSec(err);
+			const baseMs = hint != null ? hint * 1000 : 1000 * Math.pow(2, attempt);
+			const jitter = Math.floor(Math.random() * 400);
+			await sleep(baseMs + jitter);
+		}
+	}
+	throw lastErr;
 }
 
 export async function generateAiReplies(
@@ -186,9 +223,23 @@ export async function generateAiReplies(
 		chunks.push(reviews.slice(i, i + BATCH_SIZE));
 	}
 
-	const settled = await Promise.allSettled(
-		chunks.map((chunk) => generateBatch(chunk, context, isMultiLocation))
-	);
+	const settled: PromiseSettledResult<ReviewReply[]>[] = new Array(chunks.length);
+	let cursor = 0;
+
+	async function worker() {
+		while (true) {
+			const i = cursor++;
+			if (i >= chunks.length) return;
+			try {
+				settled[i] = { status: 'fulfilled', value: await generateBatch(chunks[i], context, isMultiLocation) };
+			} catch (err) {
+				settled[i] = { status: 'rejected', reason: err };
+			}
+		}
+	}
+
+	const workerCount = Math.min(MAX_CONCURRENCY, chunks.length);
+	await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
 	const replies: ReviewReply[] = [];
 	const batchErrors: BatchError[] = [];
