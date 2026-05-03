@@ -11,25 +11,17 @@ export interface ReviewInput {
 	createTime: string;
 }
 
-export interface ReviewReply {
+export interface PerReviewError {
 	reviewId: string;
-	reply: string;
-}
-
-export interface BatchError {
-	batchIndex: number;
-	batchSize: number;
-	reviewIds: string[];
+	authorName: string;
 	error: string;
 }
 
-export interface GenerateAiRepliesResult {
-	replies: ReviewReply[];
-	batchErrors: BatchError[];
-	batches: number;
-}
+export type StreamEvent =
+	| { kind: 'success'; review: ReviewInput; reply: string }
+	| { kind: 'error'; review: ReviewInput; error: string };
 
-const SYSTEM_INSTRUCTIONS = `Tu es chargé de rédiger des réponses personnalisées aux avis Google pour un commerce local.
+const SYSTEM_INSTRUCTIONS = `Tu es chargé de rédiger une réponse personnalisée à UN avis Google pour un commerce local.
 
 Règles absolues :
 - Réponds dans la langue du commentaire (FR→FR, EN→EN, DE→DE). Si pas de commentaire, réponds en français.
@@ -62,34 +54,20 @@ Patterns IA interdits (violation immédiate si présents) :
 - Gras dans la réponse
 - Répétition du mot "établissement"
 
-Tu DOIS appeler l'outil "submit_replies" avec toutes les réponses. N'écris rien en dehors de l'outil.`;
+Tu DOIS appeler l'outil "submit_reply" avec ta réponse. N'écris rien en dehors de l'outil.`;
 
 const TOOL_SCHEMA: ChatCompletionTool = {
 	type: 'function',
 	function: {
-		name: 'submit_replies',
-		description: 'Envoie les réponses générées pour chaque avis Google.',
+		name: 'submit_reply',
+		description: "Envoie la réponse rédigée pour l'avis Google fourni.",
 		parameters: {
 			type: 'object',
-			required: ['replies'],
+			required: ['reply'],
 			properties: {
-				replies: {
-					type: 'array',
-					description: 'Une réponse par avis, dans le même ordre que les avis fournis.',
-					items: {
-						type: 'object',
-						required: ['reviewId', 'reply'],
-						properties: {
-							reviewId: {
-								type: 'string',
-								description: "L'identifiant exact de l'avis (reviewId fourni)."
-							},
-							reply: {
-								type: 'string',
-								description: 'La réponse rédigée pour cet avis.'
-							}
-						}
-					}
+				reply: {
+					type: 'string',
+					description: "La réponse rédigée pour cet avis."
 				}
 			}
 		}
@@ -111,29 +89,22 @@ function buildContextBlock(ctx: ProjectContext, isMultiLocation: boolean): strin
 	if (ctx.contactEmail) lines.push(`Contact (avis négatifs) : ${ctx.contactEmail}${ctx.contactPhone ? ' / ' + ctx.contactPhone : ''}`);
 	lines.push(`Signature positive : ${ctx.defaultSignature}`);
 	lines.push(`Signature négative : ${ctx.negativeSignature}`);
-	if (isMultiLocation) lines.push('⚠️ Plusieurs établissements : mentionner le nom de l\'établissement dans chaque réponse.');
+	if (isMultiLocation) lines.push('⚠️ Plusieurs établissements : mentionner le nom de l\'établissement dans la réponse.');
 	return lines.join('\n');
 }
 
-function buildReviewsBlock(reviews: ReviewInput[]): string {
-	return reviews
-		.map((r, i) => {
-			const comment = (r.comment || '').replace(/\s+/g, ' ').trim();
-			const date = r.createTime.slice(0, 10);
-			return [
-				`--- Avis ${i + 1} ---`,
-				`reviewId: ${r.reviewId}`,
-				`Auteur : ${r.authorName}`,
-				`Note : ${r.rating}★`,
-				`Établissement : ${r.locationLabel}`,
-				`Date : ${date}`,
-				`Commentaire : ${comment || '(sans commentaire)'}`,
-			].join('\n');
-		})
-		.join('\n\n');
+function buildReviewBlock(r: ReviewInput): string {
+	const comment = (r.comment || '').replace(/\s+/g, ' ').trim();
+	const date = r.createTime.slice(0, 10);
+	return [
+		`Auteur : ${r.authorName}`,
+		`Note : ${r.rating}★`,
+		`Établissement : ${r.locationLabel}`,
+		`Date : ${date}`,
+		`Commentaire : ${comment || '(sans commentaire)'}`
+	].join('\n');
 }
 
-const BATCH_SIZE = 4;
 const MAX_CONCURRENCY = 2;
 const MAX_RETRIES = 4;
 
@@ -159,46 +130,48 @@ function parseRetryAfterSec(err: unknown): number | null {
 	return unit.startsWith('ms') ? n / 1000 : n;
 }
 
-async function generateBatch(
-	reviews: ReviewInput[],
+async function generateOneReply(
+	review: ReviewInput,
 	context: ProjectContext,
 	isMultiLocation: boolean
-): Promise<ReviewReply[]> {
+): Promise<string> {
 	const llm = getClient();
 
 	const userPayload = `# Contexte business
 ${buildContextBlock(context, isMultiLocation)}
 
-# Avis à traiter (${reviews.length})
-${buildReviewsBlock(reviews)}`;
+# Avis à traiter
+${buildReviewBlock(review)}`;
 
 	let lastErr: unknown = null;
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		try {
 			const response = await llm.chat.completions.create({
 				model: getReportModel(),
-				max_tokens: 4000,
+				max_tokens: 800,
 				stream: false,
 				messages: [
 					{ role: 'system', content: SYSTEM_INSTRUCTIONS },
 					{ role: 'user', content: userPayload }
 				],
 				tools: [TOOL_SCHEMA],
-				tool_choice: { type: 'function', function: { name: 'submit_replies' } },
+				tool_choice: { type: 'function', function: { name: 'submit_reply' } },
 				thinking: { type: 'disabled' }
 			} as Parameters<(typeof llm.chat.completions)['create']>[0] & { stream: false });
 
 			const toolCall = response.choices[0]?.message?.tool_calls?.[0];
 			if (!toolCall || toolCall.type !== 'function') {
-				throw new Error("Le modèle n'a pas appelé l'outil submit_replies");
+				throw new Error("Le modèle n'a pas appelé l'outil submit_reply");
 			}
 			const fn = (toolCall as { type: 'function'; function: { name: string; arguments: string } }).function;
-			if (fn.name !== 'submit_replies') {
+			if (fn.name !== 'submit_reply') {
 				throw new Error(`Outil inattendu : ${fn.name}`);
 			}
 
-			const parsed = JSON.parse(fn.arguments) as { replies: ReviewReply[] };
-			return parsed.replies ?? [];
+			const parsed = JSON.parse(fn.arguments) as { reply?: string };
+			const reply = parsed.reply?.trim();
+			if (!reply) throw new Error("Le modèle a renvoyé une réponse vide");
+			return reply;
 		} catch (err) {
 			lastErr = err;
 			if (attempt === MAX_RETRIES || !isRetriable(err)) throw err;
@@ -211,52 +184,40 @@ ${buildReviewsBlock(reviews)}`;
 	throw lastErr;
 }
 
-export async function generateAiReplies(
+export async function streamAiReplies(
 	reviews: ReviewInput[],
 	context: ProjectContext,
-	isMultiLocation: boolean
-): Promise<GenerateAiRepliesResult> {
-	if (reviews.length === 0) return { replies: [], batchErrors: [], batches: 0 };
+	isMultiLocation: boolean,
+	onProgress: (event: StreamEvent) => Promise<void>
+): Promise<void> {
+	if (reviews.length === 0) return;
 
-	const chunks: ReviewInput[][] = [];
-	for (let i = 0; i < reviews.length; i += BATCH_SIZE) {
-		chunks.push(reviews.slice(i, i + BATCH_SIZE));
-	}
-
-	const settled: PromiseSettledResult<ReviewReply[]>[] = new Array(chunks.length);
 	let cursor = 0;
+	const writeMutex: { p: Promise<void> } = { p: Promise.resolve() };
+
+	// Sérialise les appels au callback (writes DB) pour éviter
+	// des updates concurrents sur la même row ai_jobs.
+	function emit(event: StreamEvent): Promise<void> {
+		const next = writeMutex.p.then(() => onProgress(event));
+		writeMutex.p = next.catch(() => undefined);
+		return next;
+	}
 
 	async function worker() {
 		while (true) {
 			const i = cursor++;
-			if (i >= chunks.length) return;
+			if (i >= reviews.length) return;
+			const review = reviews[i];
 			try {
-				settled[i] = { status: 'fulfilled', value: await generateBatch(chunks[i], context, isMultiLocation) };
+				const reply = await generateOneReply(review, context, isMultiLocation);
+				await emit({ kind: 'success', review, reply });
 			} catch (err) {
-				settled[i] = { status: 'rejected', reason: err };
+				const msg = err instanceof Error ? err.message : String(err);
+				await emit({ kind: 'error', review, error: msg });
 			}
 		}
 	}
 
-	const workerCount = Math.min(MAX_CONCURRENCY, chunks.length);
+	const workerCount = Math.min(MAX_CONCURRENCY, reviews.length);
 	await Promise.all(Array.from({ length: workerCount }, () => worker()));
-
-	const replies: ReviewReply[] = [];
-	const batchErrors: BatchError[] = [];
-
-	settled.forEach((res, i) => {
-		if (res.status === 'fulfilled') {
-			replies.push(...res.value);
-		} else {
-			const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
-			batchErrors.push({
-				batchIndex: i,
-				batchSize: chunks[i].length,
-				reviewIds: chunks[i].map((r) => r.reviewId),
-				error: msg
-			});
-		}
-	});
-
-	return { replies, batchErrors, batches: chunks.length };
 }

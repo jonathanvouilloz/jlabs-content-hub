@@ -181,27 +181,23 @@
 		setTimeout(() => { batchMessage = ''; }, 5000);
 	}
 
-	type AiBatchError = {
-		batchIndex: number;
-		batchSize: number;
-		reviewIds: string[];
+	type PerReviewError = {
+		reviewId: string;
+		authorName: string;
 		error: string;
 	};
 
 	type AiResult = {
-		generated: number;
+		progress: { current: number; total: number; errors: number };
 		skipped: number;
-		attempted: number;
-		requested: number;
-		batches: number;
-		batchErrors: AiBatchError[];
-		emptyReplies: string[];
-		unmatchedReviewIds: string[];
-		failedBatchReviewCount: number;
+		perReviewErrors: PerReviewError[];
+		generated?: number;
+		requested?: number;
 	};
 
 	type AiFeedback =
 		| { kind: 'pending'; phase: string; jobId: string | null }
+		| { kind: 'running'; result: AiResult; jobId: string }
 		| { kind: 'success'; result: AiResult; force: boolean }
 		| { kind: 'partial'; result: AiResult; force: boolean }
 		| { kind: 'empty'; reason: string }
@@ -212,30 +208,23 @@
 	let replyJobId = $state<string | null>(null);
 	let replyPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
 	let aiDetailsOpen = $state(false);
+	let lastSeenCurrent = $state(0);
 
 	$effect(() => () => { if (replyPollTimer) clearInterval(replyPollTimer); });
 
-	function handleRepliesResult(result: AiResult, force: boolean) {
+	function handleFinalResult(result: AiResult, force: boolean) {
 		aiGenerating = false;
+		const errors = result.progress.errors;
+		const hasIssues = errors > 0 || result.perReviewErrors.length > 0;
 
-		const hasIssues =
-			result.batchErrors.length > 0 ||
-			result.unmatchedReviewIds.length > 0 ||
-			result.emptyReplies.length > 0 ||
-			(result.attempted > 0 && result.generated === 0);
-
-		if (result.requested === 0) {
-			aiFeedback = { kind: 'empty', reason: result.skipped > 0
-				? `Tous les avis ont d\u00e9j\u00e0 un brouillon (${result.skipped}). Utilisez "Tout regenerer" pour \u00e9craser.`
-				: 'Aucun avis en attente de r\u00e9ponse.' };
-		} else if (hasIssues) {
+		if (hasIssues) {
 			aiFeedback = { kind: 'partial', result, force };
 			aiDetailsOpen = true;
 		} else {
 			aiFeedback = { kind: 'success', result, force };
 		}
 
-		if (result.generated > 0) invalidateAll();
+		invalidateAll();
 	}
 
 	async function generateAiReplies(force = false) {
@@ -243,6 +232,7 @@
 		aiFeedback = { kind: 'pending', phase: 'D\u00e9marrage du job\u2026', jobId: null };
 		aiDetailsOpen = false;
 		replyJobId = null;
+		lastSeenCurrent = 0;
 		try {
 			const url = `/api/projects/${data.project.slug}/reviews/ai-replies${force ? '?force=1' : ''}`;
 			const res = await fetch(url, { method: 'POST' });
@@ -251,20 +241,13 @@
 
 			// R\u00e9ponse directe si 0 avis \u00e0 traiter
 			if ('generated' in j) {
-				handleRepliesResult(
-					{
-						generated: j.generated ?? 0,
-						skipped: j.skipped ?? 0,
-						attempted: 0,
-						requested: 0,
-						batches: 0,
-						batchErrors: [],
-						emptyReplies: [],
-						unmatchedReviewIds: [],
-						failedBatchReviewCount: 0
-					},
-					force
-				);
+				aiGenerating = false;
+				aiFeedback = {
+					kind: 'empty',
+					reason: (j.skipped ?? 0) > 0
+						? `Tous les avis ont d\u00e9j\u00e0 un brouillon (${j.skipped}). Utilisez "Tout regenerer" pour \u00e9craser.`
+						: 'Aucun avis en attente de r\u00e9ponse.'
+				};
 				return;
 			}
 
@@ -275,19 +258,28 @@
 					const pr = await fetch(`/api/jobs/${replyJobId}`);
 					const pj = await pr.json();
 					if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
-					if (pj.status === 'running' && aiFeedback?.kind === 'pending') {
-						aiFeedback = { kind: 'pending', phase: 'G\u00e9n\u00e9ration LLM en cours (batches en parall\u00e8le)\u2026', jobId: replyJobId };
-					}
-					if (pj.status === 'done') {
+
+					if (pj.status === 'running') {
+						const result = pj.result as AiResult | null;
+						if (result?.progress) {
+							aiFeedback = { kind: 'running', result, jobId: replyJobId! };
+							if (result.progress.current > lastSeenCurrent) {
+								lastSeenCurrent = result.progress.current;
+								invalidateAll();
+							}
+						}
+					} else if (pj.status === 'done') {
 						clearInterval(replyPollTimer!);
 						replyPollTimer = null;
-						handleRepliesResult(pj.result as AiResult, force);
+						handleFinalResult(pj.result as AiResult, force);
 					} else if (pj.status === 'error') {
 						clearInterval(replyPollTimer!);
 						replyPollTimer = null;
 						aiGenerating = false;
 						aiFeedback = { kind: 'error', message: pj.error ?? 'Erreur inconnue', jobId: replyJobId };
 						aiDetailsOpen = true;
+						// Refresh la table : des drafts ont peut-\u00eatre \u00e9t\u00e9 persist\u00e9s avant le crash
+						invalidateAll();
 					}
 				} catch (err) {
 					clearInterval(replyPollTimer!);
@@ -416,10 +408,10 @@
 				{aiFeedback.kind === 'partial' ? 'border-amber-200 bg-amber-50' : ''}
 				{aiFeedback.kind === 'error' ? 'border-red-200 bg-red-50' : ''}
 				{aiFeedback.kind === 'empty' ? 'border-surface-200 bg-surface-50' : ''}
-				{aiFeedback.kind === 'pending' ? 'border-violet-200 bg-violet-50' : ''}">
+				{aiFeedback.kind === 'pending' || aiFeedback.kind === 'running' ? 'border-violet-200 bg-violet-50' : ''}">
 				<div class="flex items-start gap-2 px-3 py-2">
 					<div class="mt-0.5 shrink-0">
-						{#if aiFeedback.kind === 'pending'}
+						{#if aiFeedback.kind === 'pending' || aiFeedback.kind === 'running'}
 							<Sparkles size={14} class="animate-pulse text-violet-600" />
 						{:else if aiFeedback.kind === 'success'}
 							<CheckCircle2 size={14} class="text-emerald-600" />
@@ -437,6 +429,36 @@
 							{#if aiFeedback.jobId}
 								<p class="mt-0.5 text-[10px] text-violet-600/70">Job : <code class="font-mono">{aiFeedback.jobId}</code></p>
 							{/if}
+						{:else if aiFeedback.kind === 'running'}
+							{@const p = aiFeedback.result.progress}
+							{@const pct = p.total > 0 ? Math.round((p.current / p.total) * 100) : 0}
+							<div class="flex items-center gap-2 flex-wrap">
+								<p class="font-medium text-violet-800">
+									Génération {p.current}/{p.total} ({pct}%)
+									{#if p.errors > 0}
+										<span class="text-amber-700">— {p.errors} erreur{p.errors > 1 ? 's' : ''}</span>
+									{/if}
+								</p>
+							</div>
+							<div class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-violet-100">
+								<div class="h-full bg-violet-500 transition-all duration-500" style="width: {pct}%"></div>
+							</div>
+							{#if aiFeedback.result.perReviewErrors.length > 0}
+								<button
+									type="button"
+									onclick={() => (aiDetailsOpen = !aiDetailsOpen)}
+									class="mt-1 text-[11px] underline text-amber-700"
+								>
+									{aiDetailsOpen ? 'Masquer' : `Voir ${aiFeedback.result.perReviewErrors.length} erreur(s)`}
+								</button>
+								{#if aiDetailsOpen}
+									<ul class="mt-1 max-h-32 overflow-y-auto space-y-0.5 rounded border border-amber-200 bg-white p-2 text-[11px] text-amber-700">
+										{#each aiFeedback.result.perReviewErrors as e}
+											<li><span class="font-medium">{e.authorName}</span> — {e.error}</li>
+										{/each}
+									</ul>
+								{/if}
+							{/if}
 						{:else if aiFeedback.kind === 'empty'}
 							<p class="text-surface-700">{aiFeedback.reason}</p>
 						{:else if aiFeedback.kind === 'error'}
@@ -447,12 +469,17 @@
 							{/if}
 						{:else}
 							{@const r = aiFeedback.result}
+							{@const generated = r.generated ?? Math.max(0, r.progress.current - r.progress.errors)}
+							{@const requested = r.requested ?? r.progress.total}
 							<div class="flex items-center gap-2 flex-wrap">
 								<p class="font-medium {aiFeedback.kind === 'success' ? 'text-emerald-800' : 'text-amber-800'}">
 									{#if aiFeedback.kind === 'success'}
-										{r.generated} brouillon{r.generated > 1 ? 's' : ''} généré{r.generated > 1 ? 's' : ''}
+										{generated} brouillon{generated > 1 ? 's' : ''} généré{generated > 1 ? 's' : ''}
 									{:else}
-										{r.generated}/{r.requested} brouillon{r.generated > 1 ? 's' : ''} généré{r.generated > 1 ? 's' : ''}
+										{generated}/{requested} brouillon{generated > 1 ? 's' : ''} généré{generated > 1 ? 's' : ''}
+										{#if r.progress.errors > 0}
+											<span> — {r.progress.errors} erreur{r.progress.errors > 1 ? 's' : ''}</span>
+										{/if}
 									{/if}
 								</p>
 								<button
@@ -466,54 +493,25 @@
 
 							{#if aiDetailsOpen}
 								<dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
-									<div><dt class="inline text-surface-500">Demandés :</dt> <dd class="inline font-mono text-surface-800">{r.requested}</dd></div>
-									<div><dt class="inline text-surface-500">Batches :</dt> <dd class="inline font-mono text-surface-800">{r.batches}</dd></div>
-									<div><dt class="inline text-surface-500">LLM a renvoyé :</dt> <dd class="inline font-mono text-surface-800">{r.attempted}</dd></div>
-									<div><dt class="inline text-surface-500">Sauvés en DB :</dt> <dd class="inline font-mono text-surface-800">{r.generated}</dd></div>
+									<div><dt class="inline text-surface-500">Demandés :</dt> <dd class="inline font-mono text-surface-800">{requested}</dd></div>
+									<div><dt class="inline text-surface-500">Sauvés en DB :</dt> <dd class="inline font-mono text-surface-800">{generated}</dd></div>
 									{#if r.skipped > 0}
 										<div><dt class="inline text-surface-500">Déjà existants :</dt> <dd class="inline font-mono text-surface-800">{r.skipped}</dd></div>
 									{/if}
-									{#if r.failedBatchReviewCount > 0}
-										<div><dt class="inline text-surface-500">Avis dans batch KO :</dt> <dd class="inline font-mono text-red-700">{r.failedBatchReviewCount}</dd></div>
-									{/if}
-									{#if r.unmatchedReviewIds.length > 0}
-										<div><dt class="inline text-surface-500">reviewId non matchés :</dt> <dd class="inline font-mono text-amber-700">{r.unmatchedReviewIds.length}</dd></div>
-									{/if}
-									{#if r.emptyReplies.length > 0}
-										<div><dt class="inline text-surface-500">Réponses vides :</dt> <dd class="inline font-mono text-amber-700">{r.emptyReplies.length}</dd></div>
+									{#if r.progress.errors > 0}
+										<div><dt class="inline text-surface-500">Erreurs :</dt> <dd class="inline font-mono text-red-700">{r.progress.errors}</dd></div>
 									{/if}
 								</dl>
 
-								{#if r.batchErrors.length > 0}
-									<div class="mt-2 rounded border border-red-200 bg-white p-2">
-										<p class="text-[11px] font-medium text-red-700">Erreurs par batch ({r.batchErrors.length}/{r.batches}) :</p>
-										<ul class="mt-1 space-y-1">
-											{#each r.batchErrors as be}
-												<li class="text-[11px] text-red-700">
-													<span class="font-mono">batch #{be.batchIndex + 1}</span> ({be.batchSize} avis) — {be.error}
-												</li>
-											{/each}
-										</ul>
-									</div>
-								{/if}
-
-								{#if r.unmatchedReviewIds.length > 0}
+								{#if r.perReviewErrors.length > 0}
 									<div class="mt-2 rounded border border-amber-200 bg-white p-2">
-										<p class="text-[11px] font-medium text-amber-700">
-											reviewId retournés par le LLM mais non sauvegardés (renvoyés tronqués / hors lot / déjà répondus) :
-										</p>
-										<ul class="mt-1 max-h-24 overflow-y-auto font-mono text-[10px] text-amber-700">
-											{#each r.unmatchedReviewIds as id}
-												<li class="truncate">{id}</li>
+										<p class="text-[11px] font-medium text-amber-700">Erreurs par avis ({r.perReviewErrors.length}) :</p>
+										<ul class="mt-1 max-h-32 overflow-y-auto space-y-0.5 text-[11px] text-amber-700">
+											{#each r.perReviewErrors as e}
+												<li><span class="font-medium">{e.authorName}</span> — {e.error}</li>
 											{/each}
 										</ul>
 									</div>
-								{/if}
-
-								{#if r.attempted === 0 && r.batchErrors.length === 0 && r.requested > 0}
-									<p class="mt-2 text-[11px] text-amber-700">
-										Le LLM n'a renvoyé aucune réponse (aucun batch n'a échoué non plus). Vérifier les logs serveur.
-									</p>
 								{/if}
 							{/if}
 						{/if}

@@ -2,10 +2,24 @@ import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews, projectGmbLocations, projectContexts } from '$lib/server/db/schema.js';
 import { eq, isNull, and } from 'drizzle-orm';
-import { generateAiReplies } from '$lib/server/ai/review-replies.js';
+import { streamAiReplies, type PerReviewError } from '$lib/server/ai/review-replies.js';
 import { createJob, updateJob } from '$lib/server/ai/jobs.js';
 import type { ProjectContext } from '$lib/types/project-context.js';
 import type { RequestHandler } from './$types';
+
+interface JobProgress {
+	current: number;
+	total: number;
+	errors: number;
+}
+
+interface JobResult {
+	progress: JobProgress;
+	skipped: number;
+	perReviewErrors: PerReviewError[];
+	generated?: number;
+	requested?: number;
+}
 
 export const POST: RequestHandler = async (event) => {
 	const { locals, params, url } = event;
@@ -68,61 +82,53 @@ export const POST: RequestHandler = async (event) => {
 
 	const job = await createJob(project.id, 'review-replies');
 
-	const requestedReviewIds = new Set(reviews.map((r) => r.reviewId));
+	const result: JobResult = {
+		progress: { current: 0, total: reviews.length, errors: 0 },
+		skipped,
+		perReviewErrors: []
+	};
 
 	async function run() {
 		try {
-			await updateJob(job.id, { status: 'running' });
-			const { replies, batchErrors, batches } = await generateAiReplies(
-				reviews,
-				context!,
-				isMultiLocation
-			);
+			await updateJob(job.id, { status: 'running', result });
 
-			const attempted = replies.length;
-			const emptyReplies: string[] = [];
-			const unmatchedReviewIds: string[] = [];
-			let generated = 0;
+			await streamAiReplies(reviews, context!, isMultiLocation, async (event) => {
+				if (event.kind === 'success') {
+					const upd = await db
+						.update(gmbReviews)
+						.set({ draftReply: event.reply })
+						.where(eq(gmbReviews.reviewId, event.review.reviewId));
 
-			for (const { reviewId, reply } of replies) {
-				if (!reviewId || !reply?.trim()) {
-					emptyReplies.push(reviewId || '(missing)');
-					continue;
-				}
-				if (!requestedReviewIds.has(reviewId)) {
-					unmatchedReviewIds.push(reviewId);
-					continue;
-				}
-				const result = await db
-					.update(gmbReviews)
-					.set({ draftReply: reply.trim() })
-					.where(eq(gmbReviews.reviewId, reviewId));
-				if (result.rowsAffected > 0) {
-					generated++;
+					if (upd.rowsAffected > 0) {
+						result.progress.current++;
+					} else {
+						result.progress.current++;
+						result.progress.errors++;
+						result.perReviewErrors.push({
+							reviewId: event.review.reviewId,
+							authorName: event.review.authorName,
+							error: 'Row introuvable lors de l\'UPDATE (avis supprimé entre-temps ?)'
+						});
+					}
 				} else {
-					unmatchedReviewIds.push(reviewId);
+					result.progress.current++;
+					result.progress.errors++;
+					result.perReviewErrors.push({
+						reviewId: event.review.reviewId,
+						authorName: event.review.authorName,
+						error: event.error
+					});
 				}
-			}
 
-			const failedBatchReviewCount = batchErrors.reduce((sum, b) => sum + b.batchSize, 0);
-
-			await updateJob(job.id, {
-				status: 'done',
-				result: {
-					generated,
-					skipped,
-					attempted,
-					requested: reviews.length,
-					batches,
-					batchErrors,
-					emptyReplies,
-					unmatchedReviewIds,
-					failedBatchReviewCount
-				}
+				await updateJob(job.id, { status: 'running', result });
 			});
+
+			result.generated = result.progress.current - result.progress.errors;
+			result.requested = reviews.length;
+			await updateJob(job.id, { status: 'done', result });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Erreur inconnue';
-			await updateJob(job.id, { status: 'error', error: msg });
+			await updateJob(job.id, { status: 'error', error: msg, result });
 		}
 	}
 
