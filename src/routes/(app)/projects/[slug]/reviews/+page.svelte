@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { RefreshCw, Send, Save, Star, BarChart3, Trash2, Sparkles } from 'lucide-svelte';
+	import { RefreshCw, Send, Save, Star, BarChart3, Trash2, Sparkles, AlertTriangle, CheckCircle2, X, Info } from 'lucide-svelte';
 	import { formatDate } from '$lib/utils/dates.js';
 	import { ratingColor } from '$lib/config/design-tokens.js';
 	import EmployeeMentionsReport from '$lib/components/EmployeeMentionsReport.svelte';
@@ -181,60 +181,136 @@
 		setTimeout(() => { batchMessage = ''; }, 5000);
 	}
 
+	type AiBatchError = {
+		batchIndex: number;
+		batchSize: number;
+		reviewIds: string[];
+		error: string;
+	};
+
+	type AiResult = {
+		generated: number;
+		skipped: number;
+		attempted: number;
+		requested: number;
+		batches: number;
+		batchErrors: AiBatchError[];
+		emptyReplies: string[];
+		unmatchedReviewIds: string[];
+		failedBatchReviewCount: number;
+	};
+
+	type AiFeedback =
+		| { kind: 'pending'; phase: string; jobId: string | null }
+		| { kind: 'success'; result: AiResult; force: boolean }
+		| { kind: 'partial'; result: AiResult; force: boolean }
+		| { kind: 'empty'; reason: string }
+		| { kind: 'error'; message: string; jobId: string | null };
+
 	let aiGenerating = $state(false);
-	let aiMessage = $state('');
+	let aiFeedback = $state<AiFeedback | null>(null);
 	let replyJobId = $state<string | null>(null);
 	let replyPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+	let aiDetailsOpen = $state(false);
 
 	$effect(() => () => { if (replyPollTimer) clearInterval(replyPollTimer); });
 
-	function handleRepliesResult(generated: number, skipped: number) {
+	function handleRepliesResult(result: AiResult, force: boolean) {
 		aiGenerating = false;
-		const parts = [];
-		if (generated > 0) parts.push(`${generated} brouillon${generated > 1 ? 's' : ''} g\u00e9n\u00e9r\u00e9${generated > 1 ? 's' : ''}`);
-		if (skipped > 0) parts.push(`${skipped} d\u00e9j\u00e0 existant${skipped > 1 ? 's' : ''}`);
-		aiMessage = parts.join(', ') || 'Aucun avis \u00e0 traiter';
-		if (generated > 0) invalidateAll();
-		setTimeout(() => { aiMessage = ''; }, 6000);
+
+		const hasIssues =
+			result.batchErrors.length > 0 ||
+			result.unmatchedReviewIds.length > 0 ||
+			result.emptyReplies.length > 0 ||
+			(result.attempted > 0 && result.generated === 0);
+
+		if (result.requested === 0) {
+			aiFeedback = { kind: 'empty', reason: result.skipped > 0
+				? `Tous les avis ont d\u00e9j\u00e0 un brouillon (${result.skipped}). Utilisez "Tout regenerer" pour \u00e9craser.`
+				: 'Aucun avis en attente de r\u00e9ponse.' };
+		} else if (hasIssues) {
+			aiFeedback = { kind: 'partial', result, force };
+			aiDetailsOpen = true;
+		} else {
+			aiFeedback = { kind: 'success', result, force };
+		}
+
+		if (result.generated > 0) invalidateAll();
 	}
 
 	async function generateAiReplies(force = false) {
 		aiGenerating = true;
-		aiMessage = 'G\u00e9n\u00e9ration en cours\u2026';
+		aiFeedback = { kind: 'pending', phase: 'D\u00e9marrage du job\u2026', jobId: null };
+		aiDetailsOpen = false;
 		replyJobId = null;
 		try {
 			const url = `/api/projects/${data.project.slug}/reviews/ai-replies${force ? '?force=1' : ''}`;
 			const res = await fetch(url, { method: 'POST' });
 			const j = await res.json();
-			if (!res.ok) throw new Error(j.error);
+			if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
 
 			// R\u00e9ponse directe si 0 avis \u00e0 traiter
 			if ('generated' in j) {
-				handleRepliesResult(j.generated, j.skipped);
+				handleRepliesResult(
+					{
+						generated: j.generated ?? 0,
+						skipped: j.skipped ?? 0,
+						attempted: 0,
+						requested: 0,
+						batches: 0,
+						batchErrors: [],
+						emptyReplies: [],
+						unmatchedReviewIds: [],
+						failedBatchReviewCount: 0
+					},
+					force
+				);
 				return;
 			}
 
 			replyJobId = j.jobId;
+			aiFeedback = { kind: 'pending', phase: 'G\u00e9n\u00e9ration LLM en cours\u2026', jobId: replyJobId };
 			replyPollTimer = setInterval(async () => {
-				const pr = await fetch(`/api/jobs/${replyJobId}`);
-				const pj = await pr.json();
-				if (pj.status === 'done') {
-					clearInterval(replyPollTimer!);
-					replyPollTimer = null;
-					handleRepliesResult(pj.result.generated, pj.result.skipped);
-				} else if (pj.status === 'error') {
+				try {
+					const pr = await fetch(`/api/jobs/${replyJobId}`);
+					const pj = await pr.json();
+					if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
+					if (pj.status === 'running' && aiFeedback?.kind === 'pending') {
+						aiFeedback = { kind: 'pending', phase: 'G\u00e9n\u00e9ration LLM en cours (batches en parall\u00e8le)\u2026', jobId: replyJobId };
+					}
+					if (pj.status === 'done') {
+						clearInterval(replyPollTimer!);
+						replyPollTimer = null;
+						handleRepliesResult(pj.result as AiResult, force);
+					} else if (pj.status === 'error') {
+						clearInterval(replyPollTimer!);
+						replyPollTimer = null;
+						aiGenerating = false;
+						aiFeedback = { kind: 'error', message: pj.error ?? 'Erreur inconnue', jobId: replyJobId };
+						aiDetailsOpen = true;
+					}
+				} catch (err) {
 					clearInterval(replyPollTimer!);
 					replyPollTimer = null;
 					aiGenerating = false;
-					aiMessage = pj.error ?? 'Erreur';
-					setTimeout(() => { aiMessage = ''; }, 6000);
+					aiFeedback = {
+						kind: 'error',
+						message: `\u00c9chec polling job : ${(err as Error).message}`,
+						jobId: replyJobId
+					};
+					aiDetailsOpen = true;
 				}
 			}, 2000);
 		} catch (err) {
 			aiGenerating = false;
-			aiMessage = (err as Error).message;
-			setTimeout(() => { aiMessage = ''; }, 6000);
+			aiFeedback = { kind: 'error', message: (err as Error).message, jobId: null };
+			aiDetailsOpen = true;
 		}
+	}
+
+	function dismissFeedback() {
+		aiFeedback = null;
+		aiDetailsOpen = false;
 	}
 
 	function renderStars(rating: number): string {
@@ -255,9 +331,6 @@
 			<div class="flex items-center gap-2">
 				{#if batchMessage}
 					<span class="text-xs text-surface-500">{batchMessage}</span>
-				{/if}
-				{#if aiMessage}
-					<span class="text-xs text-violet-600">{aiMessage}</span>
 				{/if}
 				{#if data.locations.length > 1}
 					<select
@@ -336,6 +409,126 @@
 		<div class="mt-4">
 			<EmployeeMentionsReport projectSlug={data.project.slug} />
 		</div>
+
+		{#if aiFeedback}
+			<div class="mt-3 rounded-lg border text-xs
+				{aiFeedback.kind === 'success' ? 'border-emerald-200 bg-emerald-50' : ''}
+				{aiFeedback.kind === 'partial' ? 'border-amber-200 bg-amber-50' : ''}
+				{aiFeedback.kind === 'error' ? 'border-red-200 bg-red-50' : ''}
+				{aiFeedback.kind === 'empty' ? 'border-surface-200 bg-surface-50' : ''}
+				{aiFeedback.kind === 'pending' ? 'border-violet-200 bg-violet-50' : ''}">
+				<div class="flex items-start gap-2 px-3 py-2">
+					<div class="mt-0.5 shrink-0">
+						{#if aiFeedback.kind === 'pending'}
+							<Sparkles size={14} class="animate-pulse text-violet-600" />
+						{:else if aiFeedback.kind === 'success'}
+							<CheckCircle2 size={14} class="text-emerald-600" />
+						{:else if aiFeedback.kind === 'partial'}
+							<AlertTriangle size={14} class="text-amber-600" />
+						{:else if aiFeedback.kind === 'error'}
+							<AlertTriangle size={14} class="text-red-600" />
+						{:else}
+							<Info size={14} class="text-surface-500" />
+						{/if}
+					</div>
+					<div class="flex-1 min-w-0">
+						{#if aiFeedback.kind === 'pending'}
+							<p class="font-medium text-violet-800">{aiFeedback.phase}</p>
+							{#if aiFeedback.jobId}
+								<p class="mt-0.5 text-[10px] text-violet-600/70">Job : <code class="font-mono">{aiFeedback.jobId}</code></p>
+							{/if}
+						{:else if aiFeedback.kind === 'empty'}
+							<p class="text-surface-700">{aiFeedback.reason}</p>
+						{:else if aiFeedback.kind === 'error'}
+							<p class="font-medium text-red-800">Erreur de génération</p>
+							<p class="mt-0.5 text-red-700 break-words">{aiFeedback.message}</p>
+							{#if aiFeedback.jobId}
+								<p class="mt-0.5 text-[10px] text-red-600/70">Job : <code class="font-mono">{aiFeedback.jobId}</code></p>
+							{/if}
+						{:else}
+							{@const r = aiFeedback.result}
+							<div class="flex items-center gap-2 flex-wrap">
+								<p class="font-medium {aiFeedback.kind === 'success' ? 'text-emerald-800' : 'text-amber-800'}">
+									{#if aiFeedback.kind === 'success'}
+										{r.generated} brouillon{r.generated > 1 ? 's' : ''} généré{r.generated > 1 ? 's' : ''}
+									{:else}
+										{r.generated}/{r.requested} brouillon{r.generated > 1 ? 's' : ''} généré{r.generated > 1 ? 's' : ''}
+									{/if}
+								</p>
+								<button
+									type="button"
+									onclick={() => (aiDetailsOpen = !aiDetailsOpen)}
+									class="text-[11px] underline {aiFeedback.kind === 'success' ? 'text-emerald-700' : 'text-amber-700'}"
+								>
+									{aiDetailsOpen ? 'Masquer' : 'Détails'}
+								</button>
+							</div>
+
+							{#if aiDetailsOpen}
+								<dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+									<div><dt class="inline text-surface-500">Demandés :</dt> <dd class="inline font-mono text-surface-800">{r.requested}</dd></div>
+									<div><dt class="inline text-surface-500">Batches :</dt> <dd class="inline font-mono text-surface-800">{r.batches}</dd></div>
+									<div><dt class="inline text-surface-500">LLM a renvoyé :</dt> <dd class="inline font-mono text-surface-800">{r.attempted}</dd></div>
+									<div><dt class="inline text-surface-500">Sauvés en DB :</dt> <dd class="inline font-mono text-surface-800">{r.generated}</dd></div>
+									{#if r.skipped > 0}
+										<div><dt class="inline text-surface-500">Déjà existants :</dt> <dd class="inline font-mono text-surface-800">{r.skipped}</dd></div>
+									{/if}
+									{#if r.failedBatchReviewCount > 0}
+										<div><dt class="inline text-surface-500">Avis dans batch KO :</dt> <dd class="inline font-mono text-red-700">{r.failedBatchReviewCount}</dd></div>
+									{/if}
+									{#if r.unmatchedReviewIds.length > 0}
+										<div><dt class="inline text-surface-500">reviewId non matchés :</dt> <dd class="inline font-mono text-amber-700">{r.unmatchedReviewIds.length}</dd></div>
+									{/if}
+									{#if r.emptyReplies.length > 0}
+										<div><dt class="inline text-surface-500">Réponses vides :</dt> <dd class="inline font-mono text-amber-700">{r.emptyReplies.length}</dd></div>
+									{/if}
+								</dl>
+
+								{#if r.batchErrors.length > 0}
+									<div class="mt-2 rounded border border-red-200 bg-white p-2">
+										<p class="text-[11px] font-medium text-red-700">Erreurs par batch ({r.batchErrors.length}/{r.batches}) :</p>
+										<ul class="mt-1 space-y-1">
+											{#each r.batchErrors as be}
+												<li class="text-[11px] text-red-700">
+													<span class="font-mono">batch #{be.batchIndex + 1}</span> ({be.batchSize} avis) — {be.error}
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+
+								{#if r.unmatchedReviewIds.length > 0}
+									<div class="mt-2 rounded border border-amber-200 bg-white p-2">
+										<p class="text-[11px] font-medium text-amber-700">
+											reviewId retournés par le LLM mais non sauvegardés (renvoyés tronqués / hors lot / déjà répondus) :
+										</p>
+										<ul class="mt-1 max-h-24 overflow-y-auto font-mono text-[10px] text-amber-700">
+											{#each r.unmatchedReviewIds as id}
+												<li class="truncate">{id}</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+
+								{#if r.attempted === 0 && r.batchErrors.length === 0 && r.requested > 0}
+									<p class="mt-2 text-[11px] text-amber-700">
+										Le LLM n'a renvoyé aucune réponse (aucun batch n'a échoué non plus). Vérifier les logs serveur.
+									</p>
+								{/if}
+							{/if}
+						{/if}
+					</div>
+					<button
+						type="button"
+						onclick={dismissFeedback}
+						class="shrink-0 rounded p-0.5 text-surface-400 transition-colors hover:bg-white/60 hover:text-surface-700"
+						aria-label="Fermer"
+					>
+						<X size={12} />
+					</button>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	{#if filteredReviews.length === 0}

@@ -68,20 +68,58 @@ export const POST: RequestHandler = async (event) => {
 
 	const job = await createJob(project.id, 'review-replies');
 
+	const requestedReviewIds = new Set(reviews.map((r) => r.reviewId));
+
 	async function run() {
 		try {
 			await updateJob(job.id, { status: 'running' });
-			const replies = await generateAiReplies(reviews, context!, isMultiLocation);
+			const { replies, batchErrors, batches } = await generateAiReplies(
+				reviews,
+				context!,
+				isMultiLocation
+			);
+
+			const attempted = replies.length;
+			const emptyReplies: string[] = [];
+			const unmatchedReviewIds: string[] = [];
 			let generated = 0;
+
 			for (const { reviewId, reply } of replies) {
-				if (!reviewId || !reply?.trim()) continue;
+				if (!reviewId || !reply?.trim()) {
+					emptyReplies.push(reviewId || '(missing)');
+					continue;
+				}
+				if (!requestedReviewIds.has(reviewId)) {
+					unmatchedReviewIds.push(reviewId);
+					continue;
+				}
 				const result = await db
 					.update(gmbReviews)
 					.set({ draftReply: reply.trim() })
 					.where(eq(gmbReviews.reviewId, reviewId));
-				if (result.rowsAffected > 0) generated++;
+				if (result.rowsAffected > 0) {
+					generated++;
+				} else {
+					unmatchedReviewIds.push(reviewId);
+				}
 			}
-			await updateJob(job.id, { status: 'done', result: { generated, skipped } });
+
+			const failedBatchReviewCount = batchErrors.reduce((sum, b) => sum + b.batchSize, 0);
+
+			await updateJob(job.id, {
+				status: 'done',
+				result: {
+					generated,
+					skipped,
+					attempted,
+					requested: reviews.length,
+					batches,
+					batchErrors,
+					emptyReplies,
+					unmatchedReviewIds,
+					failedBatchReviewCount
+				}
+			});
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Erreur inconnue';
 			await updateJob(job.id, { status: 'error', error: msg });

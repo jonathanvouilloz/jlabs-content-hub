@@ -16,6 +16,19 @@ export interface ReviewReply {
 	reply: string;
 }
 
+export interface BatchError {
+	batchIndex: number;
+	batchSize: number;
+	reviewIds: string[];
+	error: string;
+}
+
+export interface GenerateAiRepliesResult {
+	replies: ReviewReply[];
+	batchErrors: BatchError[];
+	batches: number;
+}
+
 const SYSTEM_INSTRUCTIONS = `Tu es chargé de rédiger des réponses personnalisées aux avis Google pour un commerce local.
 
 Règles absolues :
@@ -165,16 +178,34 @@ export async function generateAiReplies(
 	reviews: ReviewInput[],
 	context: ProjectContext,
 	isMultiLocation: boolean
-): Promise<ReviewReply[]> {
-	if (reviews.length === 0) return [];
+): Promise<GenerateAiRepliesResult> {
+	if (reviews.length === 0) return { replies: [], batchErrors: [], batches: 0 };
 
 	const chunks: ReviewInput[][] = [];
 	for (let i = 0; i < reviews.length; i += BATCH_SIZE) {
 		chunks.push(reviews.slice(i, i + BATCH_SIZE));
 	}
 
-	const results = await Promise.all(
+	const settled = await Promise.allSettled(
 		chunks.map((chunk) => generateBatch(chunk, context, isMultiLocation))
 	);
-	return results.flat();
+
+	const replies: ReviewReply[] = [];
+	const batchErrors: BatchError[] = [];
+
+	settled.forEach((res, i) => {
+		if (res.status === 'fulfilled') {
+			replies.push(...res.value);
+		} else {
+			const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+			batchErrors.push({
+				batchIndex: i,
+				batchSize: chunks[i].length,
+				reviewIds: chunks[i].map((r) => r.reviewId),
+				error: msg
+			});
+		}
+	});
+
+	return { replies, batchErrors, batches: chunks.length };
 }
