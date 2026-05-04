@@ -82,6 +82,7 @@
 	}
 
 	async function generateAiSummary(force = false) {
+		console.log('[regen] click', { force, period: `${data.period.year}-${data.period.month}` });
 		aiBusy = true;
 		aiError = null;
 		aiElapsedSeconds = 0;
@@ -94,12 +95,12 @@
 			const tokenQs = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
 			const forceQs = force ? '&force=1' : '';
 			const period = `${data.period.year}-${String(data.period.month).padStart(2, '0')}`;
-			const res = await fetch(
-				`/api/projects/${data.project.slug}/reviews/ai-summary?period=${period}${forceQs}${tokenQs}`,
-				{ method: 'POST' }
-			);
+			const url = `/api/projects/${data.project.slug}/reviews/ai-summary?period=${period}${forceQs}${tokenQs}`;
+			console.log('[regen] POST', url);
+			const res = await fetch(url, { method: 'POST' });
 			const j = await res.json();
-			if (!res.ok) throw new Error(j.error ?? 'Erreur lors de la génération');
+			console.log('[regen] response', { status: res.status, body: j });
+			if (!res.ok) throw new Error(j.error ?? `Erreur HTTP ${res.status}`);
 
 			// Chemin sync (token client) — réponse directe
 			if ('summary' in j) {
@@ -112,23 +113,34 @@
 			}
 
 			// Chemin admin — background job
+			if (!j.jobId) throw new Error('Réponse inattendue (jobId manquant)');
 			reportJobId = j.jobId;
+			console.log('[regen] polling job', j.jobId);
 			reportPollTimer = setInterval(async () => {
-				const pr = await fetch(`/api/jobs/${reportJobId}`);
-				const pj = await pr.json();
-				if (pj.status === 'done') {
+				try {
+					const pr = await fetch(`/api/jobs/${reportJobId}`);
+					const pj = await pr.json();
+					console.log('[regen] poll', pj.status);
+					if (pj.status === 'done') {
+						stopAiTimers();
+						aiBusy = false;
+						aiSummary = pj.result.summary;
+						aiGeneratedAt = pj.result.generatedAt;
+						aiModel = pj.result.model;
+					} else if (pj.status === 'error') {
+						stopAiTimers();
+						aiBusy = false;
+						aiError = pj.error ?? 'Erreur côté serveur';
+					}
+				} catch (pollErr) {
+					console.error('[regen] poll error', pollErr);
 					stopAiTimers();
 					aiBusy = false;
-					aiSummary = pj.result.summary;
-					aiGeneratedAt = pj.result.generatedAt;
-					aiModel = pj.result.model;
-				} else if (pj.status === 'error') {
-					stopAiTimers();
-					aiBusy = false;
-					aiError = pj.error ?? 'Erreur';
+					aiError = (pollErr as Error).message;
 				}
 			}, 2000);
 		} catch (err) {
+			console.error('[regen] error', err);
 			stopAiTimers();
 			aiBusy = false;
 			aiError = (err as Error).message;
@@ -258,17 +270,17 @@
 
 	<!-- Admin actions bar -->
 	{#if data.isAdmin}
-		<div class="mb-6 flex justify-end">
+		<div class="mb-6 flex flex-col items-end gap-2" aria-live="polite">
 			{#if aiBusy}
-				<span class="inline-flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700">
+				<span class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 shadow-sm">
 					<Loader size={14} class="animate-spin" />
 					<span>{progressLabel(aiElapsedSeconds)}</span>
-					<span class="text-primary-400">({aiElapsedSeconds}s)</span>
+					<span class="text-amber-600">({aiElapsedSeconds}s)</span>
 				</span>
 			{:else if aiSummary}
 				<button
 					onclick={() => generateAiSummary(true)}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-700 transition-colors hover:bg-surface-50"
+					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-700 shadow-sm transition-colors hover:bg-surface-50"
 				>
 					<RefreshCw size={14} />
 					Régénérer la synthèse
@@ -277,12 +289,17 @@
 				<button
 					onclick={() => generateAiSummary(false)}
 					disabled={data.stats.totalReviews === 0}
-					class="inline-flex items-center gap-1.5 rounded-md bg-primary-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+					class="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-50"
 					title={data.stats.totalReviews === 0 ? 'Aucun avis sur la période' : ''}
 				>
 					<Sparkles size={14} />
 					Générer la synthèse
 				</button>
+			{/if}
+			{#if aiError}
+				<span class="inline-flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">
+					Erreur : {aiError}
+				</span>
 			{/if}
 		</div>
 	{/if}
@@ -530,9 +547,6 @@
 					<p class="mt-3 text-[11px] text-surface-400">Cliquez sur « Générer la synthèse » en haut à droite pour lancer l'analyse.</p>
 				{/if}
 			</div>
-		{/if}
-		{#if aiError}
-			<p class="mt-2 text-center text-xs text-red-500">{aiError}</p>
 		{/if}
 	</section>
 
