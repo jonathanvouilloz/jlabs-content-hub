@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { waitUntil } from '@vercel/functions';
 import { db } from '$lib/server/db/index.js';
 import { projects } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -114,9 +115,7 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	const p = run();
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	(event.platform as any)?.context?.waitUntil(p);
+	waitUntil(run());
 
 	return json({ jobId: job.id });
 };
