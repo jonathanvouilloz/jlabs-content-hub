@@ -17,14 +17,14 @@ function parsePeriod(period: string | null): { year: number; month: number } | n
 	return { year, month };
 }
 
-async function authorize(event: Parameters<RequestHandler>[0]): Promise<{ ok: true; canForce: boolean } | { ok: false; status: number }> {
-	if (event.locals.user) return { ok: true, canForce: true };
-	if (validateApiKey(event)) return { ok: true, canForce: true };
+async function authorize(event: Parameters<RequestHandler>[0]): Promise<{ ok: true; canWrite: boolean } | { ok: false; status: number }> {
+	if (event.locals.user) return { ok: true, canWrite: true };
+	if (validateApiKey(event)) return { ok: true, canWrite: true };
 	const token = event.url.searchParams.get('token');
 	if (token) {
 		const client = await validateClientToken(token);
 		if (client && client.projectSlug === event.params.slug) {
-			return { ok: true, canForce: false };
+			return { ok: true, canWrite: false };
 		}
 	}
 	return { ok: false, status: 401 };
@@ -59,6 +59,11 @@ export const POST: RequestHandler = async (event) => {
 	const auth = await authorize(event);
 	if (!auth.ok) return json({ error: 'Unauthorized' }, { status: auth.status });
 
+	// Generation reserved to admin/API key — clients with token have read-only access.
+	if (!auth.canWrite) {
+		return json({ error: 'La génération du rapport est réservée à l\'administrateur.' }, { status: 403 });
+	}
+
 	const project = await db.query.projects.findFirst({
 		where: eq(projects.slug, event.params.slug)
 	});
@@ -69,14 +74,11 @@ export const POST: RequestHandler = async (event) => {
 	if (!parsed) return json({ error: 'Param "period" attendu au format YYYY-MM' }, { status: 400 });
 
 	const force = event.url.searchParams.get('force') === '1';
-	if (force && !auth.canForce) {
-		return json({ error: 'La régénération est réservée à l\'administrateur.' }, { status: 403 });
-	}
 
-	// Token-only client path → synchronous (no polling endpoint access)
+	// API key path → synchronous (no session = no polling endpoint access)
 	if (!event.locals.user) {
 		try {
-			const { record } = await getOrGenerateReport(project.id, parsed.year, parsed.month, { force: false });
+			const { record } = await getOrGenerateReport(project.id, parsed.year, parsed.month, { force });
 			return json({
 				summary: record.summary,
 				generatedAt: record.generatedAt,
