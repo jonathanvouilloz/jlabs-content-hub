@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project
 
-Hub editorial centralise (web app SvelteKit) pour stocker, gerer et visualiser les articles markdown, posts LinkedIn et posts GMB produits via Claude Code pour differents projets clients. Source de verite = base de donnees Turso. GitHub = backup/mirror.
+Hub editorial centralise (web app SvelteKit) pour stocker, gerer et visualiser les articles markdown, posts LinkedIn et posts GMB produits via Claude Code pour differents projets clients. Source de verite unique = base de donnees Turso. (La sync GitHub a été retirée le 2026-05 — le repo `content/` reste comme archive figée mais n'est plus alimenté.)
 
 ## Stack technique
 
@@ -15,7 +15,6 @@ Hub editorial centralise (web app SvelteKit) pour stocker, gerer et visualiser l
 | ORM | Drizzle |
 | Auth | Better Auth (email/password) |
 | Hosting | Vercel |
-| GitHub sync | Octokit (REST API) |
 
 ## Architecture
 
@@ -28,7 +27,6 @@ src/
 │   │   │   ├── schema.ts    # Schema Drizzle (5 tables)
 │   │   │   └── seed.ts      # Seed content_types
 │   │   ├── auth.ts          # Config Better Auth
-│   │   ├── github.ts        # Service GitHub sync (Octokit)
 │   │   ├── api-auth.ts      # Validation API key + client token
 │   │   └── utils.ts         # createId()
 │   └── utils/
@@ -54,17 +52,6 @@ src/
 │   └── view/[project_slug]/ # Vue client publique (a implementer)
 ```
 
-## Contenu sur GitHub (backup)
-
-```
-content/{projet}/{type}/{YYYY}/{MM}/{filename}
-```
-
-Exemples :
-- `content/barberconcept/articles/2026/03/entretien-barbe-courte.md`
-- `content/barberconcept/gmb/2026/04/2026-04-gmb.json`
-- `content/physiopommier/articles/2026/03/pilates-mal-de-dos.md`
-
 ## Schema DB (10+ tables)
 
 Tables auth (Better Auth) :
@@ -76,7 +63,7 @@ Tables auth (Better Auth) :
 Tables application :
 
 - `projects` : id, name, slug (unique), color, access_token, archived, client_email, weekly_digest_enabled
-- `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta, github_synced, github_path — unique (project_id, type, slug)
+- `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta — unique (project_id, type, slug). **Pas de sync GitHub** : Turso est l'unique source de vérité depuis 2026-05.
 - `comments` : id, content_id (FK), author_name, author_email, body
 - `content_types` : id, slug (unique), label, icon — seed: article, linkedin, gmb
 - `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
@@ -106,13 +93,6 @@ npm run dev          # localhost:5173
 npm run db:push      # sync schema vers Turso
 npm run db:generate  # generer migrations
 npm run db:studio    # Drizzle Studio
-```
-
-## Config GitHub
-
-```
-GITHUB_OWNER=jonathanvouilloz
-GITHUB_REPO=jlabs-content-hub
 ```
 
 ## Notifications email + Vercel Blob (epic 18)

@@ -2,7 +2,6 @@ import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { contents, statusHistory, comments, publishLogs } from '$lib/server/db/schema.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
-import { pushFileToGitHub, deleteFileFromGitHub } from '$lib/server/github.js';
 import { eq } from 'drizzle-orm';
 
 export const GET: RequestHandler = async (event) => {
@@ -39,12 +38,6 @@ export const PUT: RequestHandler = async (event) => {
 
 	await db.update(contents).set(updates).where(eq(contents.id, event.params.id));
 
-	if (body.body && content.githubPath) {
-		pushFileToGitHub(content.githubPath, body.body, `update: ${content.slug}`).then(async (synced) => {
-			await db.update(contents).set({ githubSynced: synced }).where(eq(contents.id, event.params.id));
-		});
-	}
-
 	return jsonResponse({ id: event.params.id });
 };
 
@@ -67,10 +60,6 @@ export const DELETE: RequestHandler = async (event) => {
 		await db.delete(contents).where(eq(contents.id, event.params.id));
 	} catch (e) {
 		return errorResponse(`Delete failed: ${(e as Error).message}`, 500);
-	}
-
-	if (content.githubPath) {
-		deleteFileFromGitHub(content.githubPath, `delete: ${content.slug}`);
 	}
 
 	return jsonResponse({ deleted: true });

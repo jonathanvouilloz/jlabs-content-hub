@@ -4,7 +4,6 @@ import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory } from '$lib/server/db/schema.js';
 import { createId } from '$lib/server/utils.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
-import { buildGitHubPath, pushFileToGitHub } from '$lib/server/github.js';
 import { slugify } from '$lib/utils/slugify.js';
 import { parseFrontmatter } from '$lib/utils/content.js';
 import { isBatchFormat, parseLinkedInBatch } from '$lib/utils/linkedin.js';
@@ -51,7 +50,6 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const id = existing?.id ?? createId();
-	const githubPath = buildGitHubPath(project_slug, type, slug, planned_date);
 
 	if (existing) {
 		await db.update(contents).set({
@@ -60,7 +58,6 @@ export const POST: RequestHandler = async (event) => {
 			plannedDate: planned_date ?? null,
 			tags: tags ? JSON.stringify(tags) : null,
 			meta: meta ? JSON.stringify(meta) : null,
-			githubPath,
 			updatedAt: new Date().toISOString()
 		}).where(eq(contents.id, id));
 	} else {
@@ -77,9 +74,7 @@ export const POST: RequestHandler = async (event) => {
 			status: initialStatus,
 			plannedDate: planned_date ?? null,
 			tags: tags ? JSON.stringify(tags) : null,
-			meta: meta ? JSON.stringify(meta) : null,
-			githubSynced: false,
-			githubPath
+			meta: meta ? JSON.stringify(meta) : null
 		});
 
 		await db.insert(statusHistory).values({
@@ -90,11 +85,6 @@ export const POST: RequestHandler = async (event) => {
 			changedBy: initialChangedBy
 		});
 	}
-
-	// GitHub sync in background
-	pushFileToGitHub(githubPath, content, `[${project_slug}] add: ${slug}`).then(async (synced) => {
-		await db.update(contents).set({ githubSynced: synced }).where(eq(contents.id, id));
-	});
 
 	// Auto-split LinkedIn batch into individual posts
 	if (type === 'linkedin') {
@@ -213,9 +203,7 @@ export const POST: RequestHandler = async (event) => {
 						body: postBody,
 						status: 'approved',
 						plannedDate: postPlannedDate,
-						meta: postMeta,
-						githubSynced: false,
-						githubPath
+						meta: postMeta
 					});
 					await db.insert(statusHistory).values({
 						id: createId(),
@@ -228,7 +216,7 @@ export const POST: RequestHandler = async (event) => {
 				}
 			}
 
-			// Delete the transient envelope row (kept on GitHub as backup via pushFileToGitHub above).
+			// Delete the transient envelope row.
 			await db.delete(statusHistory).where(eq(statusHistory.contentId, id));
 			await db.delete(contents).where(eq(contents.id, id));
 
@@ -242,7 +230,7 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	return jsonResponse({ id, slug, github_path: githubPath }, existing ? 200 : 201);
+	return jsonResponse({ id, slug }, existing ? 200 : 201);
 };
 
 export const GET: RequestHandler = async (event) => {

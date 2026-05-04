@@ -89,8 +89,6 @@ export const contents = sqliteTable(
 		meta: text('meta'),
 		gmbPostId: text('gmb_post_id'),
 		cmsItemId: text('cms_item_id'),
-		githubSynced: integer('github_synced', { mode: 'boolean' }).notNull().default(false),
-		githubPath: text('github_path'),
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 	},
