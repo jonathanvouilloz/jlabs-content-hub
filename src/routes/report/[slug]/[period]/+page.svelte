@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { ChevronLeft, ChevronRight } from 'lucide-svelte';
+	import { ChevronLeft, ChevronRight, Loader, RefreshCw, Sparkles } from 'lucide-svelte';
 	import type { AiReportSummary } from '$lib/server/ai/llm.js';
 
 	let { data } = $props();
@@ -40,14 +40,55 @@
 	let aiModel = $state<string | null>(data.aiSummary?.model ?? null);
 	let aiBusy = $state(false);
 	let aiError = $state<string | null>(null);
+	let aiElapsedSeconds = $state(0);
 	let reportJobId = $state<string | null>(null);
 	let reportPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+	let aiTickTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
-	$effect(() => () => { if (reportPollTimer) clearInterval(reportPollTimer); });
+	let currentPeriodKey = $derived(`${data.period.year}-${data.period.month}`);
+
+	// Re-sync local state when navigating between months (data changes via SvelteKit load).
+	// Without this, aiSummary captured at first mount would stay stale across navigation.
+	$effect(() => {
+		// Track the period key so this effect re-runs on each month change.
+		void currentPeriodKey;
+		aiSummary = data.aiSummary?.summary ?? null;
+		aiGeneratedAt = data.aiSummary?.generatedAt ?? null;
+		aiModel = data.aiSummary?.model ?? null;
+		stopAiTimers();
+		reportJobId = null;
+		aiBusy = false;
+		aiElapsedSeconds = 0;
+		aiError = null;
+	});
+
+	$effect(() => () => stopAiTimers());
+
+	function stopAiTimers() {
+		if (reportPollTimer) {
+			clearInterval(reportPollTimer);
+			reportPollTimer = null;
+		}
+		if (aiTickTimer) {
+			clearInterval(aiTickTimer);
+			aiTickTimer = null;
+		}
+	}
+
+	function progressLabel(seconds: number): string {
+		if (seconds < 15) return 'Lecture des avis du mois…';
+		if (seconds < 35) return 'Génération de la synthèse IA…';
+		return 'Finalisation…';
+	}
 
 	async function generateAiSummary(force = false) {
 		aiBusy = true;
 		aiError = null;
+		aiElapsedSeconds = 0;
+		stopAiTimers();
+		aiTickTimer = setInterval(() => {
+			aiElapsedSeconds += 1;
+		}, 1000);
 		try {
 			const tokenParam = $page.url.searchParams.get('token');
 			const tokenQs = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
@@ -66,6 +107,7 @@
 				aiGeneratedAt = j.generatedAt;
 				aiModel = j.model;
 				aiBusy = false;
+				stopAiTimers();
 				return;
 			}
 
@@ -75,20 +117,19 @@
 				const pr = await fetch(`/api/jobs/${reportJobId}`);
 				const pj = await pr.json();
 				if (pj.status === 'done') {
-					clearInterval(reportPollTimer!);
-					reportPollTimer = null;
+					stopAiTimers();
 					aiBusy = false;
 					aiSummary = pj.result.summary;
 					aiGeneratedAt = pj.result.generatedAt;
 					aiModel = pj.result.model;
 				} else if (pj.status === 'error') {
-					clearInterval(reportPollTimer!);
-					reportPollTimer = null;
+					stopAiTimers();
 					aiBusy = false;
 					aiError = pj.error ?? 'Erreur';
 				}
 			}, 2000);
 		} catch (err) {
+			stopAiTimers();
 			aiBusy = false;
 			aiError = (err as Error).message;
 		}
@@ -182,7 +223,7 @@
 		<div class="mb-2 inline-block rounded-full bg-surface-100 px-4 py-1 text-xs font-medium uppercase tracking-wider text-surface-500">
 			Rapport mensuel
 		</div>
-		<h1 class="text-3xl font-bold text-surface-900">{data.project.name}</h1>
+		<h1 class="text-4xl font-bold tracking-tight text-surface-900 sm:text-5xl">{data.project.name}</h1>
 		<p class="mt-1 text-lg text-surface-500">Avis Google — {data.period.label}</p>
 
 		<nav class="mt-5 flex items-center justify-center gap-2">
@@ -214,6 +255,73 @@
 			{/if}
 		</nav>
 	</header>
+
+	<!-- Admin actions bar -->
+	{#if data.isAdmin}
+		<div class="mb-6 flex justify-end">
+			{#if aiBusy}
+				<span class="inline-flex items-center gap-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700">
+					<Loader size={14} class="animate-spin" />
+					<span>{progressLabel(aiElapsedSeconds)}</span>
+					<span class="text-primary-400">({aiElapsedSeconds}s)</span>
+				</span>
+			{:else if aiSummary}
+				<button
+					onclick={() => generateAiSummary(true)}
+					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-700 transition-colors hover:bg-surface-50"
+				>
+					<RefreshCw size={14} />
+					Régénérer la synthèse
+				</button>
+			{:else}
+				<button
+					onclick={() => generateAiSummary(false)}
+					disabled={data.stats.totalReviews === 0}
+					class="inline-flex items-center gap-1.5 rounded-md bg-primary-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+					title={data.stats.totalReviews === 0 ? 'Aucun avis sur la période' : ''}
+				>
+					<Sparkles size={14} />
+					Générer la synthèse
+				</button>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- KPI Cards -->
+	<section class="mb-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
+		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
+			<p class="text-3xl font-bold text-surface-900">{data.stats.totalReviews}</p>
+			<p class="mt-1 text-xs text-surface-500">Avis ce mois</p>
+			{#if data.trends.prevTotal > 0}
+				<p class="mt-1 text-xs {trendColor(data.trends.deltaVolume)}">
+					{trendIcon(data.trends.deltaVolume)} {data.trends.deltaVolume > 0 ? '+' : ''}{data.trends.deltaVolume} vs {data.prevPeriod.label}
+				</p>
+			{/if}
+		</div>
+		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
+			<p class="text-3xl font-bold {ratingColor(Math.round(data.stats.avgRating))}">{data.stats.avgRating}</p>
+			<p class="mt-1 text-xs text-surface-500">Note moyenne</p>
+			{#if data.trends.prevTotal > 0}
+				<p class="mt-1 text-xs {trendColor(data.trends.deltaRating)}">
+					{trendIcon(data.trends.deltaRating)} {data.trends.deltaRating > 0 ? '+' : ''}{data.trends.deltaRating} vs {data.trends.prevAvgRating}
+				</p>
+			{/if}
+		</div>
+		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
+			<p class="text-3xl font-bold text-emerald-600">{data.stats.positivePercent}%</p>
+			<p class="mt-1 text-xs text-surface-500">Avis positifs (4-5★)</p>
+		</div>
+		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
+			<p class="text-3xl font-bold text-surface-900">{data.trends.currentMentions}</p>
+			<p class="mt-1 text-xs text-surface-500">Mentions equipe</p>
+			{#if data.trends.prevMentions > 0}
+				{@const delta = data.trends.currentMentions - data.trends.prevMentions}
+				<p class="mt-1 text-xs {trendColor(delta)}">
+					{trendIcon(delta)} {delta > 0 ? '+' : ''}{delta} vs {data.prevPeriod.label}
+				</p>
+			{/if}
+		</div>
+	</section>
 
 	<!-- AI Synthesis -->
 	<section class="mb-10">
@@ -403,20 +511,9 @@
 					</div>
 				{/if}
 
-				<div class="mt-6 flex items-center justify-between border-t border-surface-200 pt-3 text-[11px] text-surface-400">
-					<span>
-						{#if aiGeneratedAt}Généré le {formatDateTime(aiGeneratedAt)}{/if}
-						{#if aiModel} · {aiModel}{/if}
-					</span>
-					{#if data.isAdmin}
-						<button
-							onclick={() => generateAiSummary(true)}
-							disabled={aiBusy}
-							class="rounded-md border border-surface-200 bg-white px-3 py-1 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50 disabled:opacity-50"
-						>
-							{aiBusy ? 'Régénération…' : 'Régénérer la synthèse'}
-						</button>
-					{/if}
+				<div class="mt-6 border-t border-surface-200 pt-3 text-[11px] text-surface-400">
+					{#if aiGeneratedAt}Généré le {formatDateTime(aiGeneratedAt)}{/if}
+					{#if aiModel} · {aiModel}{/if}
 				</div>
 			</div>
 		{:else}
@@ -425,61 +522,18 @@
 				<p class="mt-1 text-xs text-surface-500">
 					Une lecture structurée des avis du mois (évolution vs {data.prevPeriod.label}, diagnostic par établissement, actions recommandées).
 				</p>
-				{#if data.isAdmin}
-					<button
-						onclick={() => generateAiSummary(false)}
-						disabled={aiBusy || data.stats.totalReviews === 0}
-						class="mt-4 rounded-md bg-primary-500 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
-					>
-						{aiBusy ? 'Génération en cours…' : 'Générer la synthèse'}
-					</button>
-					{#if data.stats.totalReviews === 0}
-						<p class="mt-2 text-[11px] text-surface-400">Aucun avis sur la période.</p>
-					{/if}
-				{:else}
+				{#if data.isAdmin && data.stats.totalReviews === 0}
+					<p class="mt-3 text-[11px] text-surface-400">Aucun avis sur la période.</p>
+				{:else if !data.isAdmin}
 					<p class="mt-3 text-[11px] text-surface-400">La synthèse n'a pas encore été générée pour ce mois.</p>
+				{:else}
+					<p class="mt-3 text-[11px] text-surface-400">Cliquez sur « Générer la synthèse » en haut à droite pour lancer l'analyse.</p>
 				{/if}
 			</div>
 		{/if}
 		{#if aiError}
 			<p class="mt-2 text-center text-xs text-red-500">{aiError}</p>
 		{/if}
-	</section>
-
-	<!-- KPI Cards -->
-	<section class="mb-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
-		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
-			<p class="text-3xl font-bold text-surface-900">{data.stats.totalReviews}</p>
-			<p class="mt-1 text-xs text-surface-500">Avis ce mois</p>
-			{#if data.trends.prevTotal > 0}
-				<p class="mt-1 text-xs {trendColor(data.trends.deltaVolume)}">
-					{trendIcon(data.trends.deltaVolume)} {data.trends.deltaVolume > 0 ? '+' : ''}{data.trends.deltaVolume} vs {data.prevPeriod.label}
-				</p>
-			{/if}
-		</div>
-		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
-			<p class="text-3xl font-bold {ratingColor(Math.round(data.stats.avgRating))}">{data.stats.avgRating}</p>
-			<p class="mt-1 text-xs text-surface-500">Note moyenne</p>
-			{#if data.trends.prevTotal > 0}
-				<p class="mt-1 text-xs {trendColor(data.trends.deltaRating)}">
-					{trendIcon(data.trends.deltaRating)} {data.trends.deltaRating > 0 ? '+' : ''}{data.trends.deltaRating} vs {data.trends.prevAvgRating}
-				</p>
-			{/if}
-		</div>
-		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
-			<p class="text-3xl font-bold text-emerald-600">{data.stats.positivePercent}%</p>
-			<p class="mt-1 text-xs text-surface-500">Avis positifs (4-5★)</p>
-		</div>
-		<div class="rounded-xl border border-surface-200 bg-white p-5 text-center">
-			<p class="text-3xl font-bold text-surface-900">{data.trends.currentMentions}</p>
-			<p class="mt-1 text-xs text-surface-500">Mentions equipe</p>
-			{#if data.trends.prevMentions > 0}
-				{@const delta = data.trends.currentMentions - data.trends.prevMentions}
-				<p class="mt-1 text-xs {trendColor(delta)}">
-					{trendIcon(delta)} {delta > 0 ? '+' : ''}{delta} vs {data.prevPeriod.label}
-				</p>
-			{/if}
-		</div>
 	</section>
 
 	<!-- Star Distribution -->
