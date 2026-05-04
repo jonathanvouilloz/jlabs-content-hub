@@ -64,6 +64,10 @@
 
 	$effect(() => () => stopAiTimers());
 
+	$effect(() => {
+		console.log('[regen] aiBusy =', aiBusy, '| elapsed =', aiElapsedSeconds + 's');
+	});
+
 	function stopAiTimers() {
 		if (reportPollTimer) {
 			clearInterval(reportPollTimer);
@@ -292,38 +296,53 @@
 
 	<!-- Admin actions bar -->
 	{#if data.isAdmin}
-		<div class="mb-6 flex flex-col items-end gap-2" aria-live="polite">
-			{#if aiBusy}
-				<span class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 shadow-sm">
-					<Loader size={14} class="animate-spin" />
-					<span>{progressLabel(aiElapsedSeconds)}</span>
-					<span class="text-amber-600">({aiElapsedSeconds}s)</span>
-				</span>
-			{:else if aiSummary}
-				<button
-					onclick={() => generateAiSummary(true)}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-700 shadow-sm transition-colors hover:bg-surface-50"
-				>
-					<RefreshCw size={14} />
-					Régénérer la synthèse
-				</button>
-			{:else}
-				<button
-					onclick={() => generateAiSummary(false)}
-					disabled={data.stats.totalReviews === 0}
-					class="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-50"
-					title={data.stats.totalReviews === 0 ? 'Aucun avis sur la période' : ''}
-				>
-					<Sparkles size={14} />
-					Générer la synthèse
-				</button>
-			{/if}
-			{#if aiError}
-				<span class="inline-flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">
-					Erreur : {aiError}
-				</span>
-			{/if}
-		</div>
+		{#if aiBusy}
+			<!-- Full-width prominent banner : impossible to miss -->
+			<div
+				class="mb-6 flex items-center gap-4 rounded-xl border-2 border-amber-400 bg-amber-100 px-5 py-4 shadow-md"
+				role="status"
+				aria-live="polite"
+			>
+				<Loader size={24} class="shrink-0 animate-spin text-amber-700" />
+				<div class="flex-1">
+					<p class="text-sm font-semibold text-amber-900">Régénération de la synthèse en cours…</p>
+					<p class="mt-0.5 text-xs text-amber-800">
+						{progressLabel(aiElapsedSeconds)} · {aiElapsedSeconds}s écoulées
+					</p>
+				</div>
+				<div class="hidden text-right sm:block">
+					<p class="text-2xl font-bold tabular-nums text-amber-900">{aiElapsedSeconds}<span class="text-sm font-medium">s</span></p>
+					<p class="text-[10px] uppercase tracking-wider text-amber-700">temps</p>
+				</div>
+			</div>
+		{:else}
+			<div class="mb-6 flex flex-col items-end gap-2">
+				{#if aiSummary}
+					<button
+						onclick={() => generateAiSummary(true)}
+						class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-700 shadow-sm transition-colors hover:bg-surface-50"
+					>
+						<RefreshCw size={14} />
+						Régénérer la synthèse
+					</button>
+				{:else}
+					<button
+						onclick={() => generateAiSummary(false)}
+						disabled={data.stats.totalReviews === 0}
+						class="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-50"
+						title={data.stats.totalReviews === 0 ? 'Aucun avis sur la période' : ''}
+					>
+						<Sparkles size={14} />
+						Générer la synthèse
+					</button>
+				{/if}
+				{#if aiError}
+					<span class="inline-flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">
+						Erreur : {aiError}
+					</span>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 
 	<!-- KPI Cards -->
