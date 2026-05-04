@@ -116,17 +116,39 @@
 			if (!j.jobId) throw new Error('Réponse inattendue (jobId manquant)');
 			reportJobId = j.jobId;
 			console.log('[regen] polling job', j.jobId);
+			let pollCount = 0;
+			const maxPolls = 45; // 45 × 2s = 90s timeout
 			reportPollTimer = setInterval(async () => {
+				pollCount += 1;
+				console.log('[regen] tick #' + pollCount + ' fired (before fetch)');
+				if (pollCount > maxPolls) {
+					console.warn('[regen] timeout after', pollCount, 'polls');
+					stopAiTimers();
+					aiBusy = false;
+					aiError = `Pas de réponse après ${maxPolls * 2}s. Le job tourne peut-être encore : recharge la page dans une minute.`;
+					return;
+				}
 				try {
-					const pr = await fetch(`/api/jobs/${reportJobId}`);
-					const pj = await pr.json();
-					console.log('[regen] poll', pj.status);
+					const pollUrl = `/api/jobs/${reportJobId}`;
+					const pr = await fetch(pollUrl);
+					const text = await pr.text();
+					let pj: { status?: string; result?: { summary: AiReportSummary; generatedAt: string; model: string }; error?: string } = {};
+					try {
+						pj = JSON.parse(text);
+					} catch {
+						console.error('[regen] poll non-JSON response', { status: pr.status, body: text.slice(0, 200) });
+						throw new Error(`Réponse non-JSON (HTTP ${pr.status})`);
+					}
+					console.log('[regen] poll #' + pollCount + ' →', { httpStatus: pr.status, jobStatus: pj.status });
+					if (!pr.ok) {
+						throw new Error(pj.error ?? `Polling HTTP ${pr.status}`);
+					}
 					if (pj.status === 'done') {
 						stopAiTimers();
 						aiBusy = false;
-						aiSummary = pj.result.summary;
-						aiGeneratedAt = pj.result.generatedAt;
-						aiModel = pj.result.model;
+						aiSummary = pj.result?.summary ?? null;
+						aiGeneratedAt = pj.result?.generatedAt ?? null;
+						aiModel = pj.result?.model ?? null;
 					} else if (pj.status === 'error') {
 						stopAiTimers();
 						aiBusy = false;
