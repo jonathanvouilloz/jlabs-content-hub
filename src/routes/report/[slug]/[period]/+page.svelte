@@ -1,8 +1,39 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { ChevronLeft, ChevronRight } from 'lucide-svelte';
 	import type { AiReportSummary } from '$lib/server/ai/llm.js';
 
 	let { data } = $props();
+
+	const MONTH_NAMES_FULL = [
+		'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+		'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+	];
+
+	function periodOffset(year: number, month: number, delta: number): { year: number; month: number } {
+		const total = year * 12 + (month - 1) + delta;
+		return { year: Math.floor(total / 12), month: (total % 12) + 1 };
+	}
+
+	function periodLabel(year: number, month: number): string {
+		return `${MONTH_NAMES_FULL[month - 1]} ${year}`;
+	}
+
+	function buildPeriodUrl(year: number, month: number): string {
+		const period = `${year}-${String(month).padStart(2, '0')}`;
+		const token = $page.url.searchParams.get('token');
+		const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+		return `/report/${data.project.slug}/${period}${qs}`;
+	}
+
+	let prevNav = $derived(periodOffset(data.period.year, data.period.month, -1));
+	let nextNav = $derived(periodOffset(data.period.year, data.period.month, 1));
+	let nextIsFuture = $derived.by(() => {
+		const now = new Date();
+		const currentYear = now.getFullYear();
+		const currentMonth = now.getMonth() + 1;
+		return nextNav.year > currentYear || (nextNav.year === currentYear && nextNav.month > currentMonth);
+	});
 
 	let aiSummary = $state<AiReportSummary | null>(data.aiSummary?.summary ?? null);
 	let aiGeneratedAt = $state<string | null>(data.aiSummary?.generatedAt ?? null);
@@ -153,6 +184,35 @@
 		</div>
 		<h1 class="text-3xl font-bold text-surface-900">{data.project.name}</h1>
 		<p class="mt-1 text-lg text-surface-500">Avis Google — {data.period.label}</p>
+
+		<nav class="mt-5 flex items-center justify-center gap-2">
+			<a
+				href={buildPeriodUrl(prevNav.year, prevNav.month)}
+				class="inline-flex items-center gap-1 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
+				aria-label="Mois précédent"
+			>
+				<ChevronLeft size={14} />
+				{periodLabel(prevNav.year, prevNav.month)}
+			</a>
+			{#if nextIsFuture}
+				<span
+					class="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-surface-200 bg-surface-50 px-3 py-1.5 text-xs font-medium text-surface-300"
+					aria-label="Mois suivant indisponible"
+				>
+					{periodLabel(nextNav.year, nextNav.month)}
+					<ChevronRight size={14} />
+				</span>
+			{:else}
+				<a
+					href={buildPeriodUrl(nextNav.year, nextNav.month)}
+					class="inline-flex items-center gap-1 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
+					aria-label="Mois suivant"
+				>
+					{periodLabel(nextNav.year, nextNav.month)}
+					<ChevronRight size={14} />
+				</a>
+			{/if}
+		</nav>
 	</header>
 
 	<!-- AI Synthesis -->
