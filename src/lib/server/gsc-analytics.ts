@@ -93,6 +93,25 @@ export function latestCompleteWeekStart(now: Date = new Date()): string {
 	return previousWeekStart(thisWeekMonday);
 }
 
+// ── List sites accessible to service account ─────────────────────
+
+interface ListSitesResponse {
+	siteEntry?: Array<{ siteUrl: string; permissionLevel: string }>;
+}
+
+export async function listAccessibleSites(projectId: string): Promise<Array<{ siteUrl: string; permissionLevel: string }>> {
+	const { token } = await getAccessTokenForProject(projectId);
+	const res = await fetch(`${SEARCH_ANALYTICS_BASE}`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`GSC sites list ${res.status}: ${text.slice(0, 500)}`);
+	}
+	const json = (await res.json()) as ListSitesResponse;
+	return json.siteEntry ?? [];
+}
+
 // ── GSC API call ──────────────────────────────────────────────────
 
 export async function searchAnalyticsQuery(params: {
@@ -123,7 +142,21 @@ export async function searchAnalyticsQuery(params: {
 		});
 		if (!res.ok) {
 			const text = await res.text();
-			throw new Error(`GSC API ${res.status}: ${text.slice(0, 500)}`);
+			let hint = '';
+			if (res.status === 404 || res.status === 403) {
+				try {
+					const sites = await listAccessibleSites(params.projectId);
+					if (sites.length === 0) {
+						hint = ' [Aucune propriété GSC accessible — vérifie que le service account est bien ajouté en "user" sur la propriété dans Search Console → Settings → Users and permissions.]';
+					} else {
+						const list = sites.map((s) => s.siteUrl).join(', ');
+						hint = ` [Propriétés accessibles par ce service account : ${list}. Mets à jour le siteUrl du projet avec un de ces formats exacts.]`;
+					}
+				} catch {
+					// ignore secondary failure
+				}
+			}
+			throw new Error(`GSC API ${res.status} pour siteUrl="${params.siteUrl}": ${text.slice(0, 200)}${hint}`);
 		}
 		const json = (await res.json()) as SearchAnalyticsResponse;
 		const rows = json.rows ?? [];
