@@ -115,6 +115,12 @@ export async function listAccessibleSites(projectId: string): Promise<Array<{ si
 
 // ── GSC API call ──────────────────────────────────────────────────
 
+function encodeSiteUrlPath(siteUrl: string): string {
+	// GSC API requires `:` in `sc-domain:foo` to NOT be encoded as %3A.
+	// encodeURIComponent encodes `:` aggressively — we restore it for path-segment compatibility.
+	return encodeURIComponent(siteUrl).replace(/%3A/g, ':');
+}
+
 export async function searchAnalyticsQuery(params: {
 	projectId: string;
 	siteUrl: string;
@@ -123,7 +129,7 @@ export async function searchAnalyticsQuery(params: {
 	dimensions: GscDimension[];
 }): Promise<GscRow[]> {
 	const { token } = await getAccessTokenForProject(params.projectId);
-	const url = `${SEARCH_ANALYTICS_BASE}/${encodeURIComponent(params.siteUrl)}/searchAnalytics/query`;
+	const url = `${SEARCH_ANALYTICS_BASE}/${encodeSiteUrlPath(params.siteUrl)}/searchAnalytics/query`;
 	const all: GscRow[] = [];
 	let startRow = 0;
 
