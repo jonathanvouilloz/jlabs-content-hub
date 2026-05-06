@@ -67,7 +67,7 @@ async function exchangeJwtForToken(sa: ServiceAccountJson): Promise<{ access_tok
 	return { access_token: json.access_token, expires_in: json.expires_in || 3600 };
 }
 
-async function getAccessTokenForProject(projectId: string): Promise<{ token: string; sa: ServiceAccountJson }> {
+export async function getAccessTokenForProject(projectId: string): Promise<{ token: string; sa: ServiceAccountJson }> {
 	const row = await db.query.indexingCredentials.findFirst({ where: eq(indexingCredentials.projectId, projectId) });
 	if (!row) throw new Error('No indexing credentials configured for this project');
 	const sa = JSON.parse(decrypt(row.serviceAccountJson)) as ServiceAccountJson;

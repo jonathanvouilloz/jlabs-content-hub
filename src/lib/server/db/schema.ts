@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ── Better Auth tables ──────────────────────────────────────────────
@@ -309,5 +309,73 @@ export const aiJobs = sqliteTable(
 		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
 	},
 	(table) => [index('idx_ai_jobs_project').on(table.projectId, table.status)]
+);
+
+// ── Google Search Console weekly snapshots ─────────────────────────
+
+export const gscSnapshots = sqliteTable(
+	'gsc_snapshots',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		weekStart: text('week_start').notNull(),
+		weekEnd: text('week_end').notNull(),
+		fetchedAt: text('fetched_at').notNull().default(sql`(datetime('now'))`),
+		status: text('status').notNull().default('pending'),
+		totalImpressions: integer('total_impressions').notNull().default(0),
+		totalClicks: integer('total_clicks').notNull().default(0),
+		avgCtr: real('avg_ctr').notNull().default(0),
+		avgPosition: real('avg_position').notNull().default(0),
+		rowCount: integer('row_count').notNull().default(0),
+		errorMessage: text('error_message')
+	},
+	(table) => [uniqueIndex('gsc_snapshots_project_week').on(table.projectId, table.weekStart)]
+);
+
+export const gscQueryPageData = sqliteTable(
+	'gsc_query_page_data',
+	{
+		id: text('id').primaryKey(),
+		snapshotId: text('snapshot_id')
+			.notNull()
+			.references(() => gscSnapshots.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		weekStart: text('week_start').notNull(),
+		query: text('query').notNull(),
+		page: text('page').notNull(),
+		device: text('device').notNull(),
+		clicks: integer('clicks').notNull().default(0),
+		impressions: integer('impressions').notNull().default(0),
+		ctr: real('ctr').notNull().default(0),
+		position: real('position').notNull().default(0)
+	},
+	(table) => [
+		index('gsc_qp_project_week').on(table.projectId, table.weekStart),
+		index('gsc_qp_project_query').on(table.projectId, table.query),
+		index('gsc_qp_project_page').on(table.projectId, table.page)
+	]
+);
+
+export const gscWeeklyDiffs = sqliteTable(
+	'gsc_weekly_diffs',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		weekStart: text('week_start').notNull(),
+		computedAt: text('computed_at').notNull().default(sql`(datetime('now'))`),
+		kpis: text('kpis').notNull(),
+		rising: text('rising').notNull(),
+		falling: text('falling').notNull(),
+		opportunities: text('opportunities').notNull(),
+		newKeywords: text('new_keywords').notNull(),
+		lostKeywords: text('lost_keywords').notNull()
+	},
+	(table) => [uniqueIndex('gsc_diffs_project_week').on(table.projectId, table.weekStart)]
 );
 

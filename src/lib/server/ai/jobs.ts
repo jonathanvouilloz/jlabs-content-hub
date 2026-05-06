@@ -3,7 +3,7 @@ import { aiJobs } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { createId } from '$lib/server/utils.js';
 
-export type JobType = 'review-replies' | 'monthly-report';
+export type JobType = 'review-replies' | 'monthly-report' | 'gsc-snapshot' | 'gsc-backfill';
 export type JobStatus = 'pending' | 'running' | 'done' | 'error';
 
 export interface AiJob {

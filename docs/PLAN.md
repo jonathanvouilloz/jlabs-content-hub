@@ -1,6 +1,6 @@
 # Plan d'execution — JLabs Content Hub
 
-> Derniere mise a jour : 2026-04-27
+> Derniere mise a jour : 2026-05-05
 
 ---
 
@@ -34,6 +34,7 @@
 | 17 | Cleanup contenu MVP (DB + GitHub backup) | S | DONE | `3b6e35b`, `70baaee` |
 | 18 | GMB full-auto pipeline (logs, emails, blob, auto-approve) | M | DONE | `d800f70` |
 | 19 | Fix /publish-hub GMB pipeline (upsert idempotent + CSRF + /api/whoami) | S | DONE | _en cours_ |
+| 20 | GSC weekly snapshots (data layer + admin page + skill /seo-weekly) | M | DONE | _en cours_ |
 
 ---
 
