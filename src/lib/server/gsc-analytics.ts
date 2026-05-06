@@ -10,6 +10,7 @@ import { getAccessTokenForProject } from './indexing.js';
 import { createId } from './utils.js';
 
 const SEARCH_ANALYTICS_BASE = 'https://searchconsole.googleapis.com/v1/sites';
+const WEBMASTERS_SITES_LIST = 'https://www.googleapis.com/webmasters/v3/sites';
 const PAGE_SIZE = 25_000;
 const GSC_LATENCY_DAYS = 3;
 
@@ -101,7 +102,7 @@ interface ListSitesResponse {
 
 export async function listAccessibleSites(projectId: string): Promise<Array<{ siteUrl: string; permissionLevel: string }>> {
 	const { token } = await getAccessTokenForProject(projectId);
-	const res = await fetch(`${SEARCH_ANALYTICS_BASE}`, {
+	const res = await fetch(WEBMASTERS_SITES_LIST, {
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (!res.ok) {
