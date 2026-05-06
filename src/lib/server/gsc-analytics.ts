@@ -9,7 +9,7 @@ import {
 import { getAccessTokenForProject } from './indexing.js';
 import { createId } from './utils.js';
 
-const SEARCH_ANALYTICS_BASE = 'https://searchconsole.googleapis.com/v1/sites';
+const SEARCH_ANALYTICS_BASE = 'https://www.googleapis.com/webmasters/v3/sites';
 const WEBMASTERS_SITES_LIST = 'https://www.googleapis.com/webmasters/v3/sites';
 const PAGE_SIZE = 25_000;
 const GSC_LATENCY_DAYS = 3;
