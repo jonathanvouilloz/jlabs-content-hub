@@ -548,6 +548,119 @@ export async function getDiff(projectId: string, weekStart: string): Promise<Wee
 	};
 }
 
+// ── Action recommendations (opportunities + quick wins) ──────────
+
+export interface ActionEntry {
+	query: string;
+	page: string;
+	impressions: number;
+	clicks: number;
+	ctr: number;
+	position: number;
+	gainEstimate: number; // estimated weekly clicks gained if action lands
+	verdict: string; // human-readable action recommendation
+	verdictType: 'create_page' | 'optimize_existing' | 'optimize_meta' | 'expand_content';
+}
+
+const TARGET_CTR_TOP5 = 0.10; // industry-ish median CTR for position ~5
+
+function isGenericPage(page: string): boolean {
+	if (!page) return true;
+	try {
+		const u = new URL(page);
+		const path = u.pathname.replace(/\/$/, '');
+		// Homepage or top-level meta pages — query likely needs its own dedicated page
+		return path === '' || /^\/(about|contact|services|home)$/i.test(path);
+	} catch {
+		return true;
+	}
+}
+
+function buildOpportunityVerdict(entry: BucketEntry): { verdict: string; verdictType: ActionEntry['verdictType'] } {
+	if (isGenericPage(entry.page)) {
+		return {
+			verdict: `Créer une page dédiée pour "${entry.query}" (page actuelle trop générique : ${entry.page || 'aucune'})`,
+			verdictType: 'create_page'
+		};
+	}
+	return {
+		verdict: `Optimiser ${entry.page} pour mieux cibler "${entry.query}" (position ${entry.position.toFixed(0)})`,
+		verdictType: 'optimize_existing'
+	};
+}
+
+function buildQuickWinVerdict(row: { position: number; ctr: number }): { verdict: string; verdictType: ActionEntry['verdictType'] } {
+	if (row.position < 6 && row.ctr < 0.05) {
+		return {
+			verdict: 'Optimiser title + meta description (CTR faible pour la position)',
+			verdictType: 'optimize_meta'
+		};
+	}
+	return {
+		verdict: 'Enrichir le contenu pour passer top 5 (intent + maillage interne)',
+		verdictType: 'expand_content'
+	};
+}
+
+export async function computeActions(params: {
+	projectId: string;
+	weekStart: string;
+	limit?: number;
+}): Promise<{ opportunities: ActionEntry[]; quickWins: ActionEntry[] }> {
+	const limit = params.limit ?? 5;
+
+	// Opportunities: read from cached weekly diff (already filtered)
+	const diff = await getDiff(params.projectId, params.weekStart);
+	const oppEntries = diff?.opportunities ?? [];
+	const opportunities: ActionEntry[] = oppEntries.slice(0, limit).map((e) => {
+		const verdict = buildOpportunityVerdict(e);
+		// Gain estimate : if we got to top 10, optimistic CTR ~5% on impressions
+		const gainEstimate = Math.round(e.impressions * 0.05);
+		return {
+			query: e.query,
+			page: e.page,
+			impressions: e.impressions,
+			clicks: e.clicks,
+			ctr: e.impressions > 0 ? e.clicks / e.impressions : 0,
+			position: e.position,
+			gainEstimate,
+			verdict: verdict.verdict,
+			verdictType: verdict.verdictType
+		};
+	});
+
+	// Quick wins: compute on-the-fly from raw data
+	const aggregated = await aggregateByQuery(params.projectId, params.weekStart);
+	const quickWinCandidates: ActionEntry[] = [];
+	for (const row of aggregated.values()) {
+		const pos = row.impressions > 0 ? row.weightedPositionSum / row.impressions : 0;
+		if (pos < 5 || pos > 15) continue;
+		if (row.impressions < 30) continue;
+		if (row.clicks === 0 && pos > 10) continue; // covered by opportunities
+		const ctr = row.impressions > 0 ? row.clicks / row.impressions : 0;
+		const ctrGap = Math.max(0, TARGET_CTR_TOP5 - ctr);
+		const gainEstimate = Math.round(row.impressions * ctrGap);
+		if (gainEstimate < 1) continue;
+		const verdict = buildQuickWinVerdict({ position: pos, ctr });
+		quickWinCandidates.push({
+			query: row.query,
+			page: row.topPage,
+			impressions: row.impressions,
+			clicks: row.clicks,
+			ctr,
+			position: pos,
+			gainEstimate,
+			verdict: verdict.verdict,
+			verdictType: verdict.verdictType
+		});
+	}
+	const quickWins = quickWinCandidates
+		.sort((a, b) => b.gainEstimate - a.gainEstimate)
+		.slice(0, limit);
+
+	return { opportunities, quickWins };
+}
+
 export async function listSnapshots(projectId: string, limit = 52) {
 	return db
 		.select({
