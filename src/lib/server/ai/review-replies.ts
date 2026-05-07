@@ -1,5 +1,7 @@
 import type { ChatCompletionTool } from 'openai/resources/chat/completions.js';
 import type { ProjectContext } from '$lib/types/project-context.js';
+import type { Mention } from '$lib/server/reviews/mentions.js';
+import { isValidSentiment } from '$lib/server/reviews/mentions.js';
 import { getClient, getReportModel } from './llm.js';
 
 export interface ReviewInput {
@@ -18,12 +20,12 @@ export interface PerReviewError {
 }
 
 export type StreamEvent =
-	| { kind: 'success'; review: ReviewInput; reply: string }
+	| { kind: 'success'; review: ReviewInput; reply: string; mentions: Mention[] }
 	| { kind: 'error'; review: ReviewInput; error: string };
 
-const SYSTEM_INSTRUCTIONS = `Tu es chargé de rédiger une réponse personnalisée à UN avis Google pour un commerce local.
+const SYSTEM_INSTRUCTIONS = `Tu es chargé de rédiger une réponse personnalisée à UN avis Google pour un commerce local, ET d'identifier les membres de l'équipe cités dans cet avis.
 
-Règles absolues :
+Règles absolues pour la réponse :
 - Réponds dans la langue du commentaire (FR→FR, EN→EN, DE→DE). Si pas de commentaire, réponds en français.
 - Utilise le prénom du client si disponible, et mentionne un détail spécifique de son avis.
 - Longueur : positif court (1-2 lignes) = 2-3 phrases ; positif long = 3-5 phrases ; négatif = 4-6 phrases max. Jamais plus de 8 phrases.
@@ -54,20 +56,49 @@ Patterns IA interdits (violation immédiate si présents) :
 - Gras dans la réponse
 - Répétition du mot "établissement"
 
-Tu DOIS appeler l'outil "submit_reply" avec ta réponse. N'écris rien en dehors de l'outil.`;
+Règles absolues pour les mentions employés (champ "mentions" de l'outil) :
+- N'identifie QUE les personnes présentes dans la liste "Équipe" du contexte business. Si la liste est vide ou absente, retourne mentions: [].
+- Sont valides : prénom exact, surnom courant (Soso/Sophie, Flo/Florent, Manu/Emmanuel), faute d'orthographe évidente (Sofia/Sophia, Kévyn/Kévin), référence contextuelle claire ("le patron", "le coiffeur" si une seule personne dans l'équipe).
+- INTERDIT : inventer un nom absent de l'équipe, matcher un mot commun qui ressemble à un prénom (ex: "marche" ne matche PAS "Marc"), deviner sur une référence ambiguë.
+- Pour chaque mention, le sentiment exprimé ENVERS CETTE PERSONNE (pas le sentiment global de l'avis) : "positive" | "neutral" | "negative".
+  Exemple : "Sophie était top mais l'attente longue" → Sophie = positive.
+  Exemple : "Sophie géniale, Léa désagréable" → Sophie=positive, Léa=negative.
+- Le champ "name" de chaque mention doit être le nom canonique tel qu'il apparaît dans l'équipe (pas le surnom utilisé par le client).
+- Si aucun employé identifiable, retourne mentions: [].
+
+Tu DOIS appeler l'outil "submit_reply" avec ta réponse ET les mentions. N'écris rien en dehors de l'outil.`;
 
 const TOOL_SCHEMA: ChatCompletionTool = {
 	type: 'function',
 	function: {
 		name: 'submit_reply',
-		description: "Envoie la réponse rédigée pour l'avis Google fourni.",
+		description: "Envoie la réponse rédigée pour l'avis Google fourni, et la liste des membres de l'équipe cités.",
 		parameters: {
 			type: 'object',
-			required: ['reply'],
+			required: ['reply', 'mentions'],
 			properties: {
 				reply: {
 					type: 'string',
 					description: "La réponse rédigée pour cet avis."
+				},
+				mentions: {
+					type: 'array',
+					description: "Membres de l'équipe (teamMembers) cités dans l'avis avec leur sentiment. Tableau vide si aucun.",
+					items: {
+						type: 'object',
+						required: ['name', 'sentiment'],
+						properties: {
+							name: {
+								type: 'string',
+								description: "Nom canonique du membre tel qu'il apparaît dans la liste Équipe."
+							},
+							sentiment: {
+								type: 'string',
+								enum: ['positive', 'neutral', 'negative'],
+								description: "Sentiment exprimé ENVERS CETTE PERSONNE dans l'avis."
+							}
+						}
+					}
 				}
 			}
 		}
@@ -130,11 +161,29 @@ function parseRetryAfterSec(err: unknown): number | null {
 	return unit.startsWith('ms') ? n / 1000 : n;
 }
 
+interface ReplyResult { reply: string; mentions: Mention[] }
+
+function parseMentionsArg(input: unknown, knownNames: string[]): Mention[] {
+	if (!Array.isArray(input)) return [];
+	const known = new Set(knownNames.map((n) => n.toLowerCase()));
+	return input
+		.filter((m): m is { name: unknown; sentiment: unknown } => !!m && typeof m === 'object')
+		.map((m) => ({
+			name: typeof m.name === 'string' ? m.name.trim() : '',
+			sentiment: m.sentiment
+		}))
+		.filter((m) => m.name && isValidSentiment(m.sentiment))
+		// Hard guardrail : si la liste équipe est connue, on rejette tout nom qui n'y figure pas
+		// (case-insensitive). Si la liste est vide, on autorise (le LLM doit déjà retourner []).
+		.filter((m) => known.size === 0 || known.has(m.name.toLowerCase()))
+		.map((m) => ({ name: m.name, sentiment: m.sentiment as Mention['sentiment'] }));
+}
+
 async function generateOneReply(
 	review: ReviewInput,
 	context: ProjectContext,
 	isMultiLocation: boolean
-): Promise<string> {
+): Promise<ReplyResult> {
 	const llm = getClient();
 
 	const userPayload = `# Contexte business
@@ -142,6 +191,8 @@ ${buildContextBlock(context, isMultiLocation)}
 
 # Avis à traiter
 ${buildReviewBlock(review)}`;
+
+	const teamNames = (context.teamMembers ?? []).map((m) => m.name).filter(Boolean);
 
 	let lastErr: unknown = null;
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -168,10 +219,11 @@ ${buildReviewBlock(review)}`;
 				throw new Error(`Outil inattendu : ${fn.name}`);
 			}
 
-			const parsed = JSON.parse(fn.arguments) as { reply?: string };
+			const parsed = JSON.parse(fn.arguments) as { reply?: string; mentions?: unknown };
 			const reply = parsed.reply?.trim();
 			if (!reply) throw new Error("Le modèle a renvoyé une réponse vide");
-			return reply;
+			const mentions = parseMentionsArg(parsed.mentions, teamNames);
+			return { reply, mentions };
 		} catch (err) {
 			lastErr = err;
 			if (attempt === MAX_RETRIES || !isRetriable(err)) throw err;
@@ -209,8 +261,8 @@ export async function streamAiReplies(
 			if (i >= reviews.length) return;
 			const review = reviews[i];
 			try {
-				const reply = await generateOneReply(review, context, isMultiLocation);
-				await emit({ kind: 'success', review, reply });
+				const { reply, mentions } = await generateOneReply(review, context, isMultiLocation);
+				await emit({ kind: 'success', review, reply, mentions });
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				await emit({ kind: 'error', review, error: msg });

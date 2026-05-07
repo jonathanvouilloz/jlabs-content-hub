@@ -5,6 +5,7 @@ import { projects, gmbReviews, projectGmbLocations, projectContexts } from '$lib
 import { eq, isNull, and } from 'drizzle-orm';
 import { streamAiReplies, type PerReviewError } from '$lib/server/ai/review-replies.js';
 import { createJob, updateJob } from '$lib/server/ai/jobs.js';
+import { persistMentionsForReview } from '$lib/server/reviews/mentions.js';
 import type { ProjectContext } from '$lib/types/project-context.js';
 import type { RequestHandler } from './$types';
 
@@ -102,6 +103,18 @@ export const POST: RequestHandler = async (event) => {
 
 					if (upd.rowsAffected > 0) {
 						result.progress.current++;
+						// Persiste les mentions employés (idempotent : skip si déjà analysé sauf force)
+						try {
+							await persistMentionsForReview(
+								project!.id,
+								event.review.reviewId,
+								event.mentions,
+								{ force }
+							);
+						} catch (err) {
+							// On ne bloque pas le brouillon si l'agrégat échoue, mais on logue
+							console.error('[ai-replies] persist mentions failed for', event.review.reviewId, err);
+						}
 					} else {
 						result.progress.current++;
 						result.progress.errors++;
