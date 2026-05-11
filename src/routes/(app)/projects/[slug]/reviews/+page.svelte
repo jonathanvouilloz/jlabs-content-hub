@@ -16,6 +16,7 @@
 	let replyText = $state('');
 	let submitting = $state(false);
 	let saving = $state(false);
+	let deleting = $state(false);
 	let replyError = $state('');
 	let filterLocation = $state('all');
 	let batching = $state(false);
@@ -107,6 +108,30 @@
 			replyError = (err as Error).message;
 		}
 		saving = false;
+	}
+
+	async function deleteSelected() {
+		if (!selected) return;
+		if (!confirm(`Supprimer cet avis de ${selected.authorName} du hub ? A faire uniquement si l'avis a ete supprime sur Google et qu'il n'est plus repondable. Action irreversible.`)) return;
+		deleting = true;
+		replyError = '';
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}/reviews/${selected.id}`, {
+				method: 'DELETE'
+			});
+			const json = await res.json();
+			if (!res.ok) throw new Error(json.error);
+
+			const idx = filteredReviews.findIndex((r: Review) => r.id === selectedId);
+			const nextReview = filteredReviews[idx + 1] ?? filteredReviews[idx - 1] ?? null;
+			selectedId = nextReview?.id ?? null;
+			replyText = nextReview?.draftReply ?? '';
+
+			invalidateAll();
+		} catch (err) {
+			replyError = (err as Error).message;
+		}
+		deleting = false;
 	}
 
 	async function submitReply() {
@@ -612,6 +637,15 @@
 							<span class="text-xs text-surface-400">Avis Google</span>
 							<span class="{ratingColor(selected.rating)} text-sm">{renderStars(selected.rating)}</span>
 						</div>
+						<button
+							onclick={deleteSelected}
+							class="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-[11px] font-medium text-surface-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+							disabled={deleting}
+							title="Supprimer cet avis du hub (a faire uniquement si l'avis a ete supprime sur Google)"
+						>
+							<Trash2 size={11} />
+							{deleting ? 'Suppression...' : 'Supprimer du hub'}
+						</button>
 					</div>
 
 					<!-- Review content -->
