@@ -215,6 +215,88 @@ export const gmbAiReports = sqliteTable(
 	(table) => [uniqueIndex('gmb_ai_reports_unique').on(table.projectId, table.period)]
 );
 
+// Snapshot complet d'une fiche GMB par location.
+// Colonnes scalaires pour ce qui est listé/affiché en dashboard,
+// JSON blobs pour les structures complexes (hours, services, categories).
+export const gmbLocationProfiles = sqliteTable(
+	'gmb_location_profiles',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		gmbLocationId: text('gmb_location_id').notNull(),
+		title: text('title').notNull(),
+		phone: text('phone'),
+		websiteUri: text('website_uri'),
+		storeCode: text('store_code'),
+		primaryCategoryDisplay: text('primary_category_display'),
+		primaryCategoryId: text('primary_category_id'),
+		formattedAddress: text('formatted_address'),
+		latitude: real('latitude'),
+		longitude: real('longitude'),
+		openStatus: text('open_status'),
+		storefrontAddress: text('storefront_address'),
+		additionalPhones: text('additional_phones'),
+		additionalCategories: text('additional_categories'),
+		regularHours: text('regular_hours'),
+		specialHours: text('special_hours'),
+		serviceItems: text('service_items'),
+		profileDescription: text('profile_description'),
+		labels: text('labels'),
+		attributes: text('attributes'),
+		rawPayload: text('raw_payload'),
+		etag: text('etag'),
+		syncedAt: text('synced_at').notNull().default(sql`(datetime('now'))`),
+		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [
+		uniqueIndex('gmb_loc_profile_unique').on(table.projectId, table.gmbLocationId),
+		index('idx_gmb_loc_profile_synced').on(table.syncedAt)
+	]
+);
+
+// Métriques journalières Business Profile Performance API.
+// Une ligne par (location, date, metric) pour permettre n'importe quelle agrégation.
+export const gmbInsightsDaily = sqliteTable(
+	'gmb_insights_daily',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		gmbLocationId: text('gmb_location_id').notNull(),
+		date: text('date').notNull(),
+		metric: text('metric').notNull(),
+		value: integer('value').notNull().default(0),
+		fetchedAt: text('fetched_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [
+		uniqueIndex('gmb_insights_unique').on(table.gmbLocationId, table.date, table.metric),
+		index('idx_gmb_insights_proj_date').on(table.projectId, table.date)
+	]
+);
+
+// Audit log des éditions de fiche GMB depuis le hub.
+export const gmbProfileEdits = sqliteTable(
+	'gmb_profile_edits',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		gmbLocationId: text('gmb_location_id').notNull(),
+		section: text('section').notNull(),
+		updateMask: text('update_mask'),
+		payload: text('payload').notNull(),
+		success: integer('success', { mode: 'boolean' }).notNull(),
+		errorMessage: text('error_message'),
+		changedBy: text('changed_by').notNull().default('admin'),
+		changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [index('idx_gmb_edits_loc_date').on(table.gmbLocationId, table.changedAt)]
+);
+
 export const publishLogs = sqliteTable(
 	'publish_logs',
 	{

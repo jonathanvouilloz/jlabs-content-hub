@@ -68,6 +68,9 @@ Tables application :
 - `content_types` : id, slug (unique), label, icon — seed: article, linkedin, gmb
 - `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
 - `publish_logs` : id, content_id (FK), project_id (FK), channel, location_id, location_label, success, gmb_post_id, error_message, attempted_at, duration_ms, source — 1 row par tentative de publication par location (cron ou manual). Lu par /projects/[slug]/gmb-logs et le digest quotidien.
+- `gmb_location_profiles` : snapshot complet d'une fiche GMB par (project_id, gmb_location_id). Colonnes scalaires (title, phone, websiteUri, primaryCategory, openStatus, latlng) + JSON blobs (storefrontAddress, regularHours, specialHours, serviceItems, additionalCategories, attributes) + raw_payload pour debug. Sync lazy (>1h) ou via bouton "Resynchroniser".
+- `gmb_insights_daily` : metrique journaliere Performance API. 1 row par (gmb_location_id, date, metric). Metrics : BUSINESS_IMPRESSIONS_{DESKTOP,MOBILE}_{MAPS,SEARCH}, WEBSITE_CLICKS, CALL_CLICKS, BUSINESS_DIRECTION_REQUESTS. Agreges en 30j / mois / annee sur la page Fiche Google > Stats.
+- `gmb_profile_edits` : audit log des editions de fiche depuis le hub (section=basic|hours, update_mask, payload, success, error_message).
 
 Statuts : draft → review → approved → published
 
@@ -137,12 +140,12 @@ Pour les images GMB, le skill `/publish-hub` doit :
 
 ## Etat actuel
 
-**Date :** 2026-04-21
+**Date :** 2026-05-11
 **Phase :** V2 en cours — base contenu remise a zero pour repartir propre
-**Epics DONE (17) :** MVP (1-9) + V2 (10-16) + Cleanup contenu MVP (17)
-**DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — 15 tables, 0 contenu (post-cleanup), 4 projets
+**Epics DONE (22) :** MVP (1-9) + V2 (10-22)
+**DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — 18 tables (3 ajoutees en epic 22 : gmb_location_profiles, gmb_insights_daily, gmb_profile_edits), 0 contenu (post-cleanup), 4 projets
 **Admin :** contact@jonlabs.ch
-**Prochaine etape :** Ameliorations V2+ (responsive mobile, pagination, hash tokens, analytics)
+**Prochaine etape :** Ameliorations V2+ (responsive mobile, pagination, hash tokens, analytics) + epic 23 (GMB fiche : categories + services + photos)
 
 ## Skills relies
 

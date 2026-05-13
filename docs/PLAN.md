@@ -1,6 +1,6 @@
 # Plan d'execution — JLabs Content Hub
 
-> Derniere mise a jour : 2026-05-05
+> Derniere mise a jour : 2026-05-11
 
 ---
 
@@ -36,6 +36,7 @@
 | 19 | Fix /publish-hub GMB pipeline (upsert idempotent + CSRF + /api/whoami) | S | DONE | _en cours_ |
 | 20 | GSC weekly snapshots (data layer + admin page + skill /seo-weekly) | M | DONE | _en cours_ |
 | 21 | SEO actions actionnables (endpoint /gsc/actions + skill /seo-actions) | S | DONE | _en cours_ |
+| 22 | Gestion fiche GMB : lecture snapshot + edition infos+horaires + stats Performance API | M | DONE | _en cours_ |
 
 ---
 
@@ -45,3 +46,5 @@
 - Pagination contenus
 - Hash tokens (securite)
 - Analytics / stats par projet
+- GMB fiche : categories + services + photos (epic 23)
+- Cron `/api/cron/gmb-profile-refresh` (daily resync profile + insights J-3)

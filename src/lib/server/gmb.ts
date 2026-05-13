@@ -1,8 +1,14 @@
 import { env } from '$env/dynamic/private';
 import { encrypt, decrypt } from './crypto.js';
 import { db } from './db/index.js';
-import { gmbSettings, projectGmbLocations, gmbReviews } from './db/schema.js';
-import { eq } from 'drizzle-orm';
+import {
+	gmbSettings,
+	projectGmbLocations,
+	gmbReviews,
+	gmbLocationProfiles,
+	gmbInsightsDaily
+} from './db/schema.js';
+import { and, eq } from 'drizzle-orm';
 import { createId } from './utils.js';
 
 interface Tokens {
@@ -472,3 +478,349 @@ export function buildGmbPostIdMap(results: PublishResult[]): string {
 }
 
 export { getSetting as getGmbSetting, setSetting as setGmbSetting };
+
+// ── Profile (Business Information API v1) ─────────────────────────
+
+const PROFILE_READ_MASK = [
+	'title',
+	'storefrontAddress',
+	'phoneNumbers',
+	'websiteUri',
+	'regularHours',
+	'specialHours',
+	'categories',
+	'serviceItems',
+	'profile',
+	'labels',
+	'latlng',
+	'storeCode',
+	'openInfo',
+	'metadata',
+	'languageCode'
+].join(',');
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export interface RawLocation {
+	name: string;
+	title?: string;
+	storefrontAddress?: {
+		regionCode?: string;
+		languageCode?: string;
+		postalCode?: string;
+		administrativeArea?: string;
+		locality?: string;
+		addressLines?: string[];
+	};
+	phoneNumbers?: {
+		primaryPhone?: string;
+		additionalPhones?: string[];
+	};
+	websiteUri?: string;
+	regularHours?: { periods?: any[] };
+	specialHours?: { specialHourPeriods?: any[] };
+	categories?: {
+		primaryCategory?: { name?: string; displayName?: string };
+		additionalCategories?: Array<{ name?: string; displayName?: string }>;
+	};
+	serviceItems?: any[];
+	profile?: { description?: string };
+	labels?: string[];
+	latlng?: { latitude?: number; longitude?: number };
+	storeCode?: string;
+	openInfo?: {
+		status?: string;
+		canReopen?: boolean;
+		openingDate?: { year?: number; month?: number; day?: number };
+	};
+	metadata?: {
+		hasPendingEdits?: boolean;
+		placeId?: string;
+		mapsUri?: string;
+		newReviewUri?: string;
+		canHaveBusinessCalls?: boolean;
+		duplicateLocation?: string;
+	};
+	languageCode?: string;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+async function callBusinessInfoApi(
+	url: string,
+	init: RequestInit,
+	isRetry = false
+): Promise<Response> {
+	const tokens = await refreshAccountToken();
+	const headers = new Headers(init.headers);
+	headers.set('Authorization', `Bearer ${tokens.access_token}`);
+	if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+
+	const res = await fetch(url, { ...init, headers });
+
+	if (res.status === 401 && !isRetry) {
+		// Force refresh by clearing expiry — refreshAccountToken refetches if expired.
+		const encryptedTokens = await getSetting('account_tokens');
+		if (encryptedTokens) {
+			const current = decryptTokens(encryptedTokens);
+			await setSetting(
+				'account_tokens',
+				encrypt(JSON.stringify({ ...current, expiry: '1970-01-01T00:00:00.000Z' }))
+			);
+		}
+		return callBusinessInfoApi(url, init, true);
+	}
+
+	return res;
+}
+
+export async function fetchLocationFull(locationId: string): Promise<RawLocation> {
+	const name = locationId.startsWith('locations/') ? locationId : `locations/${locationId}`;
+	const url = `https://mybusinessbusinessinformation.googleapis.com/v1/${name}?readMask=${PROFILE_READ_MASK}`;
+	const res = await callBusinessInfoApi(url, { method: 'GET' });
+
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`Fetch location failed: ${res.status} ${text}`);
+	}
+
+	return (await res.json()) as RawLocation;
+}
+
+export async function patchLocation(
+	locationId: string,
+	updateMask: string,
+	body: Record<string, unknown>
+): Promise<RawLocation> {
+	const name = locationId.startsWith('locations/') ? locationId : `locations/${locationId}`;
+	const url = `https://mybusinessbusinessinformation.googleapis.com/v1/${name}?updateMask=${encodeURIComponent(updateMask)}`;
+	const res = await callBusinessInfoApi(url, {
+		method: 'PATCH',
+		body: JSON.stringify(body)
+	});
+
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`Patch location failed: ${res.status} ${text}`);
+	}
+
+	return (await res.json()) as RawLocation;
+}
+
+function formatAddress(addr: RawLocation['storefrontAddress']): string {
+	if (!addr) return '';
+	const parts: string[] = [];
+	if (addr.addressLines) parts.push(...addr.addressLines);
+	if (addr.postalCode) parts.push(addr.postalCode);
+	if (addr.locality) parts.push(addr.locality);
+	return parts.filter(Boolean).join(', ');
+}
+
+export async function syncLocationProfile(
+	projectId: string,
+	locationId: string
+): Promise<typeof gmbLocationProfiles.$inferSelect> {
+	const raw = await fetchLocationFull(locationId);
+
+	const values = {
+		projectId,
+		gmbLocationId: raw.name,
+		title: raw.title ?? locationId,
+		phone: raw.phoneNumbers?.primaryPhone ?? null,
+		websiteUri: raw.websiteUri ?? null,
+		storeCode: raw.storeCode ?? null,
+		primaryCategoryDisplay: raw.categories?.primaryCategory?.displayName ?? null,
+		primaryCategoryId: raw.categories?.primaryCategory?.name ?? null,
+		formattedAddress: formatAddress(raw.storefrontAddress),
+		latitude: raw.latlng?.latitude ?? null,
+		longitude: raw.latlng?.longitude ?? null,
+		openStatus: raw.openInfo?.status ?? null,
+		storefrontAddress: raw.storefrontAddress ? JSON.stringify(raw.storefrontAddress) : null,
+		additionalPhones: raw.phoneNumbers?.additionalPhones
+			? JSON.stringify(raw.phoneNumbers.additionalPhones)
+			: null,
+		additionalCategories: raw.categories?.additionalCategories
+			? JSON.stringify(raw.categories.additionalCategories)
+			: null,
+		regularHours: raw.regularHours ? JSON.stringify(raw.regularHours) : null,
+		specialHours: raw.specialHours ? JSON.stringify(raw.specialHours) : null,
+		serviceItems: raw.serviceItems ? JSON.stringify(raw.serviceItems) : null,
+		profileDescription: raw.profile?.description ?? null,
+		labels: raw.labels ? JSON.stringify(raw.labels) : null,
+		attributes: null,
+		rawPayload: JSON.stringify(raw),
+		etag: null,
+		syncedAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString()
+	};
+
+	const existing = await db
+		.select()
+		.from(gmbLocationProfiles)
+		.where(
+			and(
+				eq(gmbLocationProfiles.projectId, projectId),
+				eq(gmbLocationProfiles.gmbLocationId, raw.name)
+			)
+		)
+		.get();
+
+	if (existing) {
+		await db
+			.update(gmbLocationProfiles)
+			.set(values)
+			.where(eq(gmbLocationProfiles.id, existing.id));
+		return { ...existing, ...values };
+	}
+
+	const id = createId();
+	const inserted = { id, ...values };
+	await db.insert(gmbLocationProfiles).values(inserted);
+	return inserted as typeof gmbLocationProfiles.$inferSelect;
+}
+
+// ── Insights (Business Profile Performance API v1) ────────────────
+
+export type GmbMetric =
+	| 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS'
+	| 'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH'
+	| 'BUSINESS_IMPRESSIONS_MOBILE_MAPS'
+	| 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH'
+	| 'WEBSITE_CLICKS'
+	| 'CALL_CLICKS'
+	| 'BUSINESS_DIRECTION_REQUESTS';
+
+export const ALL_METRICS: GmbMetric[] = [
+	'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
+	'BUSINESS_IMPRESSIONS_DESKTOP_SEARCH',
+	'BUSINESS_IMPRESSIONS_MOBILE_MAPS',
+	'BUSINESS_IMPRESSIONS_MOBILE_SEARCH',
+	'WEBSITE_CLICKS',
+	'CALL_CLICKS',
+	'BUSINESS_DIRECTION_REQUESTS'
+];
+
+interface DatedValue {
+	date: { year: number; month: number; day: number };
+	value?: string;
+}
+
+function pad2(n: number): string {
+	return n.toString().padStart(2, '0');
+}
+
+function isoFromDateObj(d: { year: number; month: number; day: number }): string {
+	return `${d.year}-${pad2(d.month)}-${pad2(d.day)}`;
+}
+
+function isoToParts(iso: string): { year: number; month: number; day: number } {
+	const [y, m, d] = iso.split('-').map(Number);
+	return { year: y, month: m, day: d };
+}
+
+export async function fetchInsights(
+	locationId: string,
+	startDate: string,
+	endDate: string,
+	metrics: GmbMetric[]
+): Promise<Array<{ date: string; metric: GmbMetric; value: number }>> {
+	const locId = locationId.replace(/^locations\//, '');
+	const params = new URLSearchParams();
+	for (const m of metrics) params.append('dailyMetrics', m);
+	const start = isoToParts(startDate);
+	const end = isoToParts(endDate);
+	params.set('dailyRange.startDate.year', String(start.year));
+	params.set('dailyRange.startDate.month', String(start.month));
+	params.set('dailyRange.startDate.day', String(start.day));
+	params.set('dailyRange.endDate.year', String(end.year));
+	params.set('dailyRange.endDate.month', String(end.month));
+	params.set('dailyRange.endDate.day', String(end.day));
+
+	const url = `https://businessprofileperformance.googleapis.com/v1/locations/${locId}:fetchMultiDailyMetricsTimeSeries?${params}`;
+	const res = await callBusinessInfoApi(url, { method: 'GET' });
+
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`Fetch insights failed: ${res.status} ${text}`);
+	}
+
+	const data = (await res.json()) as {
+		multiDailyMetricTimeSeries?: Array<{
+			dailyMetricTimeSeries?: Array<{
+				dailyMetric: GmbMetric;
+				timeSeries?: { datedValues?: DatedValue[] };
+			}>;
+		}>;
+	};
+
+	const points: Array<{ date: string; metric: GmbMetric; value: number }> = [];
+	for (const outer of data.multiDailyMetricTimeSeries ?? []) {
+		for (const inner of outer.dailyMetricTimeSeries ?? []) {
+			for (const dv of inner.timeSeries?.datedValues ?? []) {
+				points.push({
+					date: isoFromDateObj(dv.date),
+					metric: inner.dailyMetric,
+					value: dv.value ? Number(dv.value) : 0
+				});
+			}
+		}
+	}
+	return points;
+}
+
+export async function syncLocationInsights(
+	projectId: string,
+	locationId: string,
+	days = 90
+): Promise<{ inserted: number; updated: number }> {
+	// Performance API publie avec un décalage ~3 jours → on requête jusqu'à J-3
+	const end = new Date();
+	end.setUTCDate(end.getUTCDate() - 3);
+	const start = new Date(end);
+	start.setUTCDate(start.getUTCDate() - days);
+
+	const startIso = start.toISOString().slice(0, 10);
+	const endIso = end.toISOString().slice(0, 10);
+
+	const points = await fetchInsights(locationId, startIso, endIso, ALL_METRICS);
+
+	let inserted = 0;
+	let updated = 0;
+	const fetchedAt = new Date().toISOString();
+	const fullLocId = locationId.startsWith('locations/') ? locationId : `locations/${locationId}`;
+
+	for (const p of points) {
+		const existing = await db
+			.select({ id: gmbInsightsDaily.id, value: gmbInsightsDaily.value })
+			.from(gmbInsightsDaily)
+			.where(
+				and(
+					eq(gmbInsightsDaily.gmbLocationId, fullLocId),
+					eq(gmbInsightsDaily.date, p.date),
+					eq(gmbInsightsDaily.metric, p.metric)
+				)
+			)
+			.get();
+
+		if (existing) {
+			if (existing.value !== p.value) {
+				await db
+					.update(gmbInsightsDaily)
+					.set({ value: p.value, fetchedAt })
+					.where(eq(gmbInsightsDaily.id, existing.id));
+				updated++;
+			}
+		} else {
+			await db.insert(gmbInsightsDaily).values({
+				id: createId(),
+				projectId,
+				gmbLocationId: fullLocId,
+				date: p.date,
+				metric: p.metric,
+				value: p.value,
+				fetchedAt
+			});
+			inserted++;
+		}
+	}
+
+	return { inserted, updated };
+}
