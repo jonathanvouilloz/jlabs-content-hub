@@ -20,7 +20,7 @@ export function sanitizeMentions(input: unknown): Mention[] {
 		.map((m) => ({ name: (m.name as string).trim(), sentiment: m.sentiment as Sentiment }));
 }
 
-async function decrementMonthlyAggregate(
+export async function decrementMonthlyAggregate(
 	projectId: string,
 	mentions: Mention[],
 	year: number,
@@ -133,4 +133,25 @@ export async function persistMentionsForReview(
 	await incrementMonthlyAggregate(projectId, cleanMentions, year, month);
 
 	return 'updated';
+}
+
+/**
+ * Decremente l'agregat employee_mentions a partir d'une row d'avis avant
+ * suppression. No-op si mentionedEmployees est null/vide/invalide.
+ * Utilise par DELETE /reviews/[id] pour eviter les agregats orphelins.
+ */
+export async function decrementMentionsForReviewRow(
+	projectId: string,
+	row: { mentionedEmployees: string | null; createTime: string }
+): Promise<void> {
+	if (!row.mentionedEmployees) return;
+	let parsed: unknown;
+	try { parsed = JSON.parse(row.mentionedEmployees); }
+	catch { return; }
+	const mentions = sanitizeMentions(parsed);
+	if (mentions.length === 0) return;
+	const dt = new Date(row.createTime);
+	const year = dt.getUTCFullYear();
+	const month = dt.getUTCMonth() + 1;
+	await decrementMonthlyAggregate(projectId, mentions, year, month);
 }

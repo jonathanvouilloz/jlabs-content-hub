@@ -1,15 +1,26 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { projects, gmbReviews } from '$lib/server/db/schema.js';
-import { eq } from 'drizzle-orm';
+import {
+	projects,
+	gmbReviews,
+	projectGmbLocations,
+	projectContexts
+} from '$lib/server/db/schema.js';
+import { eq, and, gte, lt, isNull } from 'drizzle-orm';
 import { fetchProjectReviews, refreshAccountToken } from '$lib/server/gmb.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import { createId } from '$lib/server/utils.js';
+import { runMentionsExtractionJob } from '$lib/server/reviews/mentions-runner.js';
+import type { ProjectContext } from '$lib/types/project-context.js';
 import type { RequestHandler } from './$types';
 
 /**
- * Temporary endpoint: fetch ALL reviews (including replied) for a given month
- * and insert them in DB with repliedAt set for those that have replies.
+ * Re-import all reviews (including already replied) for a given month from
+ * Google. Stores the Google reply in draftReply and sets repliedAt. After
+ * inserts, kicks off a background mentions extraction job for any reviews
+ * of the month that still have mentioned_employees IS NULL (the backfill
+ * itself does not extract — and the ai-replies pipeline filters out replied
+ * reviews — so without this auto-chain the mentions would stay NULL).
  *
  * GET /api/projects/{slug}/reviews/backfill?year=2026&month=4
  */
@@ -34,8 +45,6 @@ export const GET: RequestHandler = async (event) => {
 	const { fetchLocationReviews } = await import('$lib/server/gmb.js');
 	const tokens = await refreshAccountToken();
 
-	// Get project locations
-	const { projectGmbLocations } = await import('$lib/server/db/schema.js');
 	const locations = await db
 		.select()
 		.from(projectGmbLocations)
@@ -89,5 +98,72 @@ export const GET: RequestHandler = async (event) => {
 		}
 	}
 
-	return json({ ok: true, inserted, skipped, total: allReviews.length, reviews: allReviews });
+	// Auto-chain mentions extraction for the month (covers freshly inserted
+	// rows + any pre-existing rows still missing mentions).
+	let mentionsJobId: string | null = null;
+	let mentionsSkippedReason: string | null = null;
+
+	const periodStart = `${year}-${String(month).padStart(2, '0')}-01T00:00:00`;
+	const periodEnd = month === 12
+		? `${year + 1}-01-01T00:00:00`
+		: `${year}-${String(month + 1).padStart(2, '0')}-01T00:00:00`;
+
+	const pending = await db
+		.select()
+		.from(gmbReviews)
+		.where(and(
+			eq(gmbReviews.projectId, project.id),
+			gte(gmbReviews.createTime, periodStart),
+			lt(gmbReviews.createTime, periodEnd),
+			isNull(gmbReviews.mentionedEmployees)
+		));
+
+	if (pending.length === 0) {
+		mentionsSkippedReason = 'no pending reviews';
+	} else {
+		const ctxRow = await db.query.projectContexts.findFirst({
+			where: eq(projectContexts.projectId, project.id)
+		});
+		let context: ProjectContext | null = null;
+		if (ctxRow?.context) {
+			try { context = JSON.parse(ctxRow.context) as ProjectContext; }
+			catch { /* ignore */ }
+		}
+		const hasTeam = !!context && Array.isArray(context.teamMembers) && context.teamMembers.length > 0;
+
+		if (!context) {
+			mentionsSkippedReason = 'no project context';
+		} else if (!hasTeam) {
+			mentionsSkippedReason = 'project context has no teamMembers';
+		} else {
+			const isMultiLocation = locations.length > 1;
+			const reviewInputs = pending.map((r) => ({
+				reviewId: r.reviewId,
+				authorName: r.authorName,
+				rating: r.rating,
+				comment: r.comment,
+				locationLabel: r.locationLabel,
+				createTime: r.createTime
+			}));
+			const job = await runMentionsExtractionJob({
+				projectId: project.id,
+				reviews: reviewInputs,
+				context,
+				isMultiLocation,
+				force: false
+			});
+			mentionsJobId = job.id;
+		}
+	}
+
+	return json({
+		ok: true,
+		inserted,
+		skipped,
+		total: allReviews.length,
+		reviews: allReviews,
+		mentionsJobId,
+		mentionsScheduled: pending.length,
+		mentionsSkippedReason
+	});
 };
