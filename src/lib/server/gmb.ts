@@ -65,6 +65,33 @@ function parseIsoDate(iso: string): { year: number; month: number; day: number }
 	return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
+// Construit le `event.schedule` attendu par l'API GBP v4.
+// Google exige que l'instant de début soit strictement avant l'instant de fin.
+// Sans `startTime`/`endTime`, début et fin valent 00:00 : un event/offer mono-jour
+// (start === end) est alors rejeté ("Start date must occur before end date").
+// On clamp les dates inversées et on ajoute des heures pour le mono-jour.
+function buildEventSchedule(
+	startIso: string,
+	endIso: string
+): Record<string, unknown> {
+	const start = parseIsoDate(startIso);
+	let end = parseIsoDate(endIso);
+	const num = (d: { year: number; month: number; day: number }) =>
+		d.year * 10000 + d.month * 100 + d.day;
+
+	if (num(end) < num(start)) end = start; // dates inversées → clamp
+
+	const schedule: Record<string, unknown> = { startDate: start, endDate: end };
+
+	if (num(start) === num(end)) {
+		// mono-jour : forcer des instants distincts
+		schedule.startTime = { hours: 0, minutes: 0 };
+		schedule.endTime = { hours: 23, minutes: 59 };
+	}
+
+	return schedule;
+}
+
 function mapType(type: string): string {
 	switch (type) {
 		case 'event':
@@ -199,10 +226,7 @@ async function callGmbApi(
 	if ((post.type === 'event' || post.type === 'offer') && post.eventStartDate && post.eventEndDate) {
 		body.event = {
 			title: post.title,
-			schedule: {
-				startDate: parseIsoDate(post.eventStartDate),
-				endDate: parseIsoDate(post.eventEndDate)
-			}
+			schedule: buildEventSchedule(post.eventStartDate, post.eventEndDate)
 		};
 	}
 
