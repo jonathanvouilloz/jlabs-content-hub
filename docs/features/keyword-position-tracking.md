@@ -6,9 +6,15 @@
 
 ---
 
-## Etat session 2026-06-19 (impl. Phases 0→3)
+## Etat session 2026-06-19 (impl. Phases 0→4)
 
-- **Fait :** Phases **0, 1, 2, 3** implémentées et typecheck OK (0 erreur).
+- **Fait (suite) :** **db:push fait par Jonathan** + **backfill 12 sem des 6 projets GSC** (jonlabs, barberconcept, bis-repetita, physiopommier, wildcat, spinlink — 100% success, dernière sem. 2026-06-08). **Phase 4** implémentée et smoke-testée e2e (POST/GET watchlist, movers, CSV export via token, vue client, bad-token=404, archive).
+  - Vue client `?token=` : route publique `src/routes/positions/[slug]/+page.{svelte,server.ts}` (brandée couleur projet, noindex, lecture seule, bouton Export CSV).
+  - Export CSV : `api/projects/[slug]/keywords/export/+server.ts` — matrice mot-clé×semaines, BOM Excel, auth admin/clé API/`?token=`. Bouton aussi sur l'onglet admin.
+  - Digest hebdo : bloc « Vos positions Google » ajouté à `clientWeeklyHtml` (+ champs `positions`/`positionsUrl` dans `ClientWeeklyData`), alimenté par le cron `gmb-weekly-digest`. Reste gated sur posts GMB>0 (bloc en plus, pas un nouvel email).
+  - Refactor : `getWatchlistWithSeries()` dans `gsc-analytics.ts` = source unique (UI admin, vue client, CSV, digest).
+- **Reste (optionnel) :** Phase 5 — alertes chute de position au cron (non demandé pour l'instant).
+- **Fait initial :** Phases **0, 1, 2, 3** implémentées et typecheck OK (0 erreur).
   - Phase 0 : `api/cron/gsc-snapshot/+server.ts` (CRON_SECRET, itère projets avec `siteUrl`, `pullWeeklySnapshot`+`computeWeeklyDiff`, isolation erreurs + `sendCriticalError`) + cron `vercel.json` (`30 6 * * 1`).
   - Phase 1 : table `trackedKeywords` (`schema.ts`) + helpers `getKeywordHistory()`, `computeKeywordTrend()`, `computePositionMovers()` dans `gsc-analytics.ts`.
   - Phase 2 : routes `keywords/` (GET/POST), `keywords/[id]/` (PATCH/DELETE=archive), `gsc/keyword-history/`, `gsc/movers/`.
@@ -99,7 +105,7 @@ La donnée de position **est déjà collectée** à granularité fine — le gap
 - [ ] Section « Auto-découverte » : movers (position) avec bouton « + suivre » → ajoute à la watchlist.
 - [ ] État vide si pas de GSC configuré (réutiliser le pattern `hasGsc` de seo-data).
 
-### Phase 4 — Rapport client
+### Phase 4 — Rapport client ✅ implémenté (CSV + vue client + bloc digest)
 
 - [ ] Vue positions accessible via `?token=` (watchlist only, lecture seule, brandée).
 - [ ] Export (CSV ou print/PDF) de l'évolution des positions suivies.

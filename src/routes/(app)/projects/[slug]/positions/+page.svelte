@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { AlertCircle, TrendingUp, TrendingDown, Minus, HelpCircle, Plus, Trash2, Target } from 'lucide-svelte';
+	import { AlertCircle, TrendingUp, TrendingDown, Minus, HelpCircle, Plus, Trash2, Target, Download } from 'lucide-svelte';
 	import Sparkline from '$lib/components/ui/Sparkline.svelte';
 	import TimeChart from '$lib/components/ui/TimeChart.svelte';
 
@@ -88,12 +88,22 @@
 </script>
 
 <div class="space-y-8">
-	<div>
-		<h1 class="text-xl font-semibold text-surface-900">Positions</h1>
-		<p class="mt-1 text-sm text-surface-500">
-			Suivi de position dans le temps par mot-clé. La position GSC est une moyenne pondérée par
-			impressions — à lire comme une <strong>tendance</strong>, pas un rang exact.
-		</p>
+	<div class="flex items-start justify-between gap-4">
+		<div>
+			<h1 class="text-xl font-semibold text-surface-900">Positions</h1>
+			<p class="mt-1 text-sm text-surface-500">
+				Suivi de position dans le temps par mot-clé. La position GSC est une moyenne pondérée par
+				impressions — à lire comme une <strong>tendance</strong>, pas un rang exact.
+			</p>
+		</div>
+		{#if data.hasGsc && data.keywords.length > 0}
+			<a
+				href={`/api/projects/${slug}/keywords/export`}
+				class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-300 px-3 py-2 text-sm text-surface-600 hover:bg-surface-50"
+			>
+				<Download size={15} /> Export CSV
+			</a>
+		{/if}
 	</div>
 
 	{#if !data.hasGsc}

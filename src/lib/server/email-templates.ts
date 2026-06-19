@@ -63,6 +63,13 @@ export interface ClientWeeklyData {
 	periodStart: string;
 	periodEnd: string;
 	posts: Array<{ title: string; locations: string[]; publishedAt: string }>;
+	positions?: Array<{
+		keyword: string;
+		currentPosition: number | null;
+		targetPosition: number | null;
+		verdict: 'up' | 'down' | 'flat' | 'insufficient';
+	}>;
+	positionsUrl?: string;
 }
 
 export function clientWeeklyHtml(data: ClientWeeklyData): string {
@@ -75,6 +82,19 @@ export function clientWeeklyHtml(data: ClientWeeklyData): string {
 			<div style="color:#666;font-size:13px;margin-top:2px">${escapeHtml(p.locations.join(' · '))} · ${fmtDate(p.publishedAt)}</div>
 		</li>`).join('');
 
+	const verdictLabel = { up: '↑ progresse', down: '↓ recule', flat: '→ stable', insufficient: '· données insuffisantes' };
+	const positionsBlock = data.positions && data.positions.length > 0 ? `
+			<h2 style="margin:28px 0 8px;font-size:15px;font-weight:600;color:#1a1a1a">Vos positions Google</h2>
+			<table style="width:100%;border-collapse:collapse;font-size:13px">
+				${data.positions.map((p) => `
+					<tr style="border-top:1px solid #f0f0f0">
+						<td style="padding:8px 0;color:#1a1a1a">${escapeHtml(p.keyword)}</td>
+						<td style="padding:8px 0;text-align:right;color:#444;font-weight:600">${p.currentPosition != null ? p.currentPosition.toFixed(1) : '—'}${p.targetPosition != null ? `<span style="color:#aaa;font-weight:400"> / obj. ${p.targetPosition}</span>` : ''}</td>
+						<td style="padding:8px 0 8px 12px;text-align:right;color:#666;white-space:nowrap">${verdictLabel[p.verdict]}</td>
+					</tr>`).join('')}
+			</table>
+			${data.positionsUrl ? `<p style="margin:10px 0 0"><a href="${escapeHtml(data.positionsUrl)}" style="color:${safeColor};font-size:13px">Voir le détail sur 12 semaines →</a></p>` : ''}` : '';
+
 	return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto">
 		<div style="background:${safeColor};color:white;padding:24px;border-radius:8px 8px 0 0">
 			<h1 style="margin:0;font-size:18px;font-weight:600">Récap GMB — ${escapeHtml(data.projectName)}</h1>
@@ -83,6 +103,7 @@ export function clientWeeklyHtml(data: ClientWeeklyData): string {
 		<div style="background:white;padding:24px;border:1px solid #eee;border-top:0;border-radius:0 0 8px 8px">
 			<p style="margin:0 0 16px;color:#444">Cette semaine, <b>${data.posts.length} post${data.posts.length > 1 ? 's' : ''}</b> publié${data.posts.length > 1 ? 's' : ''} sur vos fiches Google My Business :</p>
 			<ul style="list-style:none;padding:0;margin:0">${postsList}</ul>
+			${positionsBlock}
 			<p style="color:#aaa;font-size:11px;margin-top:32px;border-top:1px solid #eee;padding-top:12px">Posts gérés par jlabs-content-hub · contact@jonlabs.ch</p>
 		</div>
 	</div>`;

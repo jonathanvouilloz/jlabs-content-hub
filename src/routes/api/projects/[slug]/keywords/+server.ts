@@ -4,7 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { projects, trackedKeywords } from '$lib/server/db/schema.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import { createId } from '$lib/server/utils.js';
-import { getKeywordHistory, computeKeywordTrend } from '$lib/server/gsc-analytics.js';
+import { getWatchlistWithSeries } from '$lib/server/gsc-analytics.js';
 import type { RequestHandler } from './$types';
 
 const HISTORY_WEEKS = 12;
@@ -20,30 +20,7 @@ export const GET: RequestHandler = async (event) => {
 	});
 	if (!project) return json({ error: 'Project not found' }, { status: 404 });
 
-	const rows = await db
-		.select()
-		.from(trackedKeywords)
-		.where(and(eq(trackedKeywords.projectId, project.id), eq(trackedKeywords.archived, false)));
-
-	const keywords = await Promise.all(
-		rows.map(async (kw) => {
-			const series = await getKeywordHistory(project.id, kw.keyword, HISTORY_WEEKS);
-			const trend = computeKeywordTrend(series, kw.targetPosition);
-			const latest = [...series].reverse().find((p) => p.position !== null) ?? null;
-			return {
-				id: kw.id,
-				keyword: kw.keyword,
-				targetUrl: kw.targetUrl,
-				targetPosition: kw.targetPosition,
-				createdAt: kw.createdAt,
-				currentPosition: trend.currentPosition,
-				topPage: latest?.topPage ?? null,
-				trend,
-				sparkline: series.map((p) => ({ weekStart: p.weekStart, position: p.position }))
-			};
-		})
-	);
-
+	const keywords = await getWatchlistWithSeries(project.id, HISTORY_WEEKS);
 	return json({ keywords });
 };
 

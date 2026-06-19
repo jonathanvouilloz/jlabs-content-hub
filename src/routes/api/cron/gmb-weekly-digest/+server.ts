@@ -4,7 +4,10 @@ import { db } from '$lib/server/db/index.js';
 import { projects, contents, publishLogs } from '$lib/server/db/schema.js';
 import { eq, and, gte } from 'drizzle-orm';
 import { sendClientWeeklyDigest } from '$lib/server/notifications.js';
+import { getWatchlistWithSeries } from '$lib/server/gsc-analytics.js';
 import type { RequestHandler } from './$types';
+
+const APP_URL = env.PUBLIC_APP_URL ?? 'https://hub.jonlabs.ch';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const authHeader = request.headers.get('authorization');
@@ -63,10 +66,21 @@ export const GET: RequestHandler = async ({ request }) => {
 			publishedAt: p.publishedAt
 		}));
 
+		// Bloc « vos positions » (mots-clés suivis) — vide si aucun kw suivi / pas de GSC.
+		const watchlist = await getWatchlistWithSeries(project.id);
+		const positions = watchlist.map((w) => ({
+			keyword: w.keyword,
+			currentPosition: w.currentPosition,
+			targetPosition: w.targetPosition,
+			verdict: w.trend.verdict
+		}));
+
 		const result = await sendClientWeeklyDigest(project, {
 			periodStart,
 			periodEnd,
-			posts
+			posts,
+			positions,
+			positionsUrl: `${APP_URL}/positions/${project.slug}?token=${project.accessToken}`
 		});
 
 		results.push({ project: project.slug, sent: result.sent, reason: result.reason, postsCount: posts.length });

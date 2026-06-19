@@ -4,7 +4,8 @@ import {
 	gscQueryPageData,
 	gscSnapshots,
 	gscWeeklyDiffs,
-	indexingCredentials
+	indexingCredentials,
+	trackedKeywords
 } from './db/schema.js';
 import { getAccessTokenForProject } from './indexing.js';
 import { createId } from './utils.js';
@@ -797,6 +798,59 @@ export function computeKeywordTrend(
 	else verdict = 'flat';
 
 	return { verdict, deltaPosition, currentPosition, vsTarget };
+}
+
+// ── Watchlist (série + tendance par mot-clé suivi — epic 23) ─────
+
+export interface WatchlistEntry {
+	id: string;
+	keyword: string;
+	targetUrl: string | null;
+	targetPosition: number | null;
+	currentPosition: number | null;
+	topPage: string | null;
+	trend: KeywordTrend;
+	series: KeywordWeekPoint[];
+}
+
+/**
+ * Watchlist enrichie d'un projet : pour chaque mot-clé non archivé, la série N semaines,
+ * la position courante, la tendance (vs cible) et la page qui ranke.
+ * Source unique partagée par l'UI admin, la vue client (?token=), l'export CSV et le digest.
+ */
+export async function getWatchlistWithSeries(
+	projectId: string,
+	weeks = 12
+): Promise<WatchlistEntry[]> {
+	const tracked = await db
+		.select()
+		.from(trackedKeywords)
+		.where(and(eq(trackedKeywords.projectId, projectId), eq(trackedKeywords.archived, false)));
+
+	const entries = await Promise.all(
+		tracked.map(async (kw) => {
+			const series = await getKeywordHistory(projectId, kw.keyword, weeks);
+			const trend = computeKeywordTrend(series, kw.targetPosition);
+			const latest = [...series].reverse().find((p) => p.position !== null) ?? null;
+			return {
+				id: kw.id,
+				keyword: kw.keyword,
+				targetUrl: kw.targetUrl,
+				targetPosition: kw.targetPosition,
+				currentPosition: trend.currentPosition,
+				topPage: latest?.topPage ?? null,
+				trend,
+				series
+			};
+		})
+	);
+
+	// Meilleure position d'abord ; les mots-clés sans donnée en fin de liste.
+	return entries.sort((a, b) => {
+		if (a.currentPosition == null) return 1;
+		if (b.currentPosition == null) return -1;
+		return a.currentPosition - b.currentPosition;
+	});
 }
 
 // ── Position movers (auto-découverte — epic 23) ──────────────────
