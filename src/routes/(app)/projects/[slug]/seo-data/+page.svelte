@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
-	import { ChevronLeft, ChevronRight, RefreshCw, Loader, AlertCircle, Sparkles } from 'lucide-svelte';
+	import { ChevronLeft, ChevronRight, RefreshCw, Loader, AlertCircle, Sparkles, Plus } from 'lucide-svelte';
 
 	let { data } = $props();
 
@@ -162,6 +162,31 @@
 			return path.length > 50 ? path.slice(0, 47) + '…' : path;
 		} catch {
 			return url;
+		}
+	}
+
+	// « + suivre » sur un conflit → ajoute le mot-clé à la watchlist (onglet Positions).
+	let tracking = $state<string | null>(null);
+	let tracked = $state<Set<string>>(new Set());
+	let trackError = $state<string | null>(null);
+
+	async function trackKeyword(keyword: string) {
+		tracking = keyword;
+		trackError = null;
+		try {
+			const res = await fetch(`/api/projects/${data.project.slug}/keywords`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ keyword })
+			});
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				trackError = body.error ?? 'Erreur lors du suivi';
+				return;
+			}
+			tracked = new Set(tracked).add(keyword);
+		} finally {
+			tracking = null;
 		}
 	}
 </script>
@@ -521,6 +546,70 @@
 					</section>
 				{/if}
 			{/if}
+		{/if}
+
+		<!-- Cannibalisation -->
+		{#if data.cannibalization.length > 0}
+			<section class="overflow-hidden rounded-xl border border-surface-200 bg-white">
+				<header class="flex items-center justify-between border-b border-surface-100 bg-red-50 px-4 py-2.5">
+					<h2 class="text-sm font-semibold text-red-900">⚠ Cannibalisation</h2>
+					<span class="text-xs text-red-700">
+						{data.cannibalization.length} requête(s) — plusieurs URLs en concurrence
+					</span>
+				</header>
+				<table class="w-full text-xs">
+					<thead class="bg-surface-50 text-surface-500">
+						<tr>
+							<th class="px-3 py-2 text-left font-medium">Mot-clé</th>
+							<th class="px-3 py-2 text-left font-medium">URLs en conflit (position · part d'impressions)</th>
+							<th class="px-3 py-2 text-right font-medium">Écart pos.</th>
+							<th class="px-3 py-2"></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-surface-100">
+						{#each data.cannibalization as c}
+							<tr class={c.severity === 'high' ? 'bg-red-50/40' : ''}>
+								<td class="max-w-[220px] px-3 py-2 align-top">
+									<p class="truncate font-medium text-surface-900">{c.query}</p>
+									<p class="text-surface-400">
+										{fmtInt(c.totalImpressions)} impr.{#if c.severity === 'high'}
+											· <span class="font-medium text-red-600">{c.conflictsInTop20} en top 20</span>
+										{/if}
+									</p>
+								</td>
+								<td class="px-3 py-2 align-top">
+									<ul class="space-y-1">
+										{#each c.pages as p}
+											<li class="flex items-center gap-2">
+												<span class="inline-block w-9 shrink-0 text-right tabular-nums {p.position <= 20 ? 'font-medium text-red-600' : 'text-surface-400'}">#{fmtPosition(p.position)}</span>
+												<a href={p.page} target="_blank" rel="noreferrer" class="max-w-[260px] truncate text-surface-600 hover:underline">{shortPage(p.page)}</a>
+												<span class="shrink-0 tabular-nums text-surface-400">{fmtPct(p.share, 0)}</span>
+											</li>
+										{/each}
+									</ul>
+								</td>
+								<td class="px-3 py-2 text-right align-top tabular-nums text-surface-900">{fmtPosition(c.positionSpread)}</td>
+								<td class="px-3 py-2 text-right align-top">
+									{#if tracked.has(c.query)}
+										<span class="inline-flex items-center gap-1 text-emerald-600">✓ suivi</span>
+									{:else}
+										<button
+											class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-surface-300 px-2 py-1 text-surface-600 hover:bg-surface-50 disabled:opacity-50"
+											disabled={tracking === c.query}
+											onclick={() => trackKeyword(c.query)}
+										>
+											<Plus size={12} /> suivre
+										</button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+				{#if trackError}
+					<p class="px-4 py-2 text-xs text-red-600">{trackError}</p>
+				{/if}
+			</section>
 		{/if}
 
 		<!-- History list -->

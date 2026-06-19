@@ -6,6 +6,18 @@
 
 ---
 
+## Etat session 2026-06-19 (Phase 6 — détection de cannibalisation)
+
+- **Fait :** **Phase 6 — détection de cannibalisation SEO** implémentée, typecheck OK (0 erreur) et smoke-testée e2e contre la DB Turso (6 projets backfillés).
+  - Helper `computeCannibalization({ projectId, weekStart, minImpressions=50, limit=15 })` dans `gsc-analytics.ts` : groupe `gsc_query_page_data` par `(query, page)` sur 1 semaine, ne garde que les queries où ≥2 URLs dépassent `minImpressions`. Calcule taux de partage d'impressions par URL, `positionSpread`, `conflictsInTop20`, `severity` (`high` si ≥2 URLs en top 20). Position pondérée par impressions.
+  - **Piège résolu au smoke test :** GSC remonte les `#ancres` (jump-to), `http`/`https` et `www`/non-www comme des pages distinctes → faux conflits massifs (1 article = 5 « URLs »). Fix : `normalizePageUrl()` strippe fragment + protocole + www + slash final AVANT le groupage. barberconcept est passé de 15 faux conflits à 11 réels (ex. « coupe homme 2026 » = 2 articles distincts en concurrence).
+  - Route `api/projects/[slug]/gsc/cannibalization/+server.ts` (GET `?week=&minImpressions=&limit=`, auth admin/clé API), calquée sur `gsc/movers`.
+  - UI : section « ⚠ Cannibalisation » dans l'onglet **seo-data** (header rouge, table mot-clé × URLs en conflit avec position + part d'impressions + écart de position, ligne rougie si `high`). Bouton **« + suivre »** par conflit → POST `/keywords` (fetch client, comme l'onglet Positions) → ajoute à la watchlist.
+  - Pilotée par le `weekStart` déjà résolu dans le load seo-data (le sélecteur de semaine contrôle aussi la section, gratuitement).
+- **Reste (optionnel) :** Phase 5 — alertes chute de position au cron (toujours non demandé).
+
+---
+
 ## Etat session 2026-06-19 (impl. Phases 0→4)
 
 - **Fait (suite) :** **db:push fait par Jonathan** + **backfill 12 sem des 6 projets GSC** (jonlabs, barberconcept, bis-repetita, physiopommier, wildcat, spinlink — 100% success, dernière sem. 2026-06-08). **Phase 4** implémentée et smoke-testée e2e (POST/GET watchlist, movers, CSV export via token, vue client, bad-token=404, archive).

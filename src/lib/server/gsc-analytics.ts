@@ -917,6 +917,149 @@ export async function computePositionMovers(params: {
 	return { gains, losses };
 }
 
+// ── Cannibalisation (plusieurs URLs pour une même requête — epic 23) ──
+
+export interface CannibalPage {
+	page: string;
+	clicks: number;
+	impressions: number;
+	position: number;
+	/** Part des impressions du conflit captée par cette URL (0..1). */
+	share: number;
+}
+
+export interface CannibalizationEntry {
+	query: string;
+	totalImpressions: number;
+	totalClicks: number;
+	/** max(position) - min(position) entre les URLs en conflit. */
+	positionSpread: number;
+	/** Nombre d'URLs en conflit positionnées dans le top 20. */
+	conflictsInTop20: number;
+	severity: 'high' | 'medium';
+	/** URLs en conflit, triées par impressions décroissantes. */
+	pages: CannibalPage[];
+}
+
+/**
+ * Normalise une URL de page pour le comptage de cannibalisation : strip du fragment (#ancre),
+ * du protocole, du préfixe www et du slash final. GSC remonte `…/article#section`, `http://`,
+ * `https://www.` comme des « pages » distinctes — ce sont en réalité la même ressource ; sans ça
+ * un seul article (avec ancres jump-to) ou une home en http/https produirait de faux conflits.
+ */
+function normalizePageUrl(raw: string): string {
+	try {
+		const u = new URL(raw);
+		const host = u.hostname.replace(/^www\./, '');
+		let path = u.pathname.replace(/\/+$/, '');
+		if (path === '') path = '/';
+		return `https://${host}${path}`;
+	} catch {
+		return raw.split('#')[0];
+	}
+}
+
+/**
+ * Détecte la cannibalisation SEO d'une semaine : requêtes pour lesquelles ≥2 URLs du site
+ * se partagent les impressions, chacune au-dessus de `minImpressions` (anti-bruit longue traîne).
+ * Les devices ET variantes d'une même page (ancre/protocole/www) sont agrégés AVANT comptage
+ * (cf. normalizePageUrl, sinon faux positifs). Position pondérée par impressions. `high` = ≥2 URLs en top 20.
+ */
+export async function computeCannibalization(params: {
+	projectId: string;
+	weekStart: string;
+	minImpressions?: number;
+	limit?: number;
+}): Promise<CannibalizationEntry[]> {
+	const minImpressions = params.minImpressions ?? 50;
+	const limit = params.limit ?? 15;
+
+	const rows = await db
+		.select({
+			query: gscQueryPageData.query,
+			page: gscQueryPageData.page,
+			clicks: gscQueryPageData.clicks,
+			impressions: gscQueryPageData.impressions,
+			position: gscQueryPageData.position
+		})
+		.from(gscQueryPageData)
+		.where(
+			and(
+				eq(gscQueryPageData.projectId, params.projectId),
+				eq(gscQueryPageData.weekStart, params.weekStart)
+			)
+		);
+
+	// Agrège par (query → page), en collapsant la dimension device.
+	interface PageAcc {
+		clicks: number;
+		impressions: number;
+		weightedPositionSum: number;
+	}
+	const byQuery = new Map<string, Map<string, PageAcc>>();
+	for (const r of rows) {
+		let pages = byQuery.get(r.query);
+		if (!pages) {
+			pages = new Map();
+			byQuery.set(r.query, pages);
+		}
+		const pageKey = normalizePageUrl(r.page);
+		const acc = pages.get(pageKey);
+		if (acc) {
+			acc.clicks += r.clicks;
+			acc.impressions += r.impressions;
+			acc.weightedPositionSum += r.position * r.impressions;
+		} else {
+			pages.set(pageKey, {
+				clicks: r.clicks,
+				impressions: r.impressions,
+				weightedPositionSum: r.position * r.impressions
+			});
+		}
+	}
+
+	const entries: CannibalizationEntry[] = [];
+	for (const [query, pages] of byQuery) {
+		const significant = [...pages.entries()]
+			.filter(([, acc]) => acc.impressions >= minImpressions)
+			.map(([page, acc]) => ({
+				page,
+				clicks: acc.clicks,
+				impressions: acc.impressions,
+				position: acc.impressions > 0 ? acc.weightedPositionSum / acc.impressions : 0
+			}));
+		if (significant.length < 2) continue; // pas de conflit
+
+		const totalImpressions = significant.reduce((s, p) => s + p.impressions, 0);
+		const totalClicks = significant.reduce((s, p) => s + p.clicks, 0);
+		const positions = significant.map((p) => p.position);
+		const positionSpread = Math.max(...positions) - Math.min(...positions);
+		const conflictsInTop20 = significant.filter((p) => p.position <= 20).length;
+
+		const sortedPages: CannibalPage[] = significant
+			.map((p) => ({ ...p, share: totalImpressions > 0 ? p.impressions / totalImpressions : 0 }))
+			.sort((a, b) => b.impressions - a.impressions);
+
+		entries.push({
+			query,
+			totalImpressions,
+			totalClicks,
+			positionSpread,
+			conflictsInTop20,
+			severity: conflictsInTop20 >= 2 ? 'high' : 'medium',
+			pages: sortedPages
+		});
+	}
+
+	const sevRank = { high: 0, medium: 1 } as const;
+	return entries
+		.sort(
+			(a, b) =>
+				sevRank[a.severity] - sevRank[b.severity] || b.totalImpressions - a.totalImpressions
+		)
+		.slice(0, limit);
+}
+
 export async function listSnapshots(projectId: string, limit = 52) {
 	return db
 		.select({

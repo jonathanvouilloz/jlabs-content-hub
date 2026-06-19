@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db/index.js';
 import { indexingCredentials } from '$lib/server/db/schema.js';
 import {
+	computeCannibalization,
 	getDiff,
 	getSnapshot,
 	latestCompleteWeekStart,
@@ -37,9 +38,13 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		weekStart = latestCompleteWeekStart();
 	}
 
-	const [snapshot, diff] = hasGsc
-		? await Promise.all([getSnapshot(project.id, weekStart), getDiff(project.id, weekStart)])
-		: [null, null];
+	const [snapshot, diff, cannibalization] = hasGsc
+		? await Promise.all([
+				getSnapshot(project.id, weekStart),
+				getDiff(project.id, weekStart),
+				computeCannibalization({ projectId: project.id, weekStart })
+			])
+		: [null, null, []];
 
 	if (queryWeek && !isValidWeekStart(queryWeek)) {
 		throw error(400, 'Param "week" invalide (doit être un lundi YYYY-MM-DD)');
@@ -51,6 +56,7 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		weekStart,
 		snapshot,
 		diff,
+		cannibalization,
 		history
 	};
 };
