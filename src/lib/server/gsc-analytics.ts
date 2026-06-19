@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from './db/index.js';
 import {
 	gscQueryPageData,
@@ -659,6 +659,208 @@ export async function computeActions(params: {
 		.slice(0, limit);
 
 	return { opportunities, quickWins };
+}
+
+// ── Keyword position history (watchlist — epic 23) ───────────────
+
+export interface KeywordWeekPoint {
+	weekStart: string;
+	/** Impression-weighted average position for the week, or null if the keyword had no data that week (hors top / 0 impression). */
+	position: number | null;
+	clicks: number;
+	impressions: number;
+	ctr: number;
+	/** Page with the most clicks for this keyword that week, or null if no data. */
+	topPage: string | null;
+}
+
+/**
+ * Builds the N-week position series for a single keyword (exact-match query), aligned on
+ * the last N complete weeks. Weeks with no GSC data return position=null (a real gap, never 0).
+ * Position is impression-weighted across all pages/devices (mirrors aggregateByQuery).
+ */
+export async function getKeywordHistory(
+	projectId: string,
+	keyword: string,
+	weeks = 12
+): Promise<KeywordWeekPoint[]> {
+	const latest = latestCompleteWeekStart();
+	// Chronological list of the last `weeks` week-starts (oldest → newest).
+	const weekStarts: string[] = [];
+	for (let i = weeks - 1; i >= 0; i--) {
+		weekStarts.push(addDaysIso(latest, -7 * i));
+	}
+
+	const rows = await db
+		.select({
+			weekStart: gscQueryPageData.weekStart,
+			page: gscQueryPageData.page,
+			clicks: gscQueryPageData.clicks,
+			impressions: gscQueryPageData.impressions,
+			position: gscQueryPageData.position
+		})
+		.from(gscQueryPageData)
+		.where(
+			and(
+				eq(gscQueryPageData.projectId, projectId),
+				eq(gscQueryPageData.query, keyword),
+				inArray(gscQueryPageData.weekStart, weekStarts)
+			)
+		);
+
+	interface Acc {
+		clicks: number;
+		impressions: number;
+		weightedPositionSum: number;
+		topPage: string;
+		topPageClicks: number;
+	}
+	const byWeek = new Map<string, Acc>();
+	for (const r of rows) {
+		const acc = byWeek.get(r.weekStart);
+		if (acc) {
+			acc.clicks += r.clicks;
+			acc.impressions += r.impressions;
+			acc.weightedPositionSum += r.position * r.impressions;
+			if (r.clicks > acc.topPageClicks) {
+				acc.topPageClicks = r.clicks;
+				acc.topPage = r.page;
+			}
+		} else {
+			byWeek.set(r.weekStart, {
+				clicks: r.clicks,
+				impressions: r.impressions,
+				weightedPositionSum: r.position * r.impressions,
+				topPage: r.page,
+				topPageClicks: r.clicks
+			});
+		}
+	}
+
+	return weekStarts.map((weekStart) => {
+		const acc = byWeek.get(weekStart);
+		if (!acc || acc.impressions === 0) {
+			return { weekStart, position: null, clicks: 0, impressions: 0, ctr: 0, topPage: null };
+		}
+		return {
+			weekStart,
+			position: acc.weightedPositionSum / acc.impressions,
+			clicks: acc.clicks,
+			impressions: acc.impressions,
+			ctr: acc.clicks / acc.impressions,
+			topPage: acc.topPage || null
+		};
+	});
+}
+
+export interface KeywordTrend {
+	/** 'up' = la position s'améliore (baisse), 'down' = se dégrade, 'flat' = stable, 'insufficient' = pas assez de données. */
+	verdict: 'up' | 'down' | 'flat' | 'insufficient';
+	/** currentPosition - earliestPosition sur la fenêtre (négatif = amélioration). null si insuffisant. */
+	deltaPosition: number | null;
+	currentPosition: number | null;
+	vsTarget?: { targetPosition: number; reached: boolean; gap: number };
+}
+
+const TREND_MIN_POINTS = 3;
+const TREND_NOISE = 1.0; // positions : delta < 1 rang ⇒ stagne
+
+/**
+ * Verdict de tendance sur une série de positions. Une position plus BASSE est meilleure,
+ * donc un delta négatif (position qui diminue) = amélioration ('up').
+ */
+export function computeKeywordTrend(
+	series: KeywordWeekPoint[],
+	targetPosition?: number | null
+): KeywordTrend {
+	const points = series.filter((p) => p.position !== null) as Array<KeywordWeekPoint & { position: number }>;
+	const currentPosition = points.length > 0 ? points[points.length - 1].position : null;
+
+	const vsTarget =
+		targetPosition != null && currentPosition != null
+			? {
+					targetPosition,
+					reached: currentPosition <= targetPosition,
+					gap: currentPosition - targetPosition
+				}
+			: undefined;
+
+	if (points.length < TREND_MIN_POINTS) {
+		return { verdict: 'insufficient', deltaPosition: null, currentPosition, vsTarget };
+	}
+
+	const earliest = points[0].position;
+	const deltaPosition = currentPosition! - earliest;
+	let verdict: KeywordTrend['verdict'];
+	if (deltaPosition <= -TREND_NOISE) verdict = 'up';
+	else if (deltaPosition >= TREND_NOISE) verdict = 'down';
+	else verdict = 'flat';
+
+	return { verdict, deltaPosition, currentPosition, vsTarget };
+}
+
+// ── Position movers (auto-découverte — epic 23) ──────────────────
+
+export interface PositionMover {
+	query: string;
+	position: number;
+	positionPrev: number;
+	/** position - positionPrev : négatif = la position s'améliore (gain). */
+	deltaPosition: number;
+	impressions: number;
+	clicks: number;
+	topPage: string;
+}
+
+/**
+ * Plus gros mouvements DE POSITION (gains/pertes) vs semaine N-1, sur tous les mots-clés.
+ * Distinct de rising/falling (basés clics). Ne garde que les queries présentes les deux
+ * semaines (delta réel) et au-dessus du seuil d'impressions, pour éviter le bruit.
+ */
+export async function computePositionMovers(params: {
+	projectId: string;
+	weekStart: string;
+	minImpressions?: number;
+	limit?: number;
+}): Promise<{ gains: PositionMover[]; losses: PositionMover[] }> {
+	const minImpressions = params.minImpressions ?? 20;
+	const limit = params.limit ?? 10;
+	const prevWeekStart = previousWeekStart(params.weekStart);
+
+	const [currMap, prevMap] = await Promise.all([
+		aggregateByQuery(params.projectId, params.weekStart),
+		aggregateByQuery(params.projectId, prevWeekStart)
+	]);
+
+	const movers: PositionMover[] = [];
+	for (const [query, curr] of currMap) {
+		const prev = prevMap.get(query);
+		if (!prev) continue; // pas de delta fiable sans semaine N-1
+		if (curr.impressions < minImpressions) continue;
+		const position = avgPosition(curr);
+		const positionPrev = avgPosition(prev);
+		if (position === 0 || positionPrev === 0) continue;
+		movers.push({
+			query,
+			position,
+			positionPrev,
+			deltaPosition: position - positionPrev,
+			impressions: curr.impressions,
+			clicks: curr.clicks,
+			topPage: curr.topPage
+		});
+	}
+
+	const gains = movers
+		.filter((m) => m.deltaPosition < 0)
+		.sort((a, b) => a.deltaPosition - b.deltaPosition)
+		.slice(0, limit);
+	const losses = movers
+		.filter((m) => m.deltaPosition > 0)
+		.sort((a, b) => b.deltaPosition - a.deltaPosition)
+		.slice(0, limit);
+
+	return { gains, losses };
 }
 
 export async function listSnapshots(projectId: string, limit = 52) {

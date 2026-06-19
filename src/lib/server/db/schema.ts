@@ -461,3 +461,21 @@ export const gscWeeklyDiffs = sqliteTable(
 	(table) => [uniqueIndex('gsc_diffs_project_week').on(table.projectId, table.weekStart)]
 );
 
+// ── Tracked keywords (watchlist positions — epic 23) ────────────────
+
+export const trackedKeywords = sqliteTable(
+	'tracked_keywords',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		keyword: text('keyword').notNull(),
+		targetUrl: text('target_url'),
+		targetPosition: real('target_position'),
+		archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [uniqueIndex('tracked_keywords_project_keyword').on(table.projectId, table.keyword)]
+);
+
