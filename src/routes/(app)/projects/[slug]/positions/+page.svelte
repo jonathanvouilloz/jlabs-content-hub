@@ -9,7 +9,7 @@
 
 	const slug = $derived($page.params.slug);
 
-	type WeekPoint = { weekStart: string; position: number | null; clicks: number; impressions: number; ctr: number; topPage: string | null };
+	type WeekPoint = { weekStart: string; position: number | null; clicks: number; impressions: number; ctr: number; topPage: string | null; primaryPosition: number | null; primaryPage: string | null };
 	type Trend = { verdict: 'up' | 'down' | 'flat' | 'insufficient'; deltaPosition: number | null; currentPosition: number | null; vsTarget?: { targetPosition: number; reached: boolean; gap: number } };
 
 	let newKeyword = $state('');
@@ -92,8 +92,9 @@
 		<div>
 			<h1 class="text-xl font-semibold text-surface-900">Positions</h1>
 			<p class="mt-1 text-sm text-surface-500">
-				Suivi de position dans le temps par mot-clé. La position GSC est une moyenne pondérée par
-				impressions — à lire comme une <strong>tendance</strong>, pas un rang exact.
+				Suivi de position dans le temps par mot-clé. La position affichée est la
+				<strong>meilleure position</strong> de tes pages sur ce mot-clé (ancres et doublons d'URL
+				exclus) ; « clic » = position de la page qui capte le trafic. À lire comme une tendance.
 			</p>
 		</div>
 		{#if data.hasGsc && data.keywords.length > 0}
@@ -180,7 +181,14 @@
 								{@const vm = verdictMeta(kw.trend)}
 								<tr class="cursor-pointer hover:bg-surface-50" onclick={() => (expanded = expanded === kw.id ? null : kw.id)}>
 									<td class="px-4 py-3 font-medium text-surface-900">{kw.keyword}</td>
-									<td class="px-4 py-3 tabular-nums">{fmtPos(kw.currentPosition)}</td>
+									<td class="px-4 py-3 tabular-nums">
+										{fmtPos(kw.currentPosition)}
+										{#if kw.primaryPosition != null && kw.primaryPage !== kw.topPage}
+											<div class="text-[11px] font-normal text-surface-400" title="Position de la page qui capte les clics">
+												clic {fmtPos(kw.primaryPosition)}
+											</div>
+										{/if}
+									</td>
 									<td class="px-4 py-3 tabular-nums text-surface-500">
 										{#if kw.targetPosition != null}
 											<span class="inline-flex items-center gap-1">
@@ -201,8 +209,15 @@
 											</span>
 										</div>
 									</td>
-									<td class="max-w-[200px] truncate px-4 py-3 text-xs text-surface-400">
-										{#if kw.topPage}<a href={kw.topPage} target="_blank" rel="noreferrer" class="hover:underline" onclick={(e) => e.stopPropagation()}>{kw.topPage}</a>{:else}—{/if}
+									<td class="max-w-[220px] px-4 py-3 text-xs text-surface-400">
+										<div class="truncate">
+											{#if kw.topPage}<a href={kw.topPage} target="_blank" rel="noreferrer" class="hover:underline" onclick={(e) => e.stopPropagation()}>{kw.topPage}</a>{:else}—{/if}
+										</div>
+										{#if kw.primaryPage && kw.primaryPage !== kw.topPage}
+											<div class="mt-0.5 truncate text-surface-400/80" title="Page qui capte les clics (cannibalisation : ≥2 de tes URLs rankent)">
+												↳ clics : <a href={kw.primaryPage} target="_blank" rel="noreferrer" class="hover:underline" onclick={(e) => e.stopPropagation()}>{kw.primaryPage}</a>
+											</div>
+										{/if}
 									</td>
 									<td class="px-4 py-3 text-right">
 										<button class="text-surface-300 hover:text-rose-500" onclick={(e) => { e.stopPropagation(); removeKeyword(kw.id); }} aria-label="Retirer">
@@ -231,10 +246,14 @@
 		</section>
 
 		<!-- Auto-découverte (movers) -->
+		<!-- NB : computePositionMovers passe par aggregateByQuery → position MOYENNE pondérée (blend de
+		     toutes les URLs/ancres), pas la meilleure-page de la watchlist. Chemin partagé avec
+		     computeWeeklyDiff/computeActions ; alignement complet hors scope (cf. plan epic 23). -->
 		<section>
 			<h2 class="mb-1 text-sm font-semibold text-surface-700">Auto-découverte</h2>
 			<p class="mb-3 text-xs text-surface-400">
-				Plus gros mouvements de position vs semaine précédente (hors watchlist).
+				Plus gros mouvements de position vs semaine précédente (hors watchlist). Position moyenne
+				(toutes URLs confondues), à titre indicatif pour repérer quoi suivre.
 			</p>
 			<div class="grid gap-4 md:grid-cols-2">
 				{#each [{ title: 'Gains', items: data.movers.gains, tone: 'emerald' }, { title: 'Pertes', items: data.movers.losses, tone: 'rose' }] as col}

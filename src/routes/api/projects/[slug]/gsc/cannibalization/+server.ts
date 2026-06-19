@@ -11,8 +11,10 @@ import {
 import type { RequestHandler } from './$types';
 
 /**
- * GET ?week=…&minImpressions=50&limit=15 — requêtes cannibalisées (≥2 URLs pour une même query
- * sur la semaine). Distinct de rising/falling (clics) et de movers (position). Auth admin ou clé API.
+ * GET ?week=…&minImpressions=&limit=15 — requêtes cannibalisées (≥2 URLs pour une même query
+ * sur la semaine). Le seuil est relatif au volume du kw par défaut ; `minImpressions` (optionnel)
+ * surcharge le plancher absolu. Distinct de rising/falling (clics) et de movers (position).
+ * Auth admin ou clé API.
  */
 export const GET: RequestHandler = async (event) => {
 	if (!event.locals.user && !validateApiKey(event)) {
@@ -28,10 +30,10 @@ export const GET: RequestHandler = async (event) => {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
 		return json({ error: 'Param "week" attendu YYYY-MM-DD' }, { status: 400 });
 	}
-	const minImpressions = Math.max(
-		parseInt(event.url.searchParams.get('minImpressions') ?? '50', 10) || 50,
-		1
-	);
+	// Optionnel : surcharge le plancher absolu. Absent → seuil relatif au volume (défaut fonction).
+	const minImpressionsRaw = event.url.searchParams.get('minImpressions');
+	const minImpressions =
+		minImpressionsRaw !== null ? Math.max(parseInt(minImpressionsRaw, 10) || 1, 1) : undefined;
 	const limit = Math.min(
 		Math.max(parseInt(event.url.searchParams.get('limit') ?? '15', 10) || 15, 1),
 		50

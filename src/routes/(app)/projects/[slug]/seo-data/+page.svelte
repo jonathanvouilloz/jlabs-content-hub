@@ -554,7 +554,7 @@
 				<header class="flex items-center justify-between border-b border-surface-100 bg-red-50 px-4 py-2.5">
 					<h2 class="text-sm font-semibold text-red-900">⚠ Cannibalisation</h2>
 					<span class="text-xs text-red-700">
-						{data.cannibalization.length} requête(s) — plusieurs URLs en concurrence
+						{data.cannibalization.length} requête(s) — triées par priorité d'action
 					</span>
 				</header>
 				<table class="w-full text-xs">
@@ -562,7 +562,7 @@
 						<tr>
 							<th class="px-3 py-2 text-left font-medium">Mot-clé</th>
 							<th class="px-3 py-2 text-left font-medium">URLs en conflit (position · part d'impressions)</th>
-							<th class="px-3 py-2 text-right font-medium">Écart pos.</th>
+							<th class="px-3 py-2 text-right font-medium" title="Écart entre la page la plus montrée par Google et ta meilleure page. Élevé = Google met en avant la mauvaise page.">Écart page ↑</th>
 							<th class="px-3 py-2"></th>
 						</tr>
 					</thead>
@@ -576,6 +576,9 @@
 											· <span class="font-medium text-red-600">{c.conflictsInTop20} en top 20</span>
 										{/if}
 									</p>
+									{#if c.misallocationGap >= 1}
+										<p class="mt-0.5 font-medium text-red-600">↑ Google met en avant une page moins bien classée</p>
+									{/if}
 								</td>
 								<td class="px-3 py-2 align-top">
 									<ul class="space-y-1">
@@ -588,7 +591,7 @@
 										{/each}
 									</ul>
 								</td>
-								<td class="px-3 py-2 text-right align-top tabular-nums text-surface-900">{fmtPosition(c.positionSpread)}</td>
+								<td class="px-3 py-2 text-right align-top tabular-nums {c.misallocationGap >= 1 ? 'font-semibold text-red-600' : 'text-surface-400'}">{c.misallocationGap > 0 ? '+' : ''}{fmtPosition(c.misallocationGap)}</td>
 								<td class="px-3 py-2 text-right align-top">
 									{#if tracked.has(c.query)}
 										<span class="inline-flex items-center gap-1 text-emerald-600">✓ suivi</span>

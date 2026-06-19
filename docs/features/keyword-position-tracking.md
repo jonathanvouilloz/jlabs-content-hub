@@ -6,6 +6,19 @@
 
 ---
 
+## Etat session 2026-06-19 (fix qualité position watchlist + cannibalisation locale)
+
+- **Déclencheur :** test Jonathan sur barberconcept — « coiffeur homme sion » affichait **pos 7,9** alors qu'en navigation privée la fiche est 2ème. Diagnostic sur données Turso (sem. 2026-06-08, 37 imp) : le 7,9 est un blend correct mais **ne correspond à aucune page réelle** — 22/37 imp sont les **ancres jump-to** de l'article blog (`#trou`, `#lexp`…) toutes à pos 9, + 4 URLs du site en concurrence.
+- **Fait (typecheck 0 erreur + smoke-test e2e via endpoints clé API) :**
+  - **`getKeywordHistory`** réécrit : groupe par **page normalisée** (`normalizePageUrl`, ancres/www/protocole collapsés) et rapporte la **meilleure position** (headline `position`/`topPage`) + la **page principale par clics** (`primaryPosition`/`primaryPage`), avec plancher anti-fluke relatif `max(2, 0.1×imp semaine)`. Résultat barberconcept : « coiffeur homme sion » **7,9 → 5,2** (fiche salon). Étend `KeywordWeekPoint` + `WatchlistEntry`.
+  - **`computeCannibalization`** : seuil **relatif** `max(CANNIBAL_MIN_FLOOR=3, CANNIBAL_RELATIVE_SHARE=0.15 × imp du kw)` au lieu de `minImpressions=50` (qui masquait toute cannibalisation sur un site local). Param `minImpressions` conservé en override du plancher (rétro-compat route). « coiffeur homme sion » enfin détecté (blog 83 % imp à pos 8,8 vs salon 5,2).
+  - **Tri cannibalisation** : nouveau champ `misallocationGap` (= position page dominante − meilleure position) ; tri par ce gap décroissant → remonte les conflits où **Google met en avant une page moins bien classée** (actionnable), au lieu du tri par volume. « barber sion » remonte en tête, les co-rankings bénins (home déjà en pos 1) descendent.
+  - **UI** : onglet Positions (admin + vue client) affiche meilleure position + « clic » + les 2 pages ; section seo-data Cannibalisation montre l'écart page + alerte « ↑ Google met en avant une page moins bien classée » ; route `cannibalization` ne force plus le défaut 50.
+- **Piège résolu :** la route forçait `minImpressions=50` même absent → aurait neutralisé le seuil relatif. Corrigé : param optionnel (`undefined` → défaut fonction).
+- **Reste hors scope (noté en commentaire) :** `computePositionMovers`/`aggregateByQuery` restent un blend (chemin partagé avec `computeWeeklyDiff`/`computeActions`). Phase 5 (alertes) toujours optionnelle.
+
+---
+
 ## Etat session 2026-06-19 (Phase 6 — détection de cannibalisation)
 
 - **Fait :** **Phase 6 — détection de cannibalisation SEO** implémentée, typecheck OK (0 erreur) et smoke-testée e2e contre la DB Turso (6 projets backfillés).

@@ -37,6 +37,7 @@
 | 20 | GSC weekly snapshots (data layer + admin page + skill /seo-weekly) | M | DONE | _en cours_ |
 | 21 | SEO actions actionnables (endpoint /gsc/actions + skill /seo-actions) | S | DONE | _en cours_ |
 | 22 | Gestion fiche GMB : lecture snapshot + edition infos+horaires + stats Performance API | M | DONE | _en cours_ |
+| 23 | Suivi de positions mots-cles (cron GSC + watchlist + serie temporelle + rapport client) | M | EN COURS | [keyword-position-tracking.md](features/keyword-position-tracking.md) |
 
 ---
 

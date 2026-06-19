@@ -666,19 +666,32 @@ export async function computeActions(params: {
 
 export interface KeywordWeekPoint {
 	weekStart: string;
-	/** Impression-weighted average position for the week, or null if the keyword had no data that week (hors top / 0 impression). */
+	/**
+	 * Meilleure position de la semaine parmi les pages du site qui rankent réellement sur ce mot-clé
+	 * (ancres jump-to et variantes www/protocole collapsées, pages sous le plancher anti-fluke écartées).
+	 * C'est ce que le client voit en navigation privée. null si aucune donnée cette semaine.
+	 */
 	position: number | null;
 	clicks: number;
 	impressions: number;
 	ctr: number;
-	/** Page with the most clicks for this keyword that week, or null if no data. */
+	/** Page (normalisée) qui réalise cette meilleure position, ou null si pas de donnée. */
 	topPage: string | null;
+	/** Position de la page qui capte le plus de clics (la vraie landing page), ou null. */
+	primaryPosition: number | null;
+	/** Page (normalisée) qui capte le plus de clics cette semaine, ou null. */
+	primaryPage: string | null;
 }
 
 /**
  * Builds the N-week position series for a single keyword (exact-match query), aligned on
  * the last N complete weeks. Weeks with no GSC data return position=null (a real gap, never 0).
- * Position is impression-weighted across all pages/devices (mirrors aggregateByQuery).
+ *
+ * La position rapportée n'est PAS la moyenne pondérée sur toutes les lignes (query×page×device) :
+ * ce blend était écrasé par les ancres jump-to mortes d'un article (#section, toutes à pos 9) et
+ * par la cannibalisation entre plusieurs URLs du site → un chiffre ne correspondant à aucune page
+ * réelle (cf. piège epic 23). On groupe désormais par page normalisée (normalizePageUrl) et on
+ * rapporte la MEILLEURE position (headline) + la page principale par clics (primaryPosition).
  */
 export async function getKeywordHistory(
 	projectId: string,
@@ -709,47 +722,85 @@ export async function getKeywordHistory(
 			)
 		);
 
-	interface Acc {
+	interface PageAcc {
 		clicks: number;
 		impressions: number;
 		weightedPositionSum: number;
-		topPage: string;
-		topPageClicks: number;
 	}
-	const byWeek = new Map<string, Acc>();
+	// weekStart → (page normalisée → accumulateur). On collapse les ancres jump-to (#section) et les
+	// variantes www/protocole AVANT tout calcul (normalizePageUrl), sinon un article et ses ancres
+	// mortes à pos 9 noient la vraie landing page.
+	const byWeek = new Map<string, Map<string, PageAcc>>();
 	for (const r of rows) {
-		const acc = byWeek.get(r.weekStart);
+		let pages = byWeek.get(r.weekStart);
+		if (!pages) {
+			pages = new Map();
+			byWeek.set(r.weekStart, pages);
+		}
+		const pageKey = normalizePageUrl(r.page);
+		const acc = pages.get(pageKey);
 		if (acc) {
 			acc.clicks += r.clicks;
 			acc.impressions += r.impressions;
 			acc.weightedPositionSum += r.position * r.impressions;
-			if (r.clicks > acc.topPageClicks) {
-				acc.topPageClicks = r.clicks;
-				acc.topPage = r.page;
-			}
 		} else {
-			byWeek.set(r.weekStart, {
+			pages.set(pageKey, {
 				clicks: r.clicks,
 				impressions: r.impressions,
-				weightedPositionSum: r.position * r.impressions,
-				topPage: r.page,
-				topPageClicks: r.clicks
+				weightedPositionSum: r.position * r.impressions
 			});
 		}
 	}
 
+	const emptyPoint = (weekStart: string): KeywordWeekPoint => ({
+		weekStart,
+		position: null,
+		clicks: 0,
+		impressions: 0,
+		ctr: 0,
+		topPage: null,
+		primaryPosition: null,
+		primaryPage: null
+	});
+
 	return weekStarts.map((weekStart) => {
-		const acc = byWeek.get(weekStart);
-		if (!acc || acc.impressions === 0) {
-			return { weekStart, position: null, clicks: 0, impressions: 0, ctr: 0, topPage: null };
-		}
-		return {
-			weekStart,
-			position: acc.weightedPositionSum / acc.impressions,
+		const pages = byWeek.get(weekStart);
+		if (!pages || pages.size === 0) return emptyPoint(weekStart);
+
+		const all = [...pages.entries()].map(([page, acc]) => ({
+			page,
 			clicks: acc.clicks,
 			impressions: acc.impressions,
-			ctr: acc.clicks / acc.impressions,
-			topPage: acc.topPage || null
+			position: acc.impressions > 0 ? acc.weightedPositionSum / acc.impressions : 0
+		}));
+		const totalClicks = all.reduce((s, p) => s + p.clicks, 0);
+		const totalImpressions = all.reduce((s, p) => s + p.impressions, 0);
+		if (totalImpressions === 0) return emptyPoint(weekStart);
+
+		// Plancher anti-fluke relatif au volume du kw : on écarte les pages à très faible exposition
+		// (ex. 1 impression desktop à pos 1) qui fausseraient la « meilleure position ». Fallback sur
+		// toutes les pages avec impressions si aucune n'atteint le plancher (très longue traîne).
+		const floor = Math.max(2, 0.1 * totalImpressions);
+		let eligible = all.filter((p) => p.impressions >= floor);
+		if (eligible.length === 0) eligible = all.filter((p) => p.impressions > 0);
+
+		// Headline = meilleure position parmi les pages éligibles (≈ ce que voit le client en incognito).
+		const best = eligible.reduce((a, b) => (b.position < a.position ? b : a));
+		// Page principale = celle qui capte réellement les clics (tie-break : impressions).
+		const primary = eligible.reduce((a, b) => {
+			if (b.clicks !== a.clicks) return b.clicks > a.clicks ? b : a;
+			return b.impressions > a.impressions ? b : a;
+		});
+
+		return {
+			weekStart,
+			position: best.position,
+			clicks: totalClicks,
+			impressions: totalImpressions,
+			ctr: totalClicks / totalImpressions,
+			topPage: best.page,
+			primaryPosition: primary.position,
+			primaryPage: primary.page
 		};
 	});
 }
@@ -809,6 +860,10 @@ export interface WatchlistEntry {
 	targetPosition: number | null;
 	currentPosition: number | null;
 	topPage: string | null;
+	/** Position de la page qui capte le plus de clics (vraie landing page), dernière semaine avec donnée. */
+	primaryPosition: number | null;
+	/** URL qui capte le plus de clics, dernière semaine avec donnée. */
+	primaryPage: string | null;
 	trend: KeywordTrend;
 	series: KeywordWeekPoint[];
 }
@@ -839,6 +894,8 @@ export async function getWatchlistWithSeries(
 				targetPosition: kw.targetPosition,
 				currentPosition: trend.currentPosition,
 				topPage: latest?.topPage ?? null,
+				primaryPosition: latest?.primaryPosition ?? null,
+				primaryPage: latest?.primaryPage ?? null,
 				trend,
 				series
 			};
@@ -934,6 +991,12 @@ export interface CannibalizationEntry {
 	totalClicks: number;
 	/** max(position) - min(position) entre les URLs en conflit. */
 	positionSpread: number;
+	/**
+	 * Écart = position de la page dominante (le plus d'impressions) − meilleure position du conflit.
+	 * > 0 : Google montre surtout une page qui ranke MOINS bien qu'une autre URL du site → cannibalisation
+	 * actionnable (ex. un article noie la fiche qui ranke mieux). ≈ 0 : la bonne page est déjà mise en avant.
+	 */
+	misallocationGap: number;
 	/** Nombre d'URLs en conflit positionnées dans le top 20. */
 	conflictsInTop20: number;
 	severity: 'high' | 'medium';
@@ -959,9 +1022,17 @@ function normalizePageUrl(raw: string): string {
 	}
 }
 
+/** Plancher absolu d'impressions/URL pour qu'un conflit compte (anti-bruit longue traîne). */
+const CANNIBAL_MIN_FLOOR = 3;
+/** Part minimale des impressions du mot-clé qu'une URL doit capter pour être un concurrent réel. */
+const CANNIBAL_RELATIVE_SHARE = 0.15;
+
 /**
  * Détecte la cannibalisation SEO d'une semaine : requêtes pour lesquelles ≥2 URLs du site
- * se partagent les impressions, chacune au-dessus de `minImpressions` (anti-bruit longue traîne).
+ * se partagent les impressions. Le seuil de significativité est RELATIF au volume du mot-clé
+ * (`max(CANNIBAL_MIN_FLOOR, CANNIBAL_RELATIVE_SHARE × impressions du kw)`) — un seuil absolu masquait
+ * toute cannibalisation sur les sites locaux où chaque kw money fait 5–40 imp/sem. `params.minImpressions`,
+ * s'il est fourni, surcharge le plancher absolu (rétro-compat de la route).
  * Les devices ET variantes d'une même page (ancre/protocole/www) sont agrégés AVANT comptage
  * (cf. normalizePageUrl, sinon faux positifs). Position pondérée par impressions. `high` = ≥2 URLs en top 20.
  */
@@ -971,7 +1042,7 @@ export async function computeCannibalization(params: {
 	minImpressions?: number;
 	limit?: number;
 }): Promise<CannibalizationEntry[]> {
-	const minImpressions = params.minImpressions ?? 50;
+	const minFloor = params.minImpressions ?? CANNIBAL_MIN_FLOOR;
 	const limit = params.limit ?? 15;
 
 	const rows = await db
@@ -1020,14 +1091,17 @@ export async function computeCannibalization(params: {
 
 	const entries: CannibalizationEntry[] = [];
 	for (const [query, pages] of byQuery) {
-		const significant = [...pages.entries()]
-			.filter(([, acc]) => acc.impressions >= minImpressions)
-			.map(([page, acc]) => ({
-				page,
-				clicks: acc.clicks,
-				impressions: acc.impressions,
-				position: acc.impressions > 0 ? acc.weightedPositionSum / acc.impressions : 0
-			}));
+		const allPages = [...pages.entries()].map(([page, acc]) => ({
+			page,
+			clicks: acc.clicks,
+			impressions: acc.impressions,
+			position: acc.impressions > 0 ? acc.weightedPositionSum / acc.impressions : 0
+		}));
+		// Seuil relatif au volume du mot-clé (+ plancher absolu) : une URL compte si elle capte une
+		// part réelle des impressions. Indispensable pour le très local (kw à 5–40 imp/sem).
+		const queryTotalImpressions = allPages.reduce((s, p) => s + p.impressions, 0);
+		const threshold = Math.max(minFloor, CANNIBAL_RELATIVE_SHARE * queryTotalImpressions);
+		const significant = allPages.filter((p) => p.impressions >= threshold && p.impressions > 0);
 		if (significant.length < 2) continue; // pas de conflit
 
 		const totalImpressions = significant.reduce((s, p) => s + p.impressions, 0);
@@ -1040,23 +1114,27 @@ export async function computeCannibalization(params: {
 			.map((p) => ({ ...p, share: totalImpressions > 0 ? p.impressions / totalImpressions : 0 }))
 			.sort((a, b) => b.impressions - a.impressions);
 
+		// Page dominante = celle qui capte le plus d'impressions (sortedPages[0]). Si elle ranke moins
+		// bien que la meilleure URL du conflit, Google met en avant la mauvaise page → conflit actionnable.
+		const bestPosition = Math.min(...positions);
+		const misallocationGap = sortedPages[0].position - bestPosition;
+
 		entries.push({
 			query,
 			totalImpressions,
 			totalClicks,
 			positionSpread,
+			misallocationGap,
 			conflictsInTop20,
 			severity: conflictsInTop20 >= 2 ? 'high' : 'medium',
 			pages: sortedPages
 		});
 	}
 
-	const sevRank = { high: 0, medium: 1 } as const;
+	// Priorité aux conflits où Google montre une page moins bien classée que la meilleure URL du site
+	// (misallocationGap élevé = action SEO claire). Le volume d'impressions ne départage qu'à gap égal.
 	return entries
-		.sort(
-			(a, b) =>
-				sevRank[a.severity] - sevRank[b.severity] || b.totalImpressions - a.totalImpressions
-		)
+		.sort((a, b) => b.misallocationGap - a.misallocationGap || b.totalImpressions - a.totalImpressions)
 		.slice(0, limit);
 }
 

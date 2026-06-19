@@ -5,7 +5,7 @@
 
 	let { data } = $props();
 
-	type WeekPoint = { weekStart: string; position: number | null; clicks: number; impressions: number; ctr: number; topPage: string | null };
+	type WeekPoint = { weekStart: string; position: number | null; clicks: number; impressions: number; ctr: number; topPage: string | null; primaryPosition: number | null; primaryPage: string | null };
 	type Trend = { verdict: 'up' | 'down' | 'flat' | 'insufficient'; deltaPosition: number | null; currentPosition: number | null; vsTarget?: { targetPosition: number; reached: boolean; gap: number } };
 
 	const safeColor = $derived(/^#[0-9a-fA-F]{6}$/.test(data.project.color) ? data.project.color : '#4f46e5');
@@ -98,7 +98,7 @@
 					</table>
 				</div>
 				<p style="margin:20px 4px 0;color:#94a3b8;font-size:11px">
-					La position est une moyenne pondérée par impressions (source : Google Search Console, ~3 j de latence). À lire comme une tendance. · Suivi par jlabs-content-hub
+					La position affichée est la meilleure position de vos pages sur ce mot-clé (source : Google Search Console, ~3 j de latence). À lire comme une tendance. · Suivi par jlabs-content-hub
 				</p>
 			{/if}
 		</main>
