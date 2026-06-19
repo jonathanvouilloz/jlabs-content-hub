@@ -17,7 +17,8 @@
 		BarChart3,
 		ScrollText,
 		TrendingUp,
-		Building2
+		Building2,
+		LineChart
 	} from 'lucide-svelte';
 	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
 	import SyncToast from '$lib/components/SyncToast.svelte';
@@ -70,6 +71,7 @@
 			{ href: `/projects/${slug}/gmb-logs`, label: 'Logs GMB', icon: ScrollText, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/reviews`, label: 'Avis Google', icon: Star, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/seo-data`, label: 'SEO data', icon: TrendingUp, exact: false, linkedin: false },
+			{ href: `/projects/${slug}/positions`, label: 'Positions', icon: LineChart, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/settings`, label: 'Parametres', icon: Settings, exact: false, linkedin: false }
 		];
 	}
