@@ -132,20 +132,22 @@ Pour les images GMB, le skill `/publish-hub` doit :
 
 ## Documentation
 
-- `docs/PRD.md` — Product Requirements Document (source de verite pour le scope)
-- `docs/PLAN.md` — Plan d'execution avec statuts par epic
+- `docs/PRD-jokiseo.md` — **PRD actuel (v3, source de verite du scope jokiSEO)**
+- `docs/PRD.md` — PRD historique v1.1 ("Content Hub", phases 1-2) — archive
+- `docs/PLAN.md` — Plan d'execution avec statuts par epic (Phase 3 = jokiSEO)
 - `docs/DECISIONS.md` — Log des decisions techniques
 - `docs/STYLEGUIDE.md` — Conventions de code et design
 - `docs/features/*.md` — Detail par feature/epic
 
 ## Etat actuel
 
-**Date :** 2026-05-11
-**Phase :** V2 en cours — base contenu remise a zero pour repartir propre
-**Epics DONE (22) :** MVP (1-9) + V2 (10-22)
-**DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — 18 tables (3 ajoutees en epic 22 : gmb_location_profiles, gmb_insights_daily, gmb_profile_edits), 0 contenu (post-cleanup), 4 projets
+**Date :** 2026-06-24
+**Produit :** **jokiSEO** — cockpit SEO & presence locale (pivot du 2026-06-24, voir `docs/PRD-jokiseo.md`). Ex "Content Hub".
+**Phase :** Phase 3 — refactor jokiSEO. Epics 1-22 DONE, epic 23 (positions GSC) livre et absorbe dans l'epic 27.
+**Direction :** recentrage SEO + presence locale (GMB). Retrait de la surface UI Articles/LinkedIn (les tables restent, on filtre `type`). Refactor in-place (pas de rewrite), Turso conserve (pas de Neon), DataForSEO comme fournisseur SEO externe.
+**DB :** Turso `hublab-jonathanvouilloz.aws-eu-west-1.turso.io` — ~25 tables, ~6 projets GSC backfilles.
 **Admin :** contact@jonlabs.ch
-**Prochaine etape :** Ameliorations V2+ (responsive mobile, pagination, hash tokens, analytics) + epic 23 (GMB fiche : categories + services + photos)
+**Prochaine etape :** epic 24 (Focus & IA : nav 2 piliers + cockpit) → epic 25 (providers DataForSEO + runner de jobs) → epics 26 (avis full-auto) & 27 (rang SERP reel).
 
 ## Skills relies
 
