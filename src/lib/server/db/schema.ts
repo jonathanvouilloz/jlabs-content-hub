@@ -479,3 +479,27 @@ export const trackedKeywords = sqliteTable(
 	(table) => [uniqueIndex('tracked_keywords_project_keyword').on(table.projectId, table.keyword)]
 );
 
+// ── SEO reports (concurrence / backlinks / visibilité IA — pipeline SEO V2) ──
+// Un rapport daté attaché à un projet, éventuellement à un article (contentId).
+// contentId null = rapport au niveau marque/projet (ex: visibilité IA globale).
+
+export const seoReports = sqliteTable(
+	'seo_reports',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		contentId: text('content_id').references(() => contents.id),
+		reportType: text('report_type').notNull(), // 'competitor' | 'backlink' | 'ai_visibility'
+		target: text('target'), // keyword ciblé ou domaine concurrent
+		payload: text('payload').notNull(), // rapport structuré (JSON sérialisé)
+		score: integer('score'), // ex: score visibilité IA /100
+		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	},
+	(table) => [
+		index('seo_reports_project_type').on(table.projectId, table.reportType),
+		index('seo_reports_content').on(table.contentId)
+	]
+);
+
