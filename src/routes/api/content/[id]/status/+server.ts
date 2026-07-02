@@ -6,7 +6,20 @@ import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-aut
 import { publishUrl } from '$lib/server/indexing.js';
 import { eq } from 'drizzle-orm';
 
-const VALID_STATUSES = ['draft', 'review', 'approved', 'published'];
+// Statuts canoniques du hub + états de la machine du pipeline SEO autopilot.
+// Le DB est en texte libre ; cette liste est la seule garde applicative.
+const VALID_STATUSES = [
+	'draft',
+	'review',
+	'approved',
+	'published',
+	// Pipeline SEO V2 (orchestrateur content-creator / article-producer)
+	'brief_validated',
+	'writing',
+	'review_fail',
+	'needs_human',
+	'monitored'
+];
 
 export const PATCH: RequestHandler = async (event) => {
 	if (!validateApiKey(event) && !event.locals.user) {
@@ -15,6 +28,8 @@ export const PATCH: RequestHandler = async (event) => {
 
 	const body = await event.request.json();
 	const { status } = body;
+	// Trace d'audit : 'admin' via l'UI, 'autopilot' (ou valeur fournie) via l'API.
+	const changedBy = typeof body.changedBy === 'string' && body.changedBy ? body.changedBy : 'admin';
 
 	if (!status || !VALID_STATUSES.includes(status)) {
 		return errorResponse(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`, 400);
@@ -44,7 +59,7 @@ export const PATCH: RequestHandler = async (event) => {
 		contentId: event.params.id,
 		fromStatus: content.status,
 		toStatus: status,
-		changedBy: 'admin'
+		changedBy
 	});
 
 	// Auto-submit a la Google Indexing API si configure pour ce projet
