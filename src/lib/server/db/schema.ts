@@ -491,7 +491,7 @@ export const seoReports = sqliteTable(
 			.notNull()
 			.references(() => projects.id),
 		contentId: text('content_id').references(() => contents.id),
-		reportType: text('report_type').notNull(), // 'competitor' | 'backlink' | 'ai_visibility'
+		reportType: text('report_type').notNull(), // 'competitor' | 'backlink' | 'ai_visibility' | 'cannibalization'
 		target: text('target'), // keyword ciblé ou domaine concurrent
 		payload: text('payload').notNull(), // rapport structuré (JSON sérialisé)
 		score: integer('score'), // ex: score visibilité IA /100

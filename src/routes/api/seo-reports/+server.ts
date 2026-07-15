@@ -5,7 +5,7 @@ import { createId } from '$lib/server/utils.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { eq, and, desc } from 'drizzle-orm';
 
-const VALID_TYPES = ['competitor', 'backlink', 'ai_visibility'];
+const VALID_TYPES = ['competitor', 'backlink', 'ai_visibility', 'cannibalization'];
 
 // POST /api/seo-reports
 // Body: { project_slug, report_type, article_slug?, target?, payload, score? }
