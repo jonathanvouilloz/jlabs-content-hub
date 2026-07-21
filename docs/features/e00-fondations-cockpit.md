@@ -6,33 +6,41 @@
 
 ## Etat session 2026-07-21
 
-**Fait (bloc « fondations in-repo ») :**
-- **OPS-001** — logger structuré `src/lib/server/log.ts` : JSON-lines en prod, texte lisible en dev,
-  niveaux (`LOG_LEVEL`), masquage des champs secrets (`redactFields`). Sans dépendance.
-- **GOV-003** — config runtime centralisée `src/lib/server/config.ts` : schéma déclaratif des 21
-  variables réellement consommées (rôle / exigence boot|feature|optional / secret), `validateStartup()`
-  (log-only, non bloquant) câblé au boot via `hooks.server.ts`, helper `requireEnv(name, feature)`
-  pour le fail-fast au point d'usage. `.env.example` nettoyé (bloc GitHub mort retiré, doc flags+LOG_LEVEL).
-- **GOV-005** — feature flags `src/lib/server/flags.ts` : 7 flags (jobs_v2, findings, indexnow, plausible,
-  gmb_auto_send, telegram, agent_runner), tous OFF par défaut, override global `FLAG_<NOM>` + override
-  par projet (API prête pour DATA-002), `describeFlags()` pour journaliser les flags effectifs par run.
-- **GOV-001 (partiel, interne)** — `package.json` name `jlabs-content-hub → seo-stats` ; User-Agent sitemap
-  idem. Renommage limité à l'interne, cf. piège ci-dessous.
+**Fait :**
+- **OPS-001** logger structuré (`src/lib/server/log.ts`) : JSON-lines prod / texte dev, niveaux (`LOG_LEVEL`), masquage des champs secrets.
+- **GOV-003** config runtime centralisée (`src/lib/server/config.ts`) : schéma des 21 env vars, `validateStartup()` log-only câblé au boot (`hooks.server.ts`), `requireEnv()` fail-fast au point d'usage ; `.env.example` nettoyé (GitHub mort retiré + doc flags/LOG_LEVEL).
+- **GOV-005** feature flags (`src/lib/server/flags.ts`) : 7 flags OFF par défaut, override global `FLAG_<NOM>` + par projet, `describeFlags()`.
+- **GOV-001 (interne)** `package.json` name + User-Agent → `seo-stats`.
+- **GOV-002/004** baseline établie : `check` = 0 err / 42 warn (dette legacy `(app)/`) ; build local KO (EPERM symlink adapter-vercel, Windows, pas une régression) ; `src` propre de Turso.
 
-**Baseline (GOV-002) établie :**
-- `npm run check` = **0 erreur, 42 warnings** (tous dans `(app)/` gelé + report/view = dette legacy).
-- `npm run build` = **échoue en LOCAL** (`EPERM symlink` de `adapter-vercel`, Windows sans Developer Mode).
-  Pas une régression de code : vert sur les builders Linux de Vercel. À contourner localement (Developer
-  Mode) ou traiter au chantier portabilité VPS (E13/GOV-004).
-- Aucun test unit/integration (pas de script `test`) — à instaurer (SPEC §19).
+**Prochain :** Enchaîner **IDX-008** dans `src/lib/server/indexing.ts` — neutraliser `publishUrl`/`batchSubmit` génériques (garder JobPosting/BroadcastEvent), gater derrière le flag `indexnow`. Puis **DATA-001** (cartographie des 29 tables). Contrats skills GSC-003/IDX-003 = hors repo.
 
-**Audit (GOV-004) :** `src/` propre de Turso/libsql (1 commentaire résiduel) ; `@libsql/client` absent des deps.
+**Pièges :**
+- 3 chaînes `jlabs-content-hub` **visibles client** non renommées (décision de marque en attente) : `src/routes/positions/[slug]/+page.svelte:101`, `src/lib/server/email-templates.ts:54,107`. Cible = `seo-stats` / `jonlabs` / retirer ?
+- Build local KO sur Windows (symlink adapter-vercel) → vérifier via `check`, pas `build`, en local.
+- IDX-008 change le comportement prod (auto-submit) → obligatoirement derrière flag.
 
-## Pièges actifs
-- ⚠️ **3 chaînes `jlabs-content-hub` visibles client NON renommées** (décision de marque en attente) :
-  `src/routes/positions/[slug]/+page.svelte:101` (vue publique), `src/lib/server/email-templates.ts:54,107`
-  (footers email). Cible = `seo-stats` (interne) ou `jonlabs` (marque) ? → à trancher avec Jon.
-- ⚠️ Build local KO sur Windows (symlink adapter-vercel) — vérifier via `check`, pas `build`, en local.
+**Commit :** [4bbe9ef] [hub] docs: HANDOFF pointe sur E00 fondations · code : [3d9be7d] fondations cockpit (logger, config, flags)
+
+---
+
+## Carte du code
+> Mise à jour : 2026-07-21
+
+| Fichier | Rôle |
+|---------|------|
+| `src/lib/server/log.ts` | Logger structuré (OPS-001) — socle d'observabilité, masquage secrets. |
+| `src/lib/server/config.ts` | Config runtime centralisée (GOV-003) — schéma env, `validateStartup`, `requireEnv`. |
+| `src/lib/server/flags.ts` | Feature flags de migration (GOV-005) — 7 verticales OFF par défaut. |
+| `src/hooks.server.ts` | Import à effet de bord de `config.ts` → validation au boot serveur. |
+| `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
+| `src/lib/server/indexing.ts` | Google Indexing API — cible IDX-008 (à restreindre) ; UA renommé. |
+
+### Décisions clés
+- Config au boot **log-only** (pas de throw) pour protéger le daily driver ; fail-fast strict délégué à `requireEnv` au point d'usage.
+- Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
+- Renommage `jlabs-content-hub` limité à l'interne ; le client-facing est une décision de marque séparée.
+- Branche `feat/cockpit` depuis `feat/neon` (isole la phase agentique ; `feat/neon` figée pour le cutover Vercel P5A).
 
 ## Reste du premier lot §9 (non fait)
 - [ ] **GOV-001 (reste)** — marquer `Desktop/apps/jlabs-content-hub` legacy read-only (garder comme backup
@@ -46,11 +54,3 @@
 - [ ] **IDX-008** — restreindre la Google Indexing API (`src/lib/server/indexing.ts`) : neutraliser la
       soumission générique (garder JobPosting / BroadcastEvent), documenter sitemap/maillage comme voie
       normale. **Change le comportement prod** (auto-submit) → à faire derrière un flag.
-
-## Décisions techniques prises
-- Config au boot **log-only** (pas de throw) pour protéger le daily driver d'un cold-start serverless ;
-  le fail-fast strict est délégué à `requireEnv` au point d'usage.
-- Flags OFF par défaut ; un flag ne route que le comportement, n'efface jamais de donnée.
-- Renommage `jlabs-content-hub` limité à l'interne ; le client-facing est une décision de marque séparée.
-- Branche `feat/cockpit` depuis `feat/neon` (isole la phase agentique ; `feat/neon` reste figée pour le
-  cutover Vercel P5A).
