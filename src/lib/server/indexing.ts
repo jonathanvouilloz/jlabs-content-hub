@@ -413,7 +413,7 @@ export async function batchInspect(params: {
 }
 
 export async function fetchSitemapUrls(sitemapUrl: string): Promise<string[]> {
-	const res = await fetch(sitemapUrl, { headers: { 'User-Agent': 'jlabs-content-hub/indexing' } });
+	const res = await fetch(sitemapUrl, { headers: { 'User-Agent': 'seo-stats/indexing' } });
 	if (!res.ok) throw new Error(`Sitemap fetch failed: HTTP ${res.status}`);
 	const xml = await res.text();
 
