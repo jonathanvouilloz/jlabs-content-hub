@@ -318,7 +318,7 @@ Acceptation :
 
 ## DATA-006 — Créer propositions, approbations et agent runs
 
-**Priorité :** P0 · **Taille :** L · **État :** READY · **Dépendances :** DATA-005
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-22, phase expand — 3 tables [action_proposals + proposal_approvals + agent_runs] + helpers purs/écriture, appliqué sur Neon ; agent/exécuteur = aval) · **Dépendances :** DATA-005
 
 Travail :
 
@@ -352,7 +352,7 @@ Acceptation :
 
 ## DATA-008 — Implémenter rétention, agrégation et purge
 
-**Priorité :** P1 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-004, DATA-005
+**Priorité :** P1 · **Taille :** L · **État :** READY (dépendances DATA-004+DATA-005 levées le 2026-07-22) · **Dépendances :** DATA-004, DATA-005
 
 Travail :
 

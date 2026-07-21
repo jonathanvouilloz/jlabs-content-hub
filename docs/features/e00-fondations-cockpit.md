@@ -4,6 +4,56 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (DATA-006 — proposals + approvals + agent_runs)
+
+**Fait :**
+- **DATA-006** phase **expand** : 3 tables de la couche décision→action (SPEC §7.8/§7.9/§12) dans
+  `schema.ts`. Une proposition = une action **recommandée** (jamais une mutation → exécution).
+  - `action_proposals` (§7.8) — **`payload_hash`** stocké (hash canonique de `payload_json`) = ce à
+    quoi une approbation se lie. Statuts = 7 de §7.8 **+ `invalidated`** (payload modifié après
+    approbation) **+ `expired`**. `required_approval_level` (L0–L4, §12.1). Exécution/vérification
+    **non séparées** : `execution_job_id` FK→`jobs` (queue durable existante) + `verification_status`.
+    Idempotence : **unique `(project_id, finding_id, action_type, payload_hash)`** → re-proposition
+    identique ne duplique pas.
+  - `proposal_approvals` (**entité d'approbation dédiée**, §12.2/§12.3/§14.3) — **hash lié**
+    (`approved_payload_hash`), auteur + `scope_json` (périmètre), `method` (ui|telegram|policy),
+    **token one-time** + `token_used_at` + `expires_at`, statut propre (active|consumed|expired|
+    revoked|invalidated). 1 ligne par proposition (approbation de lot = jamais un scope global).
+  - `agent_runs` (§7.9) — journal d'invocation LLM : agent/version, skill, model, inputs+hashes,
+    `findings_read_json` (sources), sortie (proposal|report), tokens/coût/durée, résultat/erreurs,
+    `human_validation_ref` FK→`proposal_approvals`. Distinct de `monitoring_runs` (orchestration).
+  - Helpers : `proposal-state.ts` (**pur**, testé : `canActorApprove` [agent ≤ L2, policy ≤ L3,
+    **L4 = user seul**], `isApprovalValid` [active + hash égal + non expiré], `statusAfterPayloadChange`,
+    tuples de vocabulaire) · `proposals.ts` (`createProposal` idempotent + `computePayloadHash`
+    [sha256], `approveProposal` **transactionnel** [refuse si niveau interdit], `updateProposalPayload`
+    [invalide l'approbation], `rejectProposal`/`supersedeProposal`/`linkExecutionJob`/
+    `setVerificationStatus`, `recordAgentRun`/`finishAgentRun` ; garde `assertBoundedPayload`/
+    `assertNoInlineSecret` sur tous les blobs).
+  - Application : `drizzle/manual-data-006.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-006.ts`.
+- Vérif : `npm run test` = **115/115** (18 nouveaux) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL **appliqué sur Neon** (3/3 tables) · introspection = **50 tables, zéro dérive** (idem-unique +
+  token-unique + FK exécution→`jobs` vérifiés).
+- **3 acceptations couvertes** : (1) modifier le payload invalide l'approbation → `payload_hash` +
+  `isApprovalValid` + `updateProposalPayload` ; (2) un agent ne peut pas élever son niveau →
+  `canActorApprove` refuse L3/L4 ; (3) toute action externe remonte à une proposition (`execution_job_id`)
+  ou policy versionnée (`review_automation_policies`, DATA-007).
+- **Pas d'agent réel, pas d'exécuteur, pas d'UI** (expand seul). Recoupements legacy (`publish_logs`,
+  `gmb_reviews.draftReply`, `ai_jobs`) **non touchés** — contract différé.
+
+**Prochain :** **DATA-007** (`review_automation_policies` : modes draft_only/guarded_auto/manual, seuils,
+version, kill switch) et/ou **DATA-008** (rétention/purge, désormais débloqué). Puis la chaîne agentique
+aval (1er détecteur + agent réel qui produit findings→proposals).
+
+**Pièges :**
+- `payload_hash` = sha256 de la **chaîne** `payload_json` stockée → l'appelant doit fournir une
+  sérialisation stable s'il veut que deux payloads sémantiquement égaux partagent le hash.
+- `findingId` **nullable** dans l'unique d'idempotence : Postgres traite les NULL comme distincts →
+  deux propositions « sans finding » de même action/payload ne se dédupliquent pas (attendu).
+- Exécution = table `jobs` existante, **pas** une nouvelle table (SPEC : pas de table exécution séparée).
+- `proposal_approvals.token` unique mais nullable → plusieurs approbations sans token coexistent (OK).
+
+---
+
 ## Etat session 2026-07-22 (DATA-005 — findings + finding_events)
 
 **Fait :**
@@ -298,6 +348,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/proposal-state.ts` | Purs DATA-006 : `canActorApprove` (séparation des niveaux L0–L4), `isApprovalValid` (hash lié + expiration), `statusAfterPayloadChange`, tuples (statuts/niveaux/méthodes/vérif). |
+| `src/lib/server/proposal-state.test.ts` | Vitest DATA-006 — 18 tests (niveaux d'approbation, validité hash/expiration, transitions). |
+| `src/lib/server/proposals.ts` | DATA-006 — `createProposal` idempotent (+`computePayloadHash` sha256), `approveProposal` transactionnel (refus niveau), `updateProposalPayload` (invalidation), agent runs. |
+| `scripts/apply-data-006.ts` + `drizzle/manual-data-006.sql` | Application déterministe du DDL additif DATA-006 (`action_proposals` + `proposal_approvals` + `agent_runs`). |
 | `src/lib/server/finding-state.ts` | Purs DATA-005 : `deriveFindingFingerprint`, `computePriorityScore` (§10.2), `deriveSeverityEventType`/`deriveStatusEventType`, tuples de vocabulaire (types/statuts/sévérités/entités/événements/acteurs). |
 | `src/lib/server/finding-state.test.ts` | Vitest DATA-005 — 27 tests (fingerprint stable, scoring borné, dérivation d'événements, vocab). |
 | `src/lib/server/findings.ts` | DATA-005 — `upsertFinding` idempotent (`occurrence_count` atomique), `recordFindingEvent` append-only, `transitionFinding` transactionnel (statut+événement). |
@@ -313,7 +367,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (47 tables) ; +DATA-002/003/004/005 (intégrations, orchestration, 10 observations, findings+finding_events). |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (50 tables) ; +DATA-002/003/004/005/006 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs). |
 | `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
 | `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
 | `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
@@ -328,6 +382,16 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 - Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
 - **IDX-008** : garde à deux étages (flag maître `indexnow` + éligibilité type) ; refus audité en DB, zéro quota.
 - **DATA-002 (expand seul)** : `resource_key` discrimine plusieurs propriétés/locations d'un provider ; projections en **historique** (unique `(project_id, source_hash)` + unique partiel `current`) ; garde `assertNoInlineSecret` sur payload/config ; secrets via `secret_ref`, jamais inline. **Pas de backfill/retrait** des tables héritées.
+- **DATA-006 (expand seul)** : `action_proposals` + `proposal_approvals` + `agent_runs` (SPEC §7.8/§7.9/§12).
+  **Approbation = table dédiée** (pas inline §7.8) : porte le **hash lié** (`approved_payload_hash`),
+  périmètre, token one-time + expiration, statut propre → supporte lot (§12.3) + Telegram (§14.3) ;
+  `action_proposals` garde `approved_by/at` en dénormalisé. **Statuts** = 7 de §7.8 **+ `invalidated` +
+  `expired`** ; colonne **`payload_hash`** (sha256) à laquelle l'approbation se lie. **Invariants portés
+  par le module pur** : `canActorApprove` (agent ≤ L2, policy ≤ L3, **L4 = user seul** — §12.2) +
+  `isApprovalValid` (active + hash égal + non expiré). **Exécution/vérification non séparées** :
+  `execution_job_id` FK→`jobs` + `verification_status` (pas de table exécution). Idempotence :
+  unique `(project_id, finding_id, action_type, payload_hash)`. `agent_runs` distinct de
+  `monitoring_runs` (raisonnement agent vs orchestration collecteur). **Pas d'agent/exécuteur/UI.**
 - **DATA-005 (expand seul)** : `findings` + `finding_events` (SPEC §7.6/§7.7). **Statuts** = les 7 de §7.6
   **+ `reopened`** (§10.1) ; `new` transitoire (naît `open`). **Dédup** = unique `(project_id, fingerprint)`
   (fingerprint stable = miroir applicatif dans `finding-state.ts`, séparateur `\x1f`). **Preuves** =
