@@ -41,7 +41,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 const DRY_RUN = process.argv.includes('--dry-run');
-const CHUNK = 5000;
+// Limite Postgres = 65535 paramètres bind par requête. La table la plus large
+// (gsc_query_page_observations) insère 16 colonnes/ligne → 4000×16 = 64000 params,
+// sous la limite avec marge. Sert aussi de taille de page keyset (passGmb).
+const CHUNK = 4000;
 const nowIso = () => new Date().toISOString();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });

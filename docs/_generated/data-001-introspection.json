@@ -1,5 +1,5 @@
 {
-  "stamp": "2026-07-21",
+  "stamp": "post-backfill",
   "schemas": [
     "seostats",
     "core"
@@ -1675,7 +1675,7 @@
     {
       "schema": "seostats",
       "table": "gsc_page_observations",
-      "rowCount": 0,
+      "rowCount": 3300,
       "columns": [
         {
           "column": "id",
@@ -1913,7 +1913,7 @@
     {
       "schema": "seostats",
       "table": "gsc_query_page_observations",
-      "rowCount": 0,
+      "rowCount": 73009,
       "columns": [
         {
           "column": "id",
@@ -2720,7 +2720,7 @@
     {
       "schema": "seostats",
       "table": "keyword_rank_observations",
-      "rowCount": 0,
+      "rowCount": 137,
       "columns": [
         {
           "column": "id",
