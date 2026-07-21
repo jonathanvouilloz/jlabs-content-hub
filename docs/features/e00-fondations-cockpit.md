@@ -4,6 +4,32 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-21 (DATA-001)
+
+**Fait :**
+- **DATA-001** cartographie du schéma existant → `docs/DATA-001-cartography.md`.
+  - Script d'introspection **read-only** `scripts/data-001-cartography.ts` (Pool `.env`, raw SQL
+    `information_schema`/`pg_indexes` + `count(*)`) → snapshot `docs/_generated/data-001-introspection.json`.
+  - **Zéro dérive** : 30 tables live = 30 dans `schema.ts` (les 5 tables ex-SQL-manuel epic18/22/
+    seo-reports sont reprises dans le modèle). Base **non vide** (volumes réels relevés).
+  - Sort documenté par table (conserver/migrer/retirer) · doublons vs futur modèle d'observations ·
+    stratégie **expand/migrate/contract** pour base peuplée.
+  - Volumétrie : dominée par `gsc_query_page_data` (**73 009** lignes, 99 % du hub), reste ≤ 500.
+  - Findings : `content_types` vide (référentiel mort, candidat retrait) · `gsc_query_page_data`
+    **sans clé naturelle imposée** → risque de doublons à dédupliquer avant migration · plusieurs
+    tables GMB vides (dormantes).
+- Vérif : script OK · `npm run check` = **0 err / 42 warn** (baseline).
+
+**Prochain :** **DATA-002** — `project_integrations` (unifie `indexing_credentials`, `gmb_settings`,
+`linkedin_settings`, `cms_connections`) + `project_projections` (remplace `project_contexts`, avec
+hash/version/provenance). Puis **DATA-001b** (fixture anonymisée, différée).
+
+**Pièges :**
+- Migration GSC = seul morceau volumineux (73k) → **par lots**, jamais un rewrite bloquant.
+- `core` reste R/O (FK `projects.slug → core.entities.slug`, possédé par invoices).
+
+---
+
 ## Etat session 2026-07-21 (IDX-008)
 
 **Fait :**
@@ -75,8 +101,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ## Reste du premier lot §9 (non fait)
 - [ ] **GOV-001 (reste)** — marquer `Desktop/apps/jlabs-content-hub` legacy read-only (garder comme backup
       jusqu'au cutover), avertissement dans sa doc.
-- [ ] **DATA-001** — cartographier + figer le schéma existant (29 tables), stratégie expand/migrate/contract,
-      fixture DB anonymisée.
+- [x] **DATA-001** (2026-07-21) — cartographie du schéma → `docs/DATA-001-cartography.md` (30 tables,
+      zéro dérive, sort par table, doublons, expand/migrate/contract). Script read-only
+      `scripts/data-001-cartography.ts`.
+- [ ] **DATA-001b** — fixture DB anonymisée (seed synthétique, zéro donnée client). Différée de DATA-001.
 - [ ] **GSC-003** — réparer le contrat réel de `~/.claude/skills/seo-gsc` (champ `page` fantôme dans
       `top_queries`) + adapter weekly/actions/refresh. **Hors repo (couche skills).**
 - [ ] **IDX-003** — réparer le contrat de `~/.claude/skills/seo-index-diagnose` (`buckets` vs `results`)

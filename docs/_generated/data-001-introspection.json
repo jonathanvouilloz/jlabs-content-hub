@@ -1,0 +1,2456 @@
+{
+  "stamp": "2026-07-21",
+  "schemas": [
+    "seostats",
+    "core"
+  ],
+  "summary": {
+    "liveCount": 30,
+    "modelCount": 30,
+    "inDbNotModel": [],
+    "inModelNotDb": [],
+    "inBothCount": 30
+  },
+  "tables": [
+    {
+      "schema": "core",
+      "table": "entities",
+      "rowCount": 9,
+      "columns": [
+        {
+          "column": "slug",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "display_name",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "slug"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "entities_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "account",
+      "rowCount": 1,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "account_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "provider_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "user_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "access_token",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "refresh_token",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "id_token",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "refresh_token_expires_at",
+          "type": "timestamp with time zone",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "scope",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "password",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "column": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "account_user_id_user_id_fk",
+          "columns": [
+            "user_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "user",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "account_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "ai_jobs",
+      "rowCount": 111,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'pending'::text"
+        },
+        {
+          "column": "result",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "ai_jobs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "ai_jobs_pkey",
+        "idx_ai_jobs_project"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "cms_connections",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "cms_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "config",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "api_token",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "cms_connections_project_id_unique",
+          "columns": [
+            "project_id"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "constraint": "cms_connections_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "cms_connections_pkey",
+        "cms_connections_project_id_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "comments",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "content_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "author_name",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "author_email",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "body",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "comments_content_id_contents_id_fk",
+          "columns": [
+            "content_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "contents",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "comments_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "content_types",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "slug",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "label",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "icon",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "content_types_slug_unique",
+          "columns": [
+            "slug"
+          ]
+        }
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "content_types_pkey",
+        "content_types_slug_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "contents",
+      "rowCount": 92,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "title",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "slug",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "body",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'draft'::text"
+        },
+        {
+          "column": "planned_date",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "published_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "tags",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "meta",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "gmb_post_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "cms_item_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "contents_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "contents_pkey",
+        "contents_project_type_slug"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "employee_mentions",
+      "rowCount": 67,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "employee_name",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "year",
+          "type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "month",
+          "type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "mention_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "positive_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "neutral_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "negative_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "employee_mentions_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "emp_mentions_unique",
+        "employee_mentions_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_ai_reports",
+      "rowCount": 3,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "model",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "summary_json",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "input_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "generated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_ai_reports_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_ai_reports_pkey",
+        "gmb_ai_reports_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_insights_daily",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "gmb_location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "metric",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_insights_daily_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_insights_daily_pkey",
+        "gmb_insights_unique",
+        "idx_gmb_insights_proj_date"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_location_profiles",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "gmb_location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "title",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "phone",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "website_uri",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "store_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "primary_category_display",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "primary_category_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "formatted_address",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "latitude",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "longitude",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "open_status",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "storefront_address",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "additional_phones",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "additional_categories",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "regular_hours",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "special_hours",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "service_items",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "profile_description",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "labels",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "attributes",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "raw_payload",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "etag",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "synced_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_location_profiles_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_loc_profile_unique",
+        "gmb_location_profiles_pkey",
+        "idx_gmb_loc_profile_synced"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_profile_edits",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "gmb_location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "section",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "update_mask",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "success",
+          "type": "boolean",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "changed_by",
+          "type": "text",
+          "nullable": false,
+          "default": "'admin'::text"
+        },
+        {
+          "column": "changed_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_profile_edits_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_profile_edits_pkey",
+        "idx_gmb_edits_loc_date"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_reviews",
+      "rowCount": 358,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "location_label",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "review_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "author_name",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "rating",
+          "type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "comment",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "create_time",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "draft_reply",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "mentioned_employees",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "replied_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "gmb_reviews_review_id_unique",
+          "columns": [
+            "review_id"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_reviews_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_reviews_pkey",
+        "gmb_reviews_review_id_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gmb_settings",
+      "rowCount": 8,
+      "columns": [
+        {
+          "column": "key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "key"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "gmb_settings_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gsc_query_page_data",
+      "rowCount": 73009,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "snapshot_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "week_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "query",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "page",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "device",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "clicks",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "impressions",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "ctr",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "position",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gsc_query_page_data_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "gsc_query_page_data_snapshot_id_gsc_snapshots_id_fk",
+          "columns": [
+            "snapshot_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "gsc_snapshots",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gsc_qp_project_page",
+        "gsc_qp_project_query",
+        "gsc_qp_project_week",
+        "gsc_query_page_data_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gsc_snapshots",
+      "rowCount": 96,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "week_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "week_end",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'pending'::text"
+        },
+        {
+          "column": "total_impressions",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "total_clicks",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "avg_ctr",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "avg_position",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "row_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gsc_snapshots_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gsc_snapshots_pkey",
+        "gsc_snapshots_project_week"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gsc_weekly_diffs",
+      "rowCount": 96,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "week_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "computed_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "kpis",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "rising",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "falling",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "opportunities",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "new_keywords",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "lost_keywords",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gsc_weekly_diffs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gsc_diffs_project_week",
+        "gsc_weekly_diffs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "indexing_credentials",
+      "rowCount": 6,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "service_account_email",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "service_account_json",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "site_url",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "sitemap_url",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "public_url_template",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "auto_submit_on_publish",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "exclude_patterns",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "indexing_credentials_project_id_unique",
+          "columns": [
+            "project_id"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "constraint": "indexing_credentials_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "indexing_credentials_pkey",
+        "indexing_credentials_project_id_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "indexing_submissions",
+      "rowCount": 441,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "url",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "http_status",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "response",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "source",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "submitted_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "indexing_submissions_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "indexing_submissions_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "linkedin_settings",
+      "rowCount": 3,
+      "columns": [
+        {
+          "column": "key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "key"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "linkedin_settings_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "project_contexts",
+      "rowCount": 5,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "context",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "project_contexts_project_id_unique",
+          "columns": [
+            "project_id"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "constraint": "project_contexts_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "project_contexts_pkey",
+        "project_contexts_project_id_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "project_gmb_locations",
+      "rowCount": 9,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "gmb_location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "label",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "address",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "project_gmb_locations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "project_gmb_loc_unique",
+        "project_gmb_locations_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "projects",
+      "rowCount": 6,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "name",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "slug",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "description",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "color",
+          "type": "text",
+          "nullable": false,
+          "default": "'#00D9A3'::text"
+        },
+        {
+          "column": "image",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "access_token",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "archived",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "gmb_location_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "client_email",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "weekly_digest_enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "projects_access_token_unique",
+          "columns": [
+            "access_token"
+          ]
+        },
+        {
+          "constraint": "projects_slug_unique",
+          "columns": [
+            "slug"
+          ]
+        }
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "projects_access_token_unique",
+        "projects_pkey",
+        "projects_slug_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "publish_logs",
+      "rowCount": 209,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "content_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "channel",
+          "type": "text",
+          "nullable": false,
+          "default": "'gmb'::text"
+        },
+        {
+          "column": "location_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "location_label",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "success",
+          "type": "boolean",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "gmb_post_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "attempted_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "duration_ms",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "source",
+          "type": "text",
+          "nullable": false,
+          "default": "'cron'::text"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "publish_logs_content_id_contents_id_fk",
+          "columns": [
+            "content_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "contents",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "publish_logs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_publish_logs_content",
+        "idx_publish_logs_project_date",
+        "publish_logs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "seo_reports",
+      "rowCount": 4,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "content_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "report_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "target",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "score",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "seo_reports_content_id_contents_id_fk",
+          "columns": [
+            "content_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "contents",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "seo_reports_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "seo_reports_content",
+        "seo_reports_pkey",
+        "seo_reports_project_type"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "session",
+      "rowCount": 24,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "token",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "ip_address",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "user_agent",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "user_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "column": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "session_token_unique",
+          "columns": [
+            "token"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "constraint": "session_user_id_user_id_fk",
+          "columns": [
+            "user_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "user",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "session_pkey",
+        "session_token_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "status_history",
+      "rowCount": 201,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "content_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "from_status",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "to_status",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "changed_by",
+          "type": "text",
+          "nullable": false,
+          "default": "'admin'::text"
+        },
+        {
+          "column": "changed_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "status_history_content_id_contents_id_fk",
+          "columns": [
+            "content_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "contents",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "status_history_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "tracked_keywords",
+      "rowCount": 6,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "keyword",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "target_url",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "target_position",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "archived",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "tracked_keywords_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "tracked_keywords_pkey",
+        "tracked_keywords_project_keyword"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "user",
+      "rowCount": 1,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "name",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "email",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "email_verified",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "image",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "column": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [
+        {
+          "constraint": "user_email_unique",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        "user_email_unique",
+        "user_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "verification",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "identifier",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "column": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "verification_pkey"
+      ]
+    }
+  ]
+}

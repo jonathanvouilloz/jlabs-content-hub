@@ -232,7 +232,8 @@ Acceptation :
 
 ## DATA-001 — Cartographier et figer le schéma existant
 
-**Priorité :** P0 · **Taille :** M · **État :** READY · **Dépendances :** GOV-002
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-21, cf. `docs/DATA-001-cartography.md`) · **Dépendances :** GOV-002
+> Reste ouvert : **DATA-001b** — fixture DB anonymisée (différée de DATA-001).
 
 Travail :
 
