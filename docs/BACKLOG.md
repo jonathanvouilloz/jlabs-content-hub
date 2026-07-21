@@ -267,7 +267,7 @@ Acceptation :
 
 ## DATA-003 — Créer `monitoring_runs`, `monitoring_steps` et `jobs`
 
-**Priorité :** P0 · **Taille :** L · **État :** READY · **Dépendances :** DATA-001
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-21, phase expand — 3 tables + helpers purs/écriture ; claim atomique = JOB-001, migrate/contract en phase suivante) · **Dépendances :** DATA-001
 
 Travail :
 

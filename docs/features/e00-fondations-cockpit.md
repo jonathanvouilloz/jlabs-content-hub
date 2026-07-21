@@ -4,6 +4,44 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-21 (DATA-003)
+
+**Fait :**
+- **DATA-003** phase **expand** : 3 tables d'orchestration du modèle agentique dans `schema.ts`.
+  - `monitoring_runs` (SPEC §7.3) — run logique par projet/période. **unique (project_id,
+    idempotency_key)** = deux créations concurrentes même clé ⇒ **un seul run** (acceptation 2).
+    Statuts `queued|running|partial|success|failed|cancelled`, types
+    `daily|weekly|monthly|manual|post_publish`, `triggered_by` schedule|user|agent|webhook.
+  - `monitoring_steps` (SPEC §7.4) — tentative d'étape, FK→run. **unique (run_id, step_type,
+    attempt)** (`force` = nouvel `attempt`, SPEC §8.3). Statuts step incluent **`skipped`** et
+    **`provider_unavailable`** → un run partiel distingue succès/skip/échec/provider indispo
+    (acceptation 1). Lease (`lease_owner`/`lease_until`) + `input_hash`/`output_hash`.
+  - `jobs` (conçue depuis SPEC §6.2 queue durable + §8.3) — queue Postgres : `attempts`/`max_attempts`
+    (dead-letter), `available_at` (backoff), lease + `heartbeat_at`, `depends_on` (JSON), `run_id`
+    nullable. **unique (project_id, idempotency_key)** (dédup) + **`idx_jobs_claim`(status,
+    available_at, priority)** = index de réclamation vérifié (acceptation 3). Le claim atomique
+    `FOR UPDATE SKIP LOCKED` reste **JOB-001** (hors périmètre).
+  - Helpers : `monitoring-state.ts` (**pur**, testé : `deriveIdempotencyKey`, `classifyRunOutcome`,
+    `computeBackoff`, `shouldDeadLetter`, `normalizeError` + tuples de statut) · `monitoring.ts`
+    (`createRun`/`enqueueJob` concurrency-safe en `onConflictDoNothing`, `recordStep`,
+    `recomputeRunStatus`). Garde `assertNoInlineSecret` réutilisée sur `payload_json`/`metadata_json`.
+  - Application : `drizzle/manual-data-003.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-003.ts`.
+- Vérif : `npm run test` = **40/40** · `npm run check` = 0 err / 42 warn · introspection = **35 tables,
+  zéro dérive**, les 3 tables + index attendus (uniques idempotence, `idx_jobs_claim`).
+- **Pas de backfill / pas de retrait** (migrate/contract = phase suivante).
+
+**Prochain :** **migrate/contract** — `ai_jobs` (queue légère, 111 lignes) → `jobs` (`type='ai'`) puis
+retrait ; `gsc_*`/`gmb_insights_daily` → observations. Puis **JOB-001** (réclamation atomique des jobs :
+`FOR UPDATE SKIP LOCKED`, lease, heartbeat, backoff) qui consomme `idx_jobs_claim`.
+
+**Pièges :**
+- Uniques en **index uniques** (`uniqueIndex`), pas contraintes — cohérent avec le reste du schéma.
+- Statut de run **dérivé** des steps (`classifyRunOutcome`) ; `cancelled` est une décision externe,
+  jamais dérivée.
+- `payload_json`/`metadata_json` : passer par `assertNoInlineSecret` avant persistance (aucun secret).
+
+---
+
 ## Etat session 2026-07-21 (DATA-002)
 
 **Fait :**

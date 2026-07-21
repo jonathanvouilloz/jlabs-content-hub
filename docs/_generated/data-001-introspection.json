@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 32,
-    "modelCount": 32,
+    "liveCount": 35,
+    "modelCount": 35,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 32
+    "inBothCount": 35
   },
   "tables": [
     {
@@ -1658,6 +1658,168 @@
     },
     {
       "schema": "seostats",
+      "table": "jobs",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'queued'::text"
+        },
+        {
+          "column": "idempotency_key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "priority",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "attempts",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "max_attempts",
+          "type": "integer",
+          "nullable": false,
+          "default": "5"
+        },
+        {
+          "column": "available_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "lease_owner",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "lease_until",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "heartbeat_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "depends_on",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_error_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "jobs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "jobs_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_jobs_claim",
+        "idx_jobs_lease",
+        "idx_jobs_project_status",
+        "jobs_idempotency_unique",
+        "jobs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "linkedin_settings",
       "rowCount": 3,
       "columns": [
@@ -1681,6 +1843,246 @@
       "foreignKeys": [],
       "indexes": [
         "linkedin_settings_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "monitoring_runs",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_start",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "period_end",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'queued'::text"
+        },
+        {
+          "column": "idempotency_key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "triggered_by",
+          "type": "text",
+          "nullable": false,
+          "default": "'schedule'::text"
+        },
+        {
+          "column": "started_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "summary_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "cost_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "monitoring_runs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_monitoring_runs_project_status",
+        "idx_monitoring_runs_status",
+        "monitoring_runs_idempotency_unique",
+        "monitoring_runs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "monitoring_steps",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "step_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'queued'::text"
+        },
+        {
+          "column": "attempt",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "lease_owner",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "lease_until",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "input_hash",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "output_hash",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "started_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "duration_ms",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "metadata_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "monitoring_steps_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_monitoring_steps_run",
+        "idx_monitoring_steps_run_status",
+        "monitoring_steps_pkey",
+        "monitoring_steps_run_type_attempt_unique"
       ]
     },
     {

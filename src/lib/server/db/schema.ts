@@ -599,3 +599,111 @@ export const projectProjections = seostats.table(
 		index('idx_project_projections_project_status').on(table.projectId, table.status)
 	]
 );
+
+// ── DATA-003 — Orchestration : runs, steps & queue durable (SPEC §7.3/§7.4/§6.2) ──
+
+// Run logique de monitoring (SPEC §7.3). Une exécution pour un projet sur une
+// période, dédupliquée par `idempotency_key` : deux créations concurrentes avec
+// la même clé ne produisent qu'un seul run (unique project_id + idempotency_key).
+// `summary_json`/`cost_json` = agrégats non secrets. Le statut se dérive des steps
+// (voir classifyRunOutcome) : `partial` = mix succès + échec.
+export const monitoringRuns = seostats.table(
+	'monitoring_runs',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runType: text('run_type').notNull(), // 'daily' | 'weekly' | 'monthly' | 'manual' | 'post_publish'
+		periodStart: text('period_start'),
+		periodEnd: text('period_end'),
+		status: text('status').notNull().default('queued'), // 'queued'|'running'|'partial'|'success'|'failed'|'cancelled'
+		idempotencyKey: text('idempotency_key').notNull(),
+		triggeredBy: text('triggered_by').notNull().default('schedule'), // 'schedule'|'user'|'agent'|'webhook'
+		startedAt: text('started_at'),
+		finishedAt: text('finished_at'),
+		summaryJson: text('summary_json'), // agrégat non secret (compteurs succès/skip/échec…)
+		costJson: text('cost_json'), // coût agrégé (tokens, appels API…)
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('monitoring_runs_idempotency_unique').on(table.projectId, table.idempotencyKey),
+		index('idx_monitoring_runs_project_status').on(table.projectId, table.status),
+		index('idx_monitoring_runs_status').on(table.status)
+	]
+);
+
+// Step = une tentative d'une étape d'un run (SPEC §7.4). Unique par
+// (run_id, step_type, attempt) : `force` crée un nouvel `attempt` rattaché au même
+// run (SPEC §8.3), sans dupliquer la tentative précédente. `lease_owner`/`lease_until`
+// = mécanique de bail worker ; `input_hash`/`output_hash` = idempotence/dédup.
+export const monitoringSteps = seostats.table(
+	'monitoring_steps',
+	{
+		id: text('id').primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => monitoringRuns.id),
+		stepType: text('step_type').notNull(),
+		provider: text('provider'), // aligné project_integrations.provider ; null si étape non-provider
+		status: text('status').notNull().default('queued'), // 'queued'|'running'|'success'|'skipped'|'failed'|'provider_unavailable'
+		attempt: integer('attempt').notNull().default(1),
+		leaseOwner: text('lease_owner'),
+		leaseUntil: text('lease_until'),
+		inputHash: text('input_hash'),
+		outputHash: text('output_hash'),
+		startedAt: text('started_at'),
+		finishedAt: text('finished_at'),
+		durationMs: integer('duration_ms'),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		metadataJson: text('metadata_json')
+	},
+	(table) => [
+		uniqueIndex('monitoring_steps_run_type_attempt_unique').on(table.runId, table.stepType, table.attempt),
+		index('idx_monitoring_steps_run').on(table.runId),
+		index('idx_monitoring_steps_run_status').on(table.runId, table.status)
+	]
+);
+
+// Queue de jobs durable (SPEC §6.2 + §8.3). Postgres-only (pas de Redis) : la
+// réclamation atomique (`FOR UPDATE SKIP LOCKED`) est l'objet de JOB-001 — ici on
+// pose la table, la clé d'idempotence (dédup) et l'index de réclamation vérifié.
+// `depends_on` = JSON array d'ids de jobs prérequis (§6.2). `run_id` nullable = le
+// run logique que le job matérialise. Dead-letter après `attempts >= max_attempts`.
+export const jobs = seostats.table(
+	'jobs',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id), // nullable
+		type: text('type').notNull(), // discriminant ('ai' pour ex-ai_jobs, step_type sinon)
+		status: text('status').notNull().default('queued'), // 'queued'|'running'|'succeeded'|'failed'|'dead'|'cancelled'
+		idempotencyKey: text('idempotency_key').notNull(), // ex. weekly:{slug}:{period_end}:{step_type}:{schema_version}
+		priority: integer('priority').notNull().default(0),
+		payloadJson: text('payload_json'), // charge non secrète du job
+		attempts: integer('attempts').notNull().default(0),
+		maxAttempts: integer('max_attempts').notNull().default(5),
+		availableAt: text('available_at').notNull().default(nowText), // backoff : pas réclamable avant
+		leaseOwner: text('lease_owner'),
+		leaseUntil: text('lease_until'),
+		heartbeatAt: text('heartbeat_at'),
+		dependsOn: text('depends_on'), // JSON array d'ids de jobs prérequis
+		lastErrorCode: text('last_error_code'),
+		lastErrorMessage: text('last_error_message'),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText),
+		finishedAt: text('finished_at')
+	},
+	(table) => [
+		uniqueIndex('jobs_idempotency_unique').on(table.projectId, table.idempotencyKey),
+		// Index de réclamation (JOB-001 : WHERE status='queued' AND available_at<=now()
+		// ORDER BY priority DESC, available_at ASC FOR UPDATE SKIP LOCKED).
+		index('idx_jobs_claim').on(table.status, table.availableAt, table.priority),
+		index('idx_jobs_project_status').on(table.projectId, table.status),
+		index('idx_jobs_lease').on(table.leaseUntil)
+	]
+);
