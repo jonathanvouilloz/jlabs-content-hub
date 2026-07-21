@@ -301,7 +301,7 @@ Acceptation :
 
 ## DATA-005 — Créer `findings` et `finding_events`
 
-**Priorité :** P0 · **Taille :** M · **État :** READY · **Dépendances :** DATA-004
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-22, phase expand — 2 tables + helpers purs/écriture, appliqué sur Neon ; détecteur = DATA-006) · **Dépendances :** DATA-004
 
 Travail :
 

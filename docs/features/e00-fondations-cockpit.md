@@ -4,6 +4,48 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (DATA-005 — findings + finding_events)
+
+**Fait :**
+- **DATA-005** phase **expand** : 2 tables du modèle agentique (SPEC §7.6/§7.7) dans `schema.ts`.
+  Un finding = **interprétation déterministe persistante** (jamais un fait brut → observation) ;
+  c'est la primitive centrale du produit (SPEC §1542).
+  - `findings` (SPEC §7.6) — **unique `(project_id, fingerprint)`** = le même problème redétecté
+    une autre semaine conserve le même finding (acceptation 1), on incrémente `occurrence_count`
+    + rafraîchit `last_seen_at`/scores/preuves, `first_seen_at` préservé. Statuts = les **7 de §7.6
+    + `reopened`** (§10.1) ; `new` transitoire (naît `open`). `severity` info→critical,
+    `priority_score`/`confidence_score` 0–100. **Preuves = `evidence_json` (pointeurs), jamais de
+    texte libre** ni de FK dure vers une observation. `run_id` nullable (traçabilité détecteur).
+    Index inbox cross-projet : `idx_findings_status` + `(project_id, status|severity)`.
+  - `finding_events` (SPEC §7.7) — journal **append-only** : `event_type` + `reason` (cause) +
+    `actor` (auteur) → acceptation 2 « toute transition possède un événement, une cause et un auteur ».
+    Jamais d'update/delete.
+  - Helpers : `finding-state.ts` (**pur**, testé : `deriveFindingFingerprint` [séparateur `\x1f`,
+    miroir de l'unique], `computePriorityScore` [barème §10.2 : impact 40 + urgency 25 + confidence 20
+    + strategic_fit 15], `clampScore`, `deriveSeverityEventType`, `deriveStatusEventType`,
+    tuples de vocabulaire) · `findings.ts` (`upsertFinding` idempotent avec incrément atomique
+    `occurrence_count`, `recordFindingEvent` append-only, `transitionFinding` **transactionnel**
+    statut+événement ; garde `assertBoundedPayload`/`assertNoInlineSecret` sur evidence/impact/payload).
+  - Application : `drizzle/manual-data-005.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-005.ts`.
+- Vérif : `npm run test` = **97/97** (27 nouveaux) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL **appliqué sur Neon** (2/2 tables) · introspection = **47 tables, zéro dérive**, les 2 tables +
+  unique fingerprint + 3 index inbox + 2 index journal attendus.
+- **Politique de suppression d'observation** (acceptation 3) : observations = série **append-only jamais
+  supprimée** ; evidence_json = références *souples* → aucune cascade. « Interdit/géré par politique » ✓.
+- **Pas de détecteur, pas de backfill, pas d'UI** (expand seul ; findings = données de nouvelle génération).
+
+**Prochain :** **DATA-006** (débloqué) — le reste de la chaîne agentique (proposals/approval…) et un
+premier **détecteur** déterministe qui produira de vrais findings depuis les observations DATA-004.
+
+**Pièges :**
+- Statut/sévérité/type en colonnes `text` (pas d'enum DB, cohérent avec le schéma) → le vocab canonique
+  vit dans `finding-state.ts`, à garder synchro.
+- `findings` **n'a pas** de `schema_version` (contrairement aux observations) : le versionnage d'un finding
+  passe par `detector_version`.
+- `evidence_json` : **pointeurs** (ids d'observations/queries/pages), jamais le texte de l'avis/du contenu.
+
+---
+
 ## Etat session 2026-07-22 (DATA — backfill EXÉCUTÉ en DB réelle)
 
 **Fait :**
@@ -256,6 +298,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/finding-state.ts` | Purs DATA-005 : `deriveFindingFingerprint`, `computePriorityScore` (§10.2), `deriveSeverityEventType`/`deriveStatusEventType`, tuples de vocabulaire (types/statuts/sévérités/entités/événements/acteurs). |
+| `src/lib/server/finding-state.test.ts` | Vitest DATA-005 — 27 tests (fingerprint stable, scoring borné, dérivation d'événements, vocab). |
+| `src/lib/server/findings.ts` | DATA-005 — `upsertFinding` idempotent (`occurrence_count` atomique), `recordFindingEvent` append-only, `transitionFinding` transactionnel (statut+événement). |
+| `scripts/apply-data-005.ts` + `drizzle/manual-data-005.sql` | Application déterministe du DDL additif DATA-005 (`findings` + `finding_events`). |
 | `src/lib/server/observation-backfill.ts` | Purs MIGRATE : rollup page (position pondérée), sélection représentative keyword, mappers legacy→input d'upsert. |
 | `src/lib/server/observation-backfill.test.ts` | Vitest MIGRATE — 13 tests (rollup, pondération, dédup keyword, mapping). |
 | `scripts/backfill-observations.ts` | Runner MIGRATE (Pool+drizzle propres) : backfill idempotent des 4 tables d'observations, dédup intra-lot GSC, `--dry-run`. |
@@ -267,7 +313,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (45 tables) ; +DATA-002/003/004 (intégrations, orchestration, 10 observations). |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (47 tables) ; +DATA-002/003/004/005 (intégrations, orchestration, 10 observations, findings+finding_events). |
 | `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
 | `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
 | `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
@@ -282,6 +328,14 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 - Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
 - **IDX-008** : garde à deux étages (flag maître `indexnow` + éligibilité type) ; refus audité en DB, zéro quota.
 - **DATA-002 (expand seul)** : `resource_key` discrimine plusieurs propriétés/locations d'un provider ; projections en **historique** (unique `(project_id, source_hash)` + unique partiel `current`) ; garde `assertNoInlineSecret` sur payload/config ; secrets via `secret_ref`, jamais inline. **Pas de backfill/retrait** des tables héritées.
+- **DATA-005 (expand seul)** : `findings` + `finding_events` (SPEC §7.6/§7.7). **Statuts** = les 7 de §7.6
+  **+ `reopened`** (§10.1) ; `new` transitoire (naît `open`). **Dédup** = unique `(project_id, fingerprint)`
+  (fingerprint stable = miroir applicatif dans `finding-state.ts`, séparateur `\x1f`). **Preuves** =
+  `evidence_json` **pointeurs** (ids d'observations), jamais de texte libre ni de FK dure. **Politique
+  suppression observation** = série append-only jamais supprimée → références souples, aucune cascade
+  (satisfait « interdit/géré par politique »). `run_id` **nullable** (traçabilité détecteur) ajouté
+  au-delà de la liste §7.6. **`findings` sans `schema_version`** : versionnage par `detector_version`.
+  `finding_events` **append-only** (insert seul, jamais update/delete). **Pas de détecteur/backfill/UI.**
 - **DATA-004 (expand seul)** : 10 tables d'observations (SPEC §7.5), forme commune (provider, run_id,
   période/date, dims, métriques, payload borné, schema_version, fetched_at) ; unique d'upsert = dédup ;
   index (projet, période) = fenêtres 7/28/90 j. 5 ancrées + 5 spéculatives (expand additif). **Décision
