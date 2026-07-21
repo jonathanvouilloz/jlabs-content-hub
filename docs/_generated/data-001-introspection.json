@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 47,
-    "modelCount": 47,
+    "liveCount": 50,
+    "modelCount": 50,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 47
+    "inBothCount": 50
   },
   "tables": [
     {
@@ -148,6 +148,380 @@
       ],
       "indexes": [
         "account_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "action_proposals",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "finding_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "action_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "target",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "rationale",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "expected_impact",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "risk_level",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "required_approval_level",
+          "type": "text",
+          "nullable": false,
+          "default": "'L2'::text"
+        },
+        {
+          "column": "proposed_by",
+          "type": "text",
+          "nullable": false,
+          "default": "'agent'::text"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "input_hashes_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'proposed'::text"
+        },
+        {
+          "column": "approved_by",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "approved_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "execution_job_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "verification_status",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "action_proposals_execution_job_id_jobs_id_fk",
+          "columns": [
+            "execution_job_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "jobs",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "action_proposals_finding_id_findings_id_fk",
+          "columns": [
+            "finding_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "findings",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "action_proposals_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "action_proposals_idem_unique",
+        "action_proposals_pkey",
+        "idx_action_proposals_finding",
+        "idx_action_proposals_project_status",
+        "idx_action_proposals_status"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "agent_runs",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "proposal_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "human_validation_ref",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "agent",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "agent_version",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "skill",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "model",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "input_hashes_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "findings_read_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "output_type",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "output_ref",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "tokens_input",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "tokens_output",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "cost_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "duration_ms",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'running'::text"
+        },
+        {
+          "column": "result_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "agent_runs_human_validation_ref_proposal_approvals_id_fk",
+          "columns": [
+            "human_validation_ref"
+          ],
+          "refSchema": "seostats",
+          "refTable": "proposal_approvals",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "agent_runs_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "agent_runs_proposal_id_action_proposals_id_fk",
+          "columns": [
+            "proposal_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "action_proposals",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "agent_runs_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "agent_runs_pkey",
+        "idx_agent_runs_project_status",
+        "idx_agent_runs_proposal",
+        "idx_agent_runs_run"
       ]
     },
     {
@@ -3959,6 +4333,125 @@
         "projects_access_token_unique",
         "projects_pkey",
         "projects_slug_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "proposal_approvals",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "proposal_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "approved_payload_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "approver_type",
+          "type": "text",
+          "nullable": false,
+          "default": "'user'::text"
+        },
+        {
+          "column": "approver_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "scope_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "method",
+          "type": "text",
+          "nullable": false,
+          "default": "'ui'::text"
+        },
+        {
+          "column": "token",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "token_used_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "expires_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'active'::text"
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "proposal_approvals_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "proposal_approvals_proposal_id_action_proposals_id_fk",
+          "columns": [
+            "proposal_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "action_proposals",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_proposal_approvals_project_status",
+        "idx_proposal_approvals_proposal",
+        "proposal_approvals_pkey",
+        "proposal_approvals_token_unique"
       ]
     },
     {

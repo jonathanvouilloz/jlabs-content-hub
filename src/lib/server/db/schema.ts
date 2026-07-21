@@ -1121,3 +1121,135 @@ export const findingEvents = seostats.table(
 		index('idx_finding_events_project_created').on(table.projectId, table.createdAt)
 	]
 );
+
+// ── DATA-006 — Propositions, approbations & agent runs (SPEC §7.8/§7.9/§12) ──
+//
+// La couche décision→action de la chaîne SPEC §88 :
+//   observations → detectors → findings → agent analysis → PROPOSALS → APPROVAL
+//   → execution → verification.
+// Une proposition = une action recommandée (jamais une mutation → ça, c'est une
+// exécution). L'exécution/vérification ne sont PAS de nouvelles tables : elles se
+// rattachent à la proposition via `execution_job_id` (→ jobs) et `verification_status`.
+//
+// Invariants d'autorisation (SPEC §12.2), portés par le module pur proposal-state.ts :
+//   - une approbation est liée au HASH exact de la proposition (payload_hash) ;
+//     toute modification du payload invalide l'approbation ;
+//   - un agent ne peut pas s'auto-accorder un niveau supérieur (L4 = humain seul).
+
+// Proposition d'action (SPEC §7.8). `payload_hash` (hash canonique de payload_json)
+// est ce à quoi une approbation se lie. Statuts = 7 de §7.8 + `invalidated`
+// (payload modifié après approbation) + `expired`. `execution_job_id` pointe la
+// queue durable `jobs` (pas de table d'exécution séparée).
+export const actionProposals = seostats.table(
+	'action_proposals',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		findingId: text('finding_id').references(() => findings.id), // nullable (proposition depuis rapport)
+		actionType: text('action_type').notNull(),
+		target: text('target'),
+		rationale: text('rationale'),
+		expectedImpact: text('expected_impact'),
+		riskLevel: text('risk_level'), // low|medium|high (risque intrinsèque)
+		requiredApprovalLevel: text('required_approval_level').notNull().default('L2'), // L0..L4 (§12.1)
+		proposedBy: text('proposed_by').notNull().default('agent'),
+		payloadJson: text('payload_json'),
+		payloadHash: text('payload_hash').notNull(), // hash canonique de payload_json (lie l'approbation)
+		inputHashesJson: text('input_hashes_json'), // hashes des inputs (traçabilité/idempotence)
+		status: text('status').notNull().default('proposed'), // proposed|approved|rejected|executing|executed|failed|superseded|invalidated|expired
+		approvedBy: text('approved_by'), // dénormalisé (§7.8) ; l'entité d'approbation vit dans proposal_approvals
+		approvedAt: text('approved_at'),
+		executionJobId: text('execution_job_id').references(() => jobs.id), // nullable → queue durable
+		verificationStatus: text('verification_status'), // pending|passed|failed|skipped
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		// Idempotence : re-proposition identique (finding+action+payload) ne duplique pas.
+		uniqueIndex('action_proposals_idem_unique').on(
+			table.projectId,
+			table.findingId,
+			table.actionType,
+			table.payloadHash
+		),
+		index('idx_action_proposals_project_status').on(table.projectId, table.status),
+		index('idx_action_proposals_finding').on(table.findingId),
+		index('idx_action_proposals_status').on(table.status) // inbox cross-projet
+	]
+);
+
+// Approbation = entité dédiée (SPEC §12.2/§12.3/§14.3). Porte le HASH lié
+// (`approved_payload_hash`), l'auteur + périmètre, la méthode, un token à usage
+// unique (Telegram §14.3) + expiration, et son propre statut. Une approbation
+// n'est valide que si son hash == payload_hash courant ET non expirée
+// (proposal-state.isApprovalValid). L'approbation de lot conserve le hash de
+// chaque proposition (§12.3) : 1 ligne par proposition, jamais un scope global.
+export const proposalApprovals = seostats.table(
+	'proposal_approvals',
+	{
+		id: text('id').primaryKey(),
+		proposalId: text('proposal_id')
+			.notNull()
+			.references(() => actionProposals.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		approvedPayloadHash: text('approved_payload_hash').notNull(), // hash lié (§12.2)
+		approverType: text('approver_type').notNull().default('user'), // user|agent|policy
+		approverId: text('approver_id'),
+		scopeJson: text('scope_json'), // périmètre : projet|action|durée|ressources (§5.3)
+		method: text('method').notNull().default('ui'), // ui|telegram|policy
+		token: text('token'), // one-time (Telegram §14.3), nullable
+		tokenUsedAt: text('token_used_at'),
+		expiresAt: text('expires_at'),
+		status: text('status').notNull().default('active'), // active|consumed|expired|revoked|invalidated
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		index('idx_proposal_approvals_proposal').on(table.proposalId),
+		index('idx_proposal_approvals_project_status').on(table.projectId, table.status),
+		uniqueIndex('proposal_approvals_token_unique').on(table.token) // NULLs distincts en Postgres
+	]
+);
+
+// Journal d'invocation d'un agent LLM (SPEC §7.9) : modèle/version, skill, inputs
+// + hashes, findings lus, sortie produite (proposition ou rapport), tokens/coût/
+// durée, résultat/erreurs, et la validation humaine associée. Distinct de
+// `monitoring_runs` (orchestration collecteur) : ici c'est le raisonnement agent.
+export const agentRuns = seostats.table(
+	'agent_runs',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id), // nullable — run orchestrateur parent
+		proposalId: text('proposal_id').references(() => actionProposals.id), // nullable — proposition produite
+		humanValidationRef: text('human_validation_ref').references(() => proposalApprovals.id), // nullable
+		agent: text('agent').notNull(),
+		agentVersion: text('agent_version'),
+		skill: text('skill'),
+		model: text('model'),
+		inputHashesJson: text('input_hashes_json'),
+		findingsReadJson: text('findings_read_json'), // ids de findings lus (sources)
+		outputType: text('output_type'), // proposal|report
+		outputRef: text('output_ref'),
+		tokensInput: integer('tokens_input'),
+		tokensOutput: integer('tokens_output'),
+		costJson: text('cost_json'), // coût agrégé (non secret)
+		durationMs: integer('duration_ms'),
+		status: text('status').notNull().default('running'), // running|succeeded|failed
+		resultJson: text('result_json'),
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		createdAt: text('created_at').notNull().default(nowText),
+		finishedAt: text('finished_at')
+	},
+	(table) => [
+		index('idx_agent_runs_project_status').on(table.projectId, table.status),
+		index('idx_agent_runs_proposal').on(table.proposalId),
+		index('idx_agent_runs_run').on(table.runId)
+	]
+);
