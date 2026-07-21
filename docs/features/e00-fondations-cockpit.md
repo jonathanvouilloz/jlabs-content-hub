@@ -4,6 +4,53 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (DATA — migrate/backfill)
+
+**Fait :**
+- **Phase MIGRATE** : backfill idempotent du legacy vers les tables d'observations (DATA-004),
+  **additif** (aucune table source touchée). Les 3 domaines arbitrés :
+  - `gsc_query_page_data` → `gsc_query_page_observations` (1:1 ; `week_start`→`period_start`,
+    `period_end` joint depuis `gsc_snapshots`).
+  - **rollup dérivé** `gsc_query_page_data` agrégé → `gsc_page_observations` (par snapshot/semaine :
+    Σ clicks/impressions, `ctr` recalculé, **position pondérée par impressions**).
+  - `gmb_insights_daily` → `gmb_insight_observations` (1:1).
+  - `tracked_keywords` (non archivés) × `gsc_query_page_data` → `keyword_rank_observations`
+    (**watchlist epic-23 seulement** ; ligne représentative = impressions max par keyword/device/semaine).
+  - `provider` posé explicitement (`gsc`/`gsc`/`gmb`/`gsc`), `run_id=null`, `schema_version=1`,
+    `payload_json=null` (série normalisée suffisante).
+- Module **pur testé** `src/lib/server/observation-backfill.ts` (`import type` des interfaces d'input →
+  zéro dépendance db/`$env`) : `rollupPagesFromQueryPage`, `weightedPosition`, `pickKeywordRankRow`,
+  `buildKeywordRankInputs`, mappers `toGsc*`/`toGmb*`/`toKeywordRank*`.
+- **Runner** `scripts/backfill-observations.ts` (Pool propre + drizzle autonome, cf. `apply-data-004.ts`) :
+  passes A+B fusionnées par snapshot (mémoire bornée à une semaine, `week_end` gratuit), C keyset, D join.
+  **Dédup intra-lot last-wins** côté GSC (pas de clé naturelle → sinon `ON CONFLICT` casse dans un même
+  INSERT). Upserts par lot mirroir des `*_obs_unique`. Flag **`--dry-run`**.
+- **Vérif read-only** `scripts/verify-backfill.ts` : #obs == #clés distinctes source (A/C), Σ impressions
+  page == Σ impressions query_page (B, le rollup conserve la masse), keyword_rank ⊆ tracked + comptage (D).
+- Vérif locale : `npm run test` = **70/70** (13 nouveaux) · `npm run check` = **0 err / 42 warn** (baseline).
+- **Dry-run OK (2026-07-22, Neon lu, zéro écriture)** : A `gsc_query_page`=**73009** (96 snapshots, aucun
+  doublon collapse) · B rollup `gsc_page`=**3300** · C `gmb_insight`=**0** (source `gmb_insights_daily`
+  vide — GMB dormant) · D `keyword_rank`=**137** (depuis 443 candidates tracked). Le code tourne, se
+  connecte, transforme sans crash.
+
+**Prochain (exécution DB réelle, hors session code — nécessite accès Neon) :**
+1. ✅ `npx tsx scripts/backfill-observations.ts --dry-run` — fait (compteurs ci-dessus).
+2. `npx tsx scripts/backfill-observations.ts` (exécution réelle par lots).
+3. `npx tsx scripts/verify-backfill.ts` (invariants) + `npx tsx scripts/data-001-cartography.ts post-backfill`
+   (zéro dérive + 4 tables peuplées).
+Puis **DATA-005** (`findings`/`finding_events`, débloqué). **CONTRACT** (retrait legacy) **différé** :
+l'app lit encore `gsc_query_page_data` (`/positions`) et `gmb_insights_daily` (dashboards).
+
+**Pièges :**
+- `scripts/` **hors** `include` du `check` (comme tous les scripts) → non typecheckés statiquement ;
+  leur validation passe par le **dry-run** (tsx + Neon).
+- **Doublons GSC** : dédup intra-lot obligatoire ; les doublons inter-lots sont résolus par l'upsert
+  (last-wins, valeurs identiques car re-fetch). `verify-backfill` mesure l'écart lignes↔clés distinctes.
+- Rollup page : `gsc_page_observations` n'est **pas** une donnée page-native GSC mais une **dérivation** ;
+  un futur collecteur page-level pourra la remplacer proprement (upsert idempotent, même clé).
+
+---
+
 ## Etat session 2026-07-21 (DATA-004)
 
 **Fait :**
@@ -189,10 +236,14 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-21
+> Mise à jour : 2026-07-22
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/observation-backfill.ts` | Purs MIGRATE : rollup page (position pondérée), sélection représentative keyword, mappers legacy→input d'upsert. |
+| `src/lib/server/observation-backfill.test.ts` | Vitest MIGRATE — 13 tests (rollup, pondération, dédup keyword, mapping). |
+| `scripts/backfill-observations.ts` | Runner MIGRATE (Pool+drizzle propres) : backfill idempotent des 4 tables d'observations, dédup intra-lot GSC, `--dry-run`. |
+| `scripts/verify-backfill.ts` | Vérif read-only du backfill (invariants #obs/#clés, Σ impressions rollup, keyword_rank ⊆ tracked). |
 | `src/lib/server/log.ts` | Logger structuré (OPS-001) — socle d'observabilité, masquage secrets. |
 | `src/lib/server/config.ts` | Config runtime centralisée (GOV-003) — schéma env, `validateStartup`, `requireEnv`. |
 | `src/lib/server/flags.ts` | Feature flags de migration (GOV-005) — 7 verticales OFF ; `indexnow` = interrupteur maître IDX-008. |
