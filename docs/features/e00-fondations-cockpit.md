@@ -4,7 +4,23 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
-## Etat session 2026-07-22 (DATA — migrate/backfill)
+## Etat session 2026-07-22 (DATA — backfill EXÉCUTÉ en DB réelle)
+
+**Fait :**
+- **Backfill exécuté sur Neon** (run réel, plus dry-run) : `gsc_query_page_observations`=**73009**,
+  `gsc_page_observations`=**3300** (rollup), `gmb_insight_observations`=**0** (source vide),
+  `keyword_rank_observations`=**137**. `verify-backfill` = **5/5 PASS**. `data-001-cartography
+  post-backfill` = **45 tables, zéro dérive**, 4 tables d'observations peuplées.
+- **Bug corrigé** (`7cb94c1`) : `CHUNK` 5000→4000. À 5000, `gsc_query_page_observations`
+  (16 colonnes) générait 80000 params bind par INSERT → dépassait la limite Postgres de
+  **65535 params/requête** (`bind message has N parameter formats but 0 parameters`). 4000×16=64000,
+  sûr pour les 4 tables. Le run planté avant correctif était sans dommage (upserts idempotents).
+- **Prochain = DATA-005** (`findings`/`finding_events`, débloqué). **CONTRACT** (retrait legacy) toujours
+  différé : l'app lit encore `gsc_query_page_data` (`/positions`) et `gmb_insights_daily` (dashboards).
+
+---
+
+## Etat session 2026-07-22 (DATA — migrate/backfill : code)
 
 **Fait :**
 - **Phase MIGRATE** : backfill idempotent du legacy vers les tables d'observations (DATA-004),
