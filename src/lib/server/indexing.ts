@@ -1,9 +1,22 @@
+/**
+ * Google Indexing API + URL Inspection.
+ *
+ * ⚠️ IDX-008 — doctrine de soumission (SPEC §9.4). L'Indexing API n'est appelée
+ * que pour les pages **éligibles** (`JobPosting` / `BroadcastEvent`) ET quand le
+ * flag `indexnow` est actif. Pour une page ordinaire (article, page locale), la
+ * voie normale reste **sitemap + maillage interne + canonical + inspection** —
+ * jamais la soumission générique. Toute tentative non conforme est refusée en
+ * amont (`evaluateIndexingGuard`), auditée en base (`status: 'blocked'`) et ne
+ * consomme aucun quota (aucun appel réseau).
+ */
 import { createSign } from 'node:crypto';
 import { desc, eq, sql } from 'drizzle-orm';
 import { db } from './db/index.js';
 import { indexingCredentials, indexingSubmissions } from './db/schema.js';
 import { decrypt, encrypt } from './crypto.js';
 import { createId } from './utils.js';
+import { isEnabled, type FlagContext } from './flags.js';
+import { evaluateIndexingGuard, type IndexingEligibility } from './indexing-eligibility.js';
 
 export type IndexingType = 'URL_UPDATED' | 'URL_DELETED';
 
@@ -212,8 +225,32 @@ export async function publishUrl(params: {
 	url: string;
 	type: IndexingType;
 	source?: string;
-}): Promise<{ success: boolean; httpStatus: number; response: string }> {
+	/** Type de page schema.org ; seuls JobPosting/BroadcastEvent sont éligibles (IDX-008). */
+	eligibility?: IndexingEligibility;
+	/** Contexte flag pour résoudre `indexnow` (override projet à venir avec DATA-002). */
+	flagCtx?: FlagContext;
+}): Promise<{ success: boolean; httpStatus: number; response: string; blocked?: boolean }> {
 	const submissionId = createId();
+
+	// Garde IDX-008 : flag maître puis éligibilité de type, en amont de tout réseau.
+	const verdict = evaluateIndexingGuard({
+		flagEnabled: isEnabled('indexnow', params.flagCtx),
+		eligibility: params.eligibility
+	});
+	if (!verdict.allowed) {
+		await db.insert(indexingSubmissions).values({
+			id: submissionId,
+			projectId: params.projectId,
+			url: params.url,
+			type: params.type,
+			status: 'blocked',
+			httpStatus: null,
+			response: verdict.message,
+			source: params.source ?? null
+		});
+		return { success: false, httpStatus: 0, response: verdict.message, blocked: true };
+	}
+
 	let token: string;
 	try {
 		const auth = await getAccessTokenForProject(params.projectId);
@@ -264,14 +301,47 @@ export async function batchSubmit(params: {
 	type: IndexingType;
 	source?: string;
 	delayMs?: number;
+	/** Type de page schema.org ; seuls JobPosting/BroadcastEvent sont éligibles (IDX-008). */
+	eligibility?: IndexingEligibility;
+	/** Contexte flag pour résoudre `indexnow` (override projet à venir avec DATA-002). */
+	flagCtx?: FlagContext;
 }): Promise<{
 	total: number;
 	success: number;
 	failed: number;
 	skipped: number;
 	stoppedOnQuota: boolean;
+	blocked?: boolean;
 	results: Array<{ url: string; success: boolean; httpStatus: number }>;
 }> {
+	// Garde IDX-008 : une seule évaluation pour tout le lot, en amont de la boucle.
+	// Un refus est audité par une ligne résumé (pas 1 ligne/URL) et ne fait aucun réseau.
+	const verdict = evaluateIndexingGuard({
+		flagEnabled: isEnabled('indexnow', params.flagCtx),
+		eligibility: params.eligibility
+	});
+	if (!verdict.allowed) {
+		await db.insert(indexingSubmissions).values({
+			id: createId(),
+			projectId: params.projectId,
+			url: `batch:${params.urls.length}`,
+			type: params.type,
+			status: 'blocked',
+			httpStatus: null,
+			response: verdict.message,
+			source: params.source ?? null
+		});
+		return {
+			total: params.urls.length,
+			success: 0,
+			failed: 0,
+			skipped: params.urls.length,
+			stoppedOnQuota: false,
+			blocked: true,
+			results: []
+		};
+	}
+
 	const delay = params.delayMs ?? 100;
 	const results: Array<{ url: string; success: boolean; httpStatus: number }> = [];
 	let success = 0;
@@ -280,7 +350,14 @@ export async function batchSubmit(params: {
 	let i = 0;
 	for (; i < params.urls.length; i++) {
 		const url = params.urls[i];
-		const r = await publishUrl({ projectId: params.projectId, url, type: params.type, source: params.source });
+		const r = await publishUrl({
+			projectId: params.projectId,
+			url,
+			type: params.type,
+			source: params.source,
+			eligibility: params.eligibility,
+			flagCtx: params.flagCtx
+		});
 		results.push({ url, success: r.success, httpStatus: r.httpStatus });
 		if (r.success) success++;
 		else failed++;

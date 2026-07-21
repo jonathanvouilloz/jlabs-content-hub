@@ -4,6 +4,36 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-21 (IDX-008)
+
+**Fait :**
+- **IDX-008** Google Indexing API restreinte. Garde unique en amont de tout réseau : flag maître
+  `indexnow` (OFF par défaut) **ET** validation de type d'éligibilité (`JobPosting` / `BroadcastEvent`).
+  - Helpers **purs** dans `src/lib/server/indexing-eligibility.ts` (`isEligibleForIndexingApi`,
+    `evaluateIndexingGuard`) → testables hors runtime SvelteKit.
+  - `publishUrl` / `batchSubmit` (`indexing.ts`) : gagnent `eligibility?` + `flagCtx?` ; refus →
+    ligne d'audit `status:'blocked'`, `httpStatus:null`, **aucun `fetch`** (zéro quota). `batchSubmit`
+    audite en 1 ligne résumé (`url = batch:<n>`).
+  - 4 points d'entrée neutralisés (aucun ne porte de type éligible aujourd'hui) : auto-publish
+    (`api/content/[id]/status`), `indexing/submit`, `indexing/from-sitemap` (×3). Les routes surfacent
+    `blocked:true` + message pointant vers sitemap/maillage/inspection.
+  - **1re infra de test du repo** : vitest + `vitest.config.ts` (node, modules purs) + `npm run test`.
+    `indexing-eligibility.test.ts` → 7 tests verts (dont le **test positif** exigé).
+  - Doc : commentaire flag `indexnow` (flags.ts) + `.env.example` mis à jour (interrupteur maître).
+- Vérif : `npm run test` = 7/7 · `npm run check` = **0 err / 42 warn** (baseline inchangée).
+
+**Prochain :** **DATA-001** — cartographier + figer le schéma existant (~29 tables), stratégie
+expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003 = hors repo.
+
+**Pièges :**
+- 3 chaînes `jlabs-content-hub` **visibles client** non renommées (décision de marque en attente) :
+  `src/routes/positions/[slug]/+page.svelte:101`, `src/lib/server/email-templates.ts:54,107`.
+- Build local KO sur Windows (symlink adapter-vercel) → vérifier via `check` + `test`, pas `build`.
+- Le toggle `autoSubmitOnPublish` (settings `+page.svelte`) est désormais **inopérant** pour les
+  articles (garde IDX-008) : à annoter « déprécié » un jour (cosmétique, non bloquant).
+
+---
+
 ## Etat session 2026-07-21
 
 **Fait :**
@@ -51,6 +81,8 @@
       `top_queries`) + adapter weekly/actions/refresh. **Hors repo (couche skills).**
 - [ ] **IDX-003** — réparer le contrat de `~/.claude/skills/seo-index-diagnose` (`buckets` vs `results`)
       + `post_publication.py`. **Hors repo (couche skills).**
-- [ ] **IDX-008** — restreindre la Google Indexing API (`src/lib/server/indexing.ts`) : neutraliser la
-      soumission générique (garder JobPosting / BroadcastEvent), documenter sitemap/maillage comme voie
-      normale. **Change le comportement prod** (auto-submit) → à faire derrière un flag.
+- [x] **IDX-008** (2026-07-21) — Google Indexing API restreinte : garde flag `indexnow` (OFF défaut)
+      + validation de type (`JobPosting`/`BroadcastEvent`) dans `indexing.ts` (helpers purs
+      `indexing-eligibility.ts`). Soumission générique refusée + auditée (`status:'blocked'`), zéro
+      quota. 4 points d'entrée neutralisés. Doc sitemap/maillage = voie normale. 1re infra vitest +
+      7 tests verts.

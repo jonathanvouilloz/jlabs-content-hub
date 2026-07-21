@@ -26,7 +26,7 @@ import { get } from './config.js';
 export const FEATURE_FLAGS = [
 	'jobs_v2', // queue durable + workers (E02)
 	'findings', // moteur de findings + inbox (E05)
-	'indexnow', // soumission IndexNow post-publication (E04)
+	'indexnow', // interrupteur maître des soumissions auto aux moteurs : IndexNow (E04) ET Google Indexing API éligible (IDX-008). OFF => aucune soumission ne part.
 	'plausible', // provider analytics Plausible (E10)
 	'gmb_auto_send', // envoi automatique des réponses d'avis (E08)
 	'telegram', // notifications + validations Telegram (E09)

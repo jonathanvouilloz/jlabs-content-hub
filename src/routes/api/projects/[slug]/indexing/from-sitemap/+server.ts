@@ -15,6 +15,15 @@ import type { RequestHandler } from './$types';
 
 type Mode = 'index' | 'index-not-indexed' | 'deindex-excluded';
 
+// IDX-008 : la soumission générique depuis sitemap est refusée par la garde
+// (flag + éligibilité). On surface ce message quand le résultat est `blocked`.
+const BLOCKED_MESSAGE =
+	'Soumission générique refusée (IDX-008) : l\'Indexing API est réservée à JobPosting/BroadcastEvent. Voie normale : sitemap + maillage interne + inspection.';
+
+function withBlockedMessage<T extends { blocked?: boolean }>(result: T): T & { message?: string } {
+	return result.blocked ? { ...result, message: BLOCKED_MESSAGE } : result;
+}
+
 export const POST: RequestHandler = async (event) => {
 	if (!event.locals.user && !validateApiKey(event)) {
 		return json({ error: 'Unauthorized' }, { status: 401 });
@@ -65,16 +74,19 @@ export const POST: RequestHandler = async (event) => {
 			projectId: project.id,
 			urls: excluded,
 			type: 'URL_DELETED',
-			source: 'sitemap-deindex'
+			source: 'sitemap-deindex',
+			flagCtx: { project: event.params.slug }
 		});
-		return json({
-			sitemapUrl,
-			sitemapTotal: urls.length,
-			kept: kept.length,
-			excluded: excluded.length,
-			mode,
-			...result
-		});
+		return json(
+			withBlockedMessage({
+				sitemapUrl,
+				sitemapTotal: urls.length,
+				kept: kept.length,
+				excluded: excluded.length,
+				mode,
+				...result
+			})
+		);
 	}
 
 	if (mode === 'index-not-indexed') {
@@ -106,22 +118,25 @@ export const POST: RequestHandler = async (event) => {
 			projectId: project.id,
 			urls: inspection.notIndexed,
 			type: 'URL_UPDATED',
-			source: 'sitemap-smart'
+			source: 'sitemap-smart',
+			flagCtx: { project: event.params.slug }
 		});
 
-		return json({
-			sitemapUrl,
-			sitemapTotal: urls.length,
-			kept: kept.length,
-			excluded: excluded.length,
-			mode,
-			alreadyIndexed: inspection.indexed.length,
-			notIndexed: inspection.notIndexed.length,
-			inspectionUnknown: inspection.unknown.length,
-			inspectionErrors: inspection.errors.length,
-			inspectionStoppedOnQuota: inspection.stoppedOnQuota,
-			...submitResult
-		});
+		return json(
+			withBlockedMessage({
+				sitemapUrl,
+				sitemapTotal: urls.length,
+				kept: kept.length,
+				excluded: excluded.length,
+				mode,
+				alreadyIndexed: inspection.indexed.length,
+				notIndexed: inspection.notIndexed.length,
+				inspectionUnknown: inspection.unknown.length,
+				inspectionErrors: inspection.errors.length,
+				inspectionStoppedOnQuota: inspection.stoppedOnQuota,
+				...submitResult
+			})
+		);
 	}
 
 	// Default mode: 'index' (legacy — submit all kept URLs)
@@ -140,14 +155,17 @@ export const POST: RequestHandler = async (event) => {
 		projectId: project.id,
 		urls: kept,
 		type: 'URL_UPDATED',
-		source: 'sitemap'
+		source: 'sitemap',
+		flagCtx: { project: event.params.slug }
 	});
-	return json({
-		sitemapUrl,
-		sitemapTotal: urls.length,
-		kept: kept.length,
-		excluded: excluded.length,
-		mode,
-		...result
-	});
+	return json(
+		withBlockedMessage({
+			sitemapUrl,
+			sitemapTotal: urls.length,
+			kept: kept.length,
+			excluded: excluded.length,
+			mode,
+			...result
+		})
+	);
 };

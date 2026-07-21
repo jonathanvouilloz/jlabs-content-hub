@@ -62,7 +62,10 @@ export const PATCH: RequestHandler = async (event) => {
 		changedBy
 	});
 
-	// Auto-submit a la Google Indexing API si configure pour ce projet
+	// Auto-submit a la Google Indexing API si configure pour ce projet.
+	// IDX-008 : passe désormais par la garde d'éligibilité. Un contenu ordinaire n'a
+	// pas de type éligible (JobPosting/BroadcastEvent) → refusé + audité, aucun réseau.
+	// La voie normale d'indexation reste sitemap + maillage + inspection (SPEC §9.4).
 	if (status === 'published' && content.status !== 'published') {
 		const cred = await db.query.indexingCredentials.findFirst({
 			where: eq(indexingCredentials.projectId, content.projectId)
@@ -74,6 +77,7 @@ export const PATCH: RequestHandler = async (event) => {
 				url: publicUrl,
 				type: 'URL_UPDATED',
 				source: 'auto-publish'
+				// pas d'eligibility : contenu ordinaire → garde IDX-008 le refuse et l'audite
 			}).catch(() => { /* fire-and-forget, erreurs loggees en DB */ });
 		}
 	}

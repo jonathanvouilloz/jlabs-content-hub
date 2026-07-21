@@ -26,12 +26,23 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const cleanUrls = urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0);
+	// IDX-008 : soumission générique manuelle → garde (flag + éligibilité). Sans type
+	// éligible, la garde refuse+audite ; on renvoie le résultat `blocked` tel quel.
 	const result = await batchSubmit({
 		projectId: project.id,
 		urls: cleanUrls,
 		type,
-		source: 'manual'
+		source: 'manual',
+		flagCtx: { project: event.params.slug }
 	});
 
-	return json(result);
+	return json(
+		result.blocked
+			? {
+					...result,
+					message:
+						'Soumission générique refusée (IDX-008) : l\'Indexing API est réservée à JobPosting/BroadcastEvent. Voie normale : sitemap + maillage interne + inspection.'
+				}
+			: result
+	);
 };
