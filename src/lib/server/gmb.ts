@@ -47,7 +47,7 @@ interface PublishResult {
 // ── Settings helpers ───────────────────────────────────────────────
 
 async function getSetting(key: string): Promise<string | null> {
-	const row = await db.select().from(gmbSettings).where(eq(gmbSettings.key, key)).get();
+	const row = await db.select().from(gmbSettings).where(eq(gmbSettings.key, key)).then((r) => r[0]);
 	return row?.value ?? null;
 }
 
@@ -466,7 +466,7 @@ export async function syncProjectReviews(projectId: string): Promise<number> {
 			})
 			.onConflictDoNothing();
 
-		if (result.rowsAffected > 0) synced++;
+		if ((result.rowCount ?? 0) > 0) synced++;
 	}
 
 	return synced;
@@ -685,7 +685,7 @@ export async function syncLocationProfile(
 				eq(gmbLocationProfiles.gmbLocationId, raw.name)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 
 	if (existing) {
 		await db
@@ -822,7 +822,7 @@ export async function syncLocationInsights(
 					eq(gmbInsightsDaily.metric, p.metric)
 				)
 			)
-			.get();
+			.then((r) => r[0]);
 
 		if (existing) {
 			if (existing.value !== p.value) {

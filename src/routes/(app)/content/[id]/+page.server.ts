@@ -35,12 +35,12 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	// Load CMS connection for this project
 	const cmsConnection = content.type === 'article'
-		? await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, content.projectId)).get()
+		? await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, content.projectId)).then((r) => r[0])
 		: null;
 
 	// Check LinkedIn connection
 	const linkedinConnected = content.type === 'linkedin'
-		? !!(await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).get())
+		? !!(await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).then((r) => r[0]))
 		: false;
 
 	return {

@@ -91,7 +91,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				lte(gmbInsightsDaily.date, range.end)
 			)
 		)
-		.all();
+		;
 
 	const prevRows = await db
 		.select()
@@ -103,7 +103,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				lte(gmbInsightsDaily.date, prev.end)
 			)
 		)
-		.all();
+		;
 
 	const sum = (rows: typeof currentRows, metrics: string[]) =>
 		rows.filter((r) => metrics.includes(r.metric)).reduce((acc, r) => acc + r.value, 0);

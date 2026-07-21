@@ -1,32 +1,62 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import {
+	pgSchema,
+	text,
+	integer,
+	boolean,
+	doublePrecision,
+	timestamp,
+	uniqueIndex,
+	index,
+	foreignKey
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-// ── Better Auth tables ──────────────────────────────────────────────
+// ── Schémas Postgres ───────────────────────────────────────────────
+// Base Neon partagée avec invoices. seo-stats vit dans le schéma `seostats`.
+export const seostats = pgSchema('seostats');
 
-export const user = sqliteTable('user', {
+// `core` est possédé par invoices ; on en déclare ici un MIROIR lecture-seule
+// pour que la FK cross-schéma `projects.slug → core.entities.slug` résolve.
+// NE JAMAIS modifier cette définition depuis seo-stats (sinon db:push diverge d'invoices).
+export const core = pgSchema('core');
+export const entities = core.table('entities', {
+	slug: text('slug').primaryKey(),
+	display_name: text('display_name'),
+	created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow()
+});
+
+// Défaut des colonnes date « métier » : on garde des colonnes TEXT (le code écrit et
+// compare des chaînes ISO), avec un défaut au même format que les données Turso migrées
+// (SQLite `datetime('now')` → 'YYYY-MM-DD HH:MM:SS').
+const nowText = sql`(to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))`;
+
+// ── Better Auth tables ──────────────────────────────────────────────
+// Colonnes date en `timestamp` natif (Better Auth-pg manipule des objets Date).
+
+export const user = seostats.table('user', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
 	email: text('email').notNull().unique(),
-	emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+	emailVerified: boolean('email_verified').notNull().default(false),
 	image: text('image'),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-export const session = sqliteTable('session', {
+export const session = seostats.table('session', {
 	id: text('id').primaryKey(),
-	expiresAt: text('expires_at').notNull(),
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 	token: text('token').notNull().unique(),
 	ipAddress: text('ip_address'),
 	userAgent: text('user_agent'),
 	userId: text('user_id')
 		.notNull()
 		.references(() => user.id),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-export const account = sqliteTable('account', {
+export const account = seostats.table('account', {
 	id: text('id').primaryKey(),
 	accountId: text('account_id').notNull(),
 	providerId: text('provider_id').notNull(),
@@ -36,42 +66,48 @@ export const account = sqliteTable('account', {
 	accessToken: text('access_token'),
 	refreshToken: text('refresh_token'),
 	idToken: text('id_token'),
-	accessTokenExpiresAt: text('access_token_expires_at'),
-	refreshTokenExpiresAt: text('refresh_token_expires_at'),
+	accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+	refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
 	scope: text('scope'),
 	password: text('password'),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-export const verification = sqliteTable('verification', {
+export const verification = seostats.table('verification', {
 	id: text('id').primaryKey(),
 	identifier: text('identifier').notNull(),
 	value: text('value').notNull(),
-	expiresAt: text('expires_at').notNull(),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
 // ── Application tables ──────────────────────────────────────────────
 
-export const projects = sqliteTable('projects', {
-	id: text('id').primaryKey(),
-	name: text('name').notNull(),
-	slug: text('slug').notNull().unique(),
-	description: text('description'),
-	color: text('color').notNull().default('#00D9A3'),
-	image: text('image'),
-	accessToken: text('access_token').notNull().unique(),
-	archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
-	gmbLocationId: text('gmb_location_id'),
-	clientEmail: text('client_email'),
-	weeklyDigestEnabled: integer('weekly_digest_enabled', { mode: 'boolean' }).notNull().default(false),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
-});
+export const projects = seostats.table(
+	'projects',
+	{
+		id: text('id').primaryKey(),
+		name: text('name').notNull(),
+		slug: text('slug').notNull().unique(), // ⟵ POINTEUR NOYAU → FK core.entities
+		description: text('description'),
+		color: text('color').notNull().default('#00D9A3'),
+		image: text('image'),
+		accessToken: text('access_token').notNull().unique(),
+		archived: boolean('archived').notNull().default(false),
+		gmbLocationId: text('gmb_location_id'),
+		clientEmail: text('client_email'),
+		weeklyDigestEnabled: boolean('weekly_digest_enabled').notNull().default(false),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(t) => [
+		foreignKey({ columns: [t.slug], foreignColumns: [entities.slug], name: 'projects_slug_fk' })
+	]
+);
 
-export const contents = sqliteTable(
+export const contents = seostats.table(
 	'contents',
 	{
 		id: text('id').primaryKey(),
@@ -89,13 +125,13 @@ export const contents = sqliteTable(
 		meta: text('meta'),
 		gmbPostId: text('gmb_post_id'),
 		cmsItemId: text('cms_item_id'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
 	},
 	(table) => [uniqueIndex('contents_project_type_slug').on(table.projectId, table.type, table.slug)]
 );
 
-export const comments = sqliteTable('comments', {
+export const comments = seostats.table('comments', {
 	id: text('id').primaryKey(),
 	contentId: text('content_id')
 		.notNull()
@@ -103,18 +139,18 @@ export const comments = sqliteTable('comments', {
 	authorName: text('author_name').notNull(),
 	authorEmail: text('author_email').notNull(),
 	body: text('body').notNull(),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText)
 });
 
-export const contentTypes = sqliteTable('content_types', {
+export const contentTypes = seostats.table('content_types', {
 	id: text('id').primaryKey(),
 	slug: text('slug').notNull().unique(),
 	label: text('label').notNull(),
 	icon: text('icon'),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText)
 });
 
-export const statusHistory = sqliteTable('status_history', {
+export const statusHistory = seostats.table('status_history', {
 	id: text('id').primaryKey(),
 	contentId: text('content_id')
 		.notNull()
@@ -122,12 +158,12 @@ export const statusHistory = sqliteTable('status_history', {
 	fromStatus: text('from_status'),
 	toStatus: text('to_status').notNull(),
 	changedBy: text('changed_by').notNull().default('admin'),
-	changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`)
+	changedAt: text('changed_at').notNull().default(nowText)
 });
 
 // ── CMS connections ───────────────────────────────────────────────
 
-export const cmsConnections = sqliteTable('cms_connections', {
+export const cmsConnections = seostats.table('cms_connections', {
 	id: text('id').primaryKey(),
 	projectId: text('project_id')
 		.notNull()
@@ -136,13 +172,13 @@ export const cmsConnections = sqliteTable('cms_connections', {
 	cmsType: text('cms_type').notNull(),
 	config: text('config').notNull(),
 	apiToken: text('api_token').notNull(),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText),
+	updatedAt: text('updated_at').notNull().default(nowText)
 });
 
 // ── GMB tables ─────────────────────────────────────────────────────
 
-export const projectGmbLocations = sqliteTable(
+export const projectGmbLocations = seostats.table(
 	'project_gmb_locations',
 	{
 		id: text('id').primaryKey(),
@@ -152,12 +188,12 @@ export const projectGmbLocations = sqliteTable(
 		gmbLocationId: text('gmb_location_id').notNull(),
 		label: text('label').notNull(),
 		address: text('address'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+		createdAt: text('created_at').notNull().default(nowText)
 	},
 	(table) => [uniqueIndex('project_gmb_loc_unique').on(table.projectId, table.gmbLocationId)]
 );
 
-export const gmbReviews = sqliteTable('gmb_reviews', {
+export const gmbReviews = seostats.table('gmb_reviews', {
 	id: text('id').primaryKey(),
 	projectId: text('project_id')
 		.notNull()
@@ -172,10 +208,10 @@ export const gmbReviews = sqliteTable('gmb_reviews', {
 	draftReply: text('draft_reply'),
 	mentionedEmployees: text('mentioned_employees'),
 	repliedAt: text('replied_at'),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText)
 });
 
-export const employeeMentions = sqliteTable(
+export const employeeMentions = seostats.table(
 	'employee_mentions',
 	{
 		id: text('id').primaryKey(),
@@ -189,17 +225,19 @@ export const employeeMentions = sqliteTable(
 		positiveCount: integer('positive_count').notNull().default(0),
 		neutralCount: integer('neutral_count').notNull().default(0),
 		negativeCount: integer('negative_count').notNull().default(0),
-		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+		updatedAt: text('updated_at').notNull().default(nowText)
 	},
-	(table) => [uniqueIndex('emp_mentions_unique').on(table.projectId, table.employeeName, table.year, table.month)]
+	(table) => [
+		uniqueIndex('emp_mentions_unique').on(table.projectId, table.employeeName, table.year, table.month)
+	]
 );
 
-export const gmbSettings = sqliteTable('gmb_settings', {
+export const gmbSettings = seostats.table('gmb_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
 });
 
-export const gmbAiReports = sqliteTable(
+export const gmbAiReports = seostats.table(
 	'gmb_ai_reports',
 	{
 		id: text('id').primaryKey(),
@@ -210,15 +248,13 @@ export const gmbAiReports = sqliteTable(
 		model: text('model').notNull(),
 		summaryJson: text('summary_json').notNull(),
 		inputHash: text('input_hash').notNull(),
-		generatedAt: text('generated_at').notNull().default(sql`(datetime('now'))`)
+		generatedAt: text('generated_at').notNull().default(nowText)
 	},
 	(table) => [uniqueIndex('gmb_ai_reports_unique').on(table.projectId, table.period)]
 );
 
 // Snapshot complet d'une fiche GMB par location.
-// Colonnes scalaires pour ce qui est listé/affiché en dashboard,
-// JSON blobs pour les structures complexes (hours, services, categories).
-export const gmbLocationProfiles = sqliteTable(
+export const gmbLocationProfiles = seostats.table(
 	'gmb_location_profiles',
 	{
 		id: text('id').primaryKey(),
@@ -233,8 +269,8 @@ export const gmbLocationProfiles = sqliteTable(
 		primaryCategoryDisplay: text('primary_category_display'),
 		primaryCategoryId: text('primary_category_id'),
 		formattedAddress: text('formatted_address'),
-		latitude: real('latitude'),
-		longitude: real('longitude'),
+		latitude: doublePrecision('latitude'),
+		longitude: doublePrecision('longitude'),
 		openStatus: text('open_status'),
 		storefrontAddress: text('storefront_address'),
 		additionalPhones: text('additional_phones'),
@@ -247,8 +283,8 @@ export const gmbLocationProfiles = sqliteTable(
 		attributes: text('attributes'),
 		rawPayload: text('raw_payload'),
 		etag: text('etag'),
-		syncedAt: text('synced_at').notNull().default(sql`(datetime('now'))`),
-		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+		syncedAt: text('synced_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
 	},
 	(table) => [
 		uniqueIndex('gmb_loc_profile_unique').on(table.projectId, table.gmbLocationId),
@@ -257,8 +293,7 @@ export const gmbLocationProfiles = sqliteTable(
 );
 
 // Métriques journalières Business Profile Performance API.
-// Une ligne par (location, date, metric) pour permettre n'importe quelle agrégation.
-export const gmbInsightsDaily = sqliteTable(
+export const gmbInsightsDaily = seostats.table(
 	'gmb_insights_daily',
 	{
 		id: text('id').primaryKey(),
@@ -269,7 +304,7 @@ export const gmbInsightsDaily = sqliteTable(
 		date: text('date').notNull(),
 		metric: text('metric').notNull(),
 		value: integer('value').notNull().default(0),
-		fetchedAt: text('fetched_at').notNull().default(sql`(datetime('now'))`)
+		fetchedAt: text('fetched_at').notNull().default(nowText)
 	},
 	(table) => [
 		uniqueIndex('gmb_insights_unique').on(table.gmbLocationId, table.date, table.metric),
@@ -278,7 +313,7 @@ export const gmbInsightsDaily = sqliteTable(
 );
 
 // Audit log des éditions de fiche GMB depuis le hub.
-export const gmbProfileEdits = sqliteTable(
+export const gmbProfileEdits = seostats.table(
 	'gmb_profile_edits',
 	{
 		id: text('id').primaryKey(),
@@ -289,15 +324,15 @@ export const gmbProfileEdits = sqliteTable(
 		section: text('section').notNull(),
 		updateMask: text('update_mask'),
 		payload: text('payload').notNull(),
-		success: integer('success', { mode: 'boolean' }).notNull(),
+		success: boolean('success').notNull(),
 		errorMessage: text('error_message'),
 		changedBy: text('changed_by').notNull().default('admin'),
-		changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`)
+		changedAt: text('changed_at').notNull().default(nowText)
 	},
 	(table) => [index('idx_gmb_edits_loc_date').on(table.gmbLocationId, table.changedAt)]
 );
 
-export const publishLogs = sqliteTable(
+export const publishLogs = seostats.table(
 	'publish_logs',
 	{
 		id: text('id').primaryKey(),
@@ -310,10 +345,10 @@ export const publishLogs = sqliteTable(
 		channel: text('channel').notNull().default('gmb'),
 		locationId: text('location_id'),
 		locationLabel: text('location_label'),
-		success: integer('success', { mode: 'boolean' }).notNull(),
+		success: boolean('success').notNull(),
 		gmbPostId: text('gmb_post_id'),
 		errorMessage: text('error_message'),
-		attemptedAt: text('attempted_at').notNull().default(sql`(datetime('now'))`),
+		attemptedAt: text('attempted_at').notNull().default(nowText),
 		durationMs: integer('duration_ms'),
 		source: text('source').notNull().default('cron')
 	},
@@ -325,27 +360,27 @@ export const publishLogs = sqliteTable(
 
 // ── Project contexts ──────────────────────────────────────────────
 
-export const projectContexts = sqliteTable('project_contexts', {
+export const projectContexts = seostats.table('project_contexts', {
 	id: text('id').primaryKey(),
 	projectId: text('project_id')
 		.notNull()
 		.references(() => projects.id)
 		.unique(),
 	context: text('context').notNull(),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText),
+	updatedAt: text('updated_at').notNull().default(nowText)
 });
 
 // ── LinkedIn tables ───────────────────────────────────────────────
 
-export const linkedinSettings = sqliteTable('linkedin_settings', {
+export const linkedinSettings = seostats.table('linkedin_settings', {
 	key: text('key').primaryKey(),
 	value: text('value').notNull()
 });
 
 // ── Google Indexing API ────────────────────────────────────────────
 
-export const indexingCredentials = sqliteTable('indexing_credentials', {
+export const indexingCredentials = seostats.table('indexing_credentials', {
 	id: text('id').primaryKey(),
 	projectId: text('project_id')
 		.notNull()
@@ -356,13 +391,13 @@ export const indexingCredentials = sqliteTable('indexing_credentials', {
 	siteUrl: text('site_url'),
 	sitemapUrl: text('sitemap_url'),
 	publicUrlTemplate: text('public_url_template'),
-	autoSubmitOnPublish: integer('auto_submit_on_publish', { mode: 'boolean' }).notNull().default(false),
+	autoSubmitOnPublish: boolean('auto_submit_on_publish').notNull().default(false),
 	excludePatterns: text('exclude_patterns'),
-	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-	updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+	createdAt: text('created_at').notNull().default(nowText),
+	updatedAt: text('updated_at').notNull().default(nowText)
 });
 
-export const indexingSubmissions = sqliteTable('indexing_submissions', {
+export const indexingSubmissions = seostats.table('indexing_submissions', {
 	id: text('id').primaryKey(),
 	projectId: text('project_id')
 		.notNull()
@@ -373,10 +408,10 @@ export const indexingSubmissions = sqliteTable('indexing_submissions', {
 	httpStatus: integer('http_status'),
 	response: text('response'),
 	source: text('source'),
-	submittedAt: text('submitted_at').notNull().default(sql`(datetime('now'))`)
+	submittedAt: text('submitted_at').notNull().default(nowText)
 });
 
-export const aiJobs = sqliteTable(
+export const aiJobs = seostats.table(
 	'ai_jobs',
 	{
 		id: text('id').primaryKey(),
@@ -387,15 +422,15 @@ export const aiJobs = sqliteTable(
 		status: text('status').notNull().default('pending'),
 		result: text('result'),
 		error: text('error'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-		updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`)
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
 	},
 	(table) => [index('idx_ai_jobs_project').on(table.projectId, table.status)]
 );
 
 // ── Google Search Console weekly snapshots ─────────────────────────
 
-export const gscSnapshots = sqliteTable(
+export const gscSnapshots = seostats.table(
 	'gsc_snapshots',
 	{
 		id: text('id').primaryKey(),
@@ -404,19 +439,19 @@ export const gscSnapshots = sqliteTable(
 			.references(() => projects.id),
 		weekStart: text('week_start').notNull(),
 		weekEnd: text('week_end').notNull(),
-		fetchedAt: text('fetched_at').notNull().default(sql`(datetime('now'))`),
+		fetchedAt: text('fetched_at').notNull().default(nowText),
 		status: text('status').notNull().default('pending'),
 		totalImpressions: integer('total_impressions').notNull().default(0),
 		totalClicks: integer('total_clicks').notNull().default(0),
-		avgCtr: real('avg_ctr').notNull().default(0),
-		avgPosition: real('avg_position').notNull().default(0),
+		avgCtr: doublePrecision('avg_ctr').notNull().default(0),
+		avgPosition: doublePrecision('avg_position').notNull().default(0),
 		rowCount: integer('row_count').notNull().default(0),
 		errorMessage: text('error_message')
 	},
 	(table) => [uniqueIndex('gsc_snapshots_project_week').on(table.projectId, table.weekStart)]
 );
 
-export const gscQueryPageData = sqliteTable(
+export const gscQueryPageData = seostats.table(
 	'gsc_query_page_data',
 	{
 		id: text('id').primaryKey(),
@@ -432,8 +467,8 @@ export const gscQueryPageData = sqliteTable(
 		device: text('device').notNull(),
 		clicks: integer('clicks').notNull().default(0),
 		impressions: integer('impressions').notNull().default(0),
-		ctr: real('ctr').notNull().default(0),
-		position: real('position').notNull().default(0)
+		ctr: doublePrecision('ctr').notNull().default(0),
+		position: doublePrecision('position').notNull().default(0)
 	},
 	(table) => [
 		index('gsc_qp_project_week').on(table.projectId, table.weekStart),
@@ -442,7 +477,7 @@ export const gscQueryPageData = sqliteTable(
 	]
 );
 
-export const gscWeeklyDiffs = sqliteTable(
+export const gscWeeklyDiffs = seostats.table(
 	'gsc_weekly_diffs',
 	{
 		id: text('id').primaryKey(),
@@ -450,7 +485,7 @@ export const gscWeeklyDiffs = sqliteTable(
 			.notNull()
 			.references(() => projects.id),
 		weekStart: text('week_start').notNull(),
-		computedAt: text('computed_at').notNull().default(sql`(datetime('now'))`),
+		computedAt: text('computed_at').notNull().default(nowText),
 		kpis: text('kpis').notNull(),
 		rising: text('rising').notNull(),
 		falling: text('falling').notNull(),
@@ -463,7 +498,7 @@ export const gscWeeklyDiffs = sqliteTable(
 
 // ── Tracked keywords (watchlist positions — epic 23) ────────────────
 
-export const trackedKeywords = sqliteTable(
+export const trackedKeywords = seostats.table(
 	'tracked_keywords',
 	{
 		id: text('id').primaryKey(),
@@ -472,18 +507,16 @@ export const trackedKeywords = sqliteTable(
 			.references(() => projects.id),
 		keyword: text('keyword').notNull(),
 		targetUrl: text('target_url'),
-		targetPosition: real('target_position'),
-		archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+		targetPosition: doublePrecision('target_position'),
+		archived: boolean('archived').notNull().default(false),
+		createdAt: text('created_at').notNull().default(nowText)
 	},
 	(table) => [uniqueIndex('tracked_keywords_project_keyword').on(table.projectId, table.keyword)]
 );
 
 // ── SEO reports (concurrence / backlinks / visibilité IA — pipeline SEO V2) ──
-// Un rapport daté attaché à un projet, éventuellement à un article (contentId).
-// contentId null = rapport au niveau marque/projet (ex: visibilité IA globale).
 
-export const seoReports = sqliteTable(
+export const seoReports = seostats.table(
 	'seo_reports',
 	{
 		id: text('id').primaryKey(),
@@ -495,11 +528,10 @@ export const seoReports = sqliteTable(
 		target: text('target'), // keyword ciblé ou domaine concurrent
 		payload: text('payload').notNull(), // rapport structuré (JSON sérialisé)
 		score: integer('score'), // ex: score visibilité IA /100
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`)
+		createdAt: text('created_at').notNull().default(nowText)
 	},
 	(table) => [
 		index('seo_reports_project_type').on(table.projectId, table.reportType),
 		index('seo_reports_content').on(table.contentId)
 	]
 );
-

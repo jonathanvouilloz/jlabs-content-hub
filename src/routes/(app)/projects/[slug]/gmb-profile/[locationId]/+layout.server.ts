@@ -33,7 +33,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 				eq(projectGmbLocations.gmbLocationId, fullLocId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 	if (!link) throw error(404, 'Location non assignée à ce projet');
 
 	let profile = await db
@@ -45,7 +45,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 				eq(gmbLocationProfiles.gmbLocationId, fullLocId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 
 	const stale = profile ? Date.now() - new Date(profile.syncedAt).getTime() > STALE_AFTER_MS : true;
 	let syncError: string | null = null;
@@ -64,7 +64,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.where(
 			and(eq(gmbReviews.projectId, project.id), eq(gmbReviews.locationId, fullLocId))
 		)
-		.all();
+		;
 	const reviewsReplied = await db
 		.select({ id: gmbReviews.id })
 		.from(gmbReviews)
@@ -75,7 +75,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 				isNotNull(gmbReviews.repliedAt)
 			)
 		)
-		.all();
+		;
 	const reviewsUnreplied = await db
 		.select({ id: gmbReviews.id })
 		.from(gmbReviews)
@@ -86,7 +86,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 				isNull(gmbReviews.repliedAt)
 			)
 		)
-		.all();
+		;
 
 	return {
 		link,

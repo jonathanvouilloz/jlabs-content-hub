@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import { createClient } from '@libsql/client';
-import { drizzle } from 'drizzle-orm/libsql';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { eq, and, like } from 'drizzle-orm';
 import { put, del } from '@vercel/blob';
 import { execFileSync } from 'node:child_process';
@@ -19,11 +20,9 @@ if (!blobToken) {
 	throw new Error('BLOB_READ_WRITE_TOKEN not set in env');
 }
 
-const client = createClient({
-	url: process.env.DATABASE_URL!,
-	authToken: process.env.DATABASE_AUTH_TOKEN
-});
-const db = drizzle(client, { schema });
+neonConfig.webSocketConstructor = ws;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const db = drizzle(pool, { schema });
 
 function banner(label: string) {
 	console.log('\n' + '─'.repeat(60));
@@ -75,7 +74,7 @@ async function main() {
 		.select({ id: projects.id, name: projects.name })
 		.from(projects)
 		.where(eq(projects.slug, PROJECT_SLUG))
-		.get();
+		.then((r) => r[0]);
 	if (!project) throw new Error(`Project not found: ${PROJECT_SLUG}`);
 
 	const rows = await db

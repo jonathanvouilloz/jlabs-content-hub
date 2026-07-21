@@ -47,7 +47,7 @@ export const load: PageServerLoad = async ({ params }) => {
 						eq(gmbLocationProfiles.gmbLocationId, loc.gmbLocationId)
 					)
 				)
-				.get();
+				.then((r) => r[0]);
 
 			const insightsRows = await db
 				.select()
@@ -59,7 +59,7 @@ export const load: PageServerLoad = async ({ params }) => {
 						lte(gmbInsightsDaily.date, endIso)
 					)
 				)
-				.all();
+				;
 
 			const totals = { impressions: 0, websiteClicks: 0, callClicks: 0, directionRequests: 0 };
 			for (const r of insightsRows) {
@@ -78,7 +78,7 @@ export const load: PageServerLoad = async ({ params }) => {
 						eq(gmbReviews.locationId, loc.gmbLocationId)
 					)
 				)
-				.all();
+				;
 			const reviewsReplied = await db
 				.select({ id: gmbReviews.id })
 				.from(gmbReviews)
@@ -89,7 +89,7 @@ export const load: PageServerLoad = async ({ params }) => {
 						isNotNull(gmbReviews.repliedAt)
 					)
 				)
-				.all();
+				;
 			const reviewsUnreplied = await db
 				.select({ id: gmbReviews.id })
 				.from(gmbReviews)
@@ -100,7 +100,7 @@ export const load: PageServerLoad = async ({ params }) => {
 						isNull(gmbReviews.repliedAt)
 					)
 				)
-				.all();
+				;
 
 			return {
 				link: loc,

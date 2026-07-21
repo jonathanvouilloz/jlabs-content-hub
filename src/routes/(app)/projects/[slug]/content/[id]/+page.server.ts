@@ -32,11 +32,11 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 		: content.body;
 
 	const cmsConnection = content.type === 'article'
-		? await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, content.projectId)).get()
+		? await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, content.projectId)).then((r) => r[0])
 		: null;
 
 	const linkedinConnected = content.type === 'linkedin'
-		? !!(await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).get())
+		? !!(await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).then((r) => r[0]))
 		: false;
 
 	const gmbLocations = content.type === 'gmb'

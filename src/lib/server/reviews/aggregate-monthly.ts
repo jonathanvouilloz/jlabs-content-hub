@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews, employeeMentions, projectContexts } from '$lib/server/db/schema.js';
-import { eq, and, gte, lt, desc, like } from 'drizzle-orm';
+import { eq, and, gte, lt, desc, ilike } from 'drizzle-orm';
 import type { ProjectContext } from '$lib/types/project-context.js';
 
 export interface ReviewItem {
@@ -125,7 +125,7 @@ export async function aggregateMonthly(
 				eq(gmbReviews.projectId, project.id),
 				gte(gmbReviews.createTime, monthStart),
 				lt(gmbReviews.createTime, nextMonth),
-				like(gmbReviews.mentionedEmployees, `%"name":"${emp.employeeName}"%`)
+				ilike(gmbReviews.mentionedEmployees, `%"name":"${emp.employeeName}"%`)
 			))
 			.orderBy(desc(gmbReviews.createTime))
 			.limit(3);

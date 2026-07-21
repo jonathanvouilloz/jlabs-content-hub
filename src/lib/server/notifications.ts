@@ -25,7 +25,7 @@ function getResend(): Resend | null {
 // ── Settings helpers (idempotence) ─────────────────────────────────
 
 async function getSetting(key: string): Promise<string | null> {
-	const row = await db.select().from(gmbSettings).where(eq(gmbSettings.key, key)).get();
+	const row = await db.select().from(gmbSettings).where(eq(gmbSettings.key, key)).then((r) => r[0]);
 	return row?.value ?? null;
 }
 

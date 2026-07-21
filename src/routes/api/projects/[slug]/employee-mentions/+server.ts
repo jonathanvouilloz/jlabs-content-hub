@@ -4,7 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews, employeeMentions } from '$lib/server/db/schema.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import { persistMentionsForReview, type Mention } from '$lib/server/reviews/mentions.js';
-import { eq, and, gte, lt, like, sql } from 'drizzle-orm';
+import { eq, and, gte, lt, ilike, sql } from 'drizzle-orm';
 
 interface ItemInput { reviewId: string; mentions: Mention[] }
 
@@ -107,7 +107,7 @@ export const GET: RequestHandler = async (event) => {
 				eq(gmbReviews.projectId, project.id),
 				gte(gmbReviews.createTime, start),
 				lt(gmbReviews.createTime, end),
-				like(gmbReviews.mentionedEmployees, sql`${'%"name":"' + emp.name + '"%'}`)
+				ilike(gmbReviews.mentionedEmployees, sql`${'%"name":"' + emp.name + '"%'}`)
 			))
 			.limit(5);
 		sampleReviews[emp.name] = samples;

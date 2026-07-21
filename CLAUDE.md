@@ -149,13 +149,61 @@ Pour les images GMB, le skill `/publish-hub` doit :
 **Admin :** contact@jonlabs.ch
 **Prochaine etape :** epic 24 (Focus & IA : nav 2 piliers + cockpit) → epic 25 (providers DataForSEO + runner de jobs) → epics 26 (avis full-auto) & 27 (rang SERP reel).
 
-## Skills relies
+## Carte des skills — domaine SEO (partition `noyau/seo-stats`)
 
-Ce repo est consomme par plusieurs skills Claude Code :
-- `/publish-hub` — pousse du contenu vers le hub via POST /api/content
-- `/content-pipeline` — orchestre publish + linkedin + gmb en sequence
-- `/linkedin-weekly-posts` — genere 3 posts LinkedIn par article
-- `/gmb-generate` — genere un calendrier GMB
+> **Curation, pas contrôle d'accès.** Tous ces skills sont déjà disponibles partout ; cette carte dit
+> lesquels sont **canoniques** dans le domaine SEO, dans **quel ordre**, et lesquels touchent ce hub.
+> La `SKILL.md` de chaque skill fait foi sur le *comment* (source de vérité unique) — ici : nom + rôle + ordre.
+
+### 1. Pilotage & analyse — le cœur de `seo-stats` (lisent GSC / ce hub)
+
+Ce sont les skills « natifs » de la partition : ils **piochent** les données du hub Turso / GSC et
+**persistent** leurs rapports (`seo_reports`). Loi noyau n°4 : on requête l'app, on ne recopie jamais un chiffre en markdown.
+
+| Skill | Rôle | I/O hub |
+|---|---|---|
+| `/seo-weekly` | Snapshot GSC hebdo + plan d'action priorisé | lit GSC+hub · écrit snapshots |
+| `/seo-actions` | Top opportunités + quick wins de la semaine | lit hub |
+| `/seo-gsc` | Analyse GSC brute (queries/CTR/position) | lit GSC |
+| `/seo-cannibalisation` | Conflits multi-URL mesurés (GSC) | écrit `seo_reports` |
+| `/seo-index-diagnose` | Coverage d'indexation (URL Inspection API) | lit GSC |
+| `/seo-backlinks` | Profil de liens (DataForSEO / browser) | écrit `seo_reports` |
+| `/seo-competitors` | Keyword gap chiffré vs concurrents | écrit `seo_reports` |
+| `/seo-ai-visibility` | Score GEO / citations IA | écrit `seo_reports` |
+| `/seo-archive` | Pousse les JSON SEO → `cerveau/` (Obsidian) | sort vers cerveau |
+
+### 2. Recherche & cadrage — amont (produit un brief, tourne en contexte projet)
+
+**Ordre :** `/seo-topical-map` → `/seo-keywords` → `/seo-serp` → `/seo-competitors` → `/seo-entities` → `/seo-gsc` → **`/seo-brief`**
+
+Le brief final se dépose dans `cerveau/10-Projets/{slug}/briefs/`, pas ici.
+
+### 3. Production & publication — le brief devient un article publié
+
+**Ordre :** `/seo-write` → `/humanizer` → `/seo-sources` → `/seo-enrich` → `/seo-review` → **`/publish-hub`** *(→ arrive dans ce hub, tables `contents`)*
+
+Compléments : `/programmatic-seo` (pages à l'échelle) · `/seo-audit` (audit technique) · `/seo-refresh` (rafraîchir un existant).
+
+**Agents (sous-agents autonomes du domaine)** — pour produire sans piloter skill par skill :
+
+| Agent | Rôle | Remplace |
+|---|---|---|
+| `@content-creator` | Orchestrateur : demande haut-niveau → recherche + briefs + production + mesure, de bout en bout | le pilotage humain du pipeline |
+| `@article-producer` | Worker : 1 slug → 1 article complet (write→humanizer→sources→enrich→review→cover→publish) | l'exécution manuelle §3 |
+| `@brief-critic` | Relecteur adversarial d'un brief (`/seo-brief`), verdict PASS/FAIL | le checkpoint humain de validation de brief |
+
+`@content-creator` spawn les deux autres en boucle (brief-critic valide, article-producer produit en parallèle). Les agents `@epic-*` / `@plan-critic` sont **dev**, hors domaine SEO.
+
+### 4. Présence locale (GMB) — l'autre pilier du cockpit jokiSEO
+
+**Ordre :** `/gmb-generate` → `/gmb-generate-images` → **`/publish-hub`** *(GMB auto-approve, cron 9h)*
+Avis : `/gmb-review-responder` · Déclinaison sociale d'un article : `/linkedin-weekly-posts`.
+
+### 5. Les ponts avec les autres partitions
+
+- **Écrit ici** : `/publish-hub` (contenu produit → `contents`/GMB). Orchestré par `/content-pipeline` (publish + linkedin + gmb).
+- **Lit ici** : tous les skills du bloc 1 (KPI/GSC) — jamais de copie markdown (loi n°4).
+- **Monte au cerveau** : `/seo-archive` (snapshots → `cerveau/20-Knowledge/`), puis distillation wiki **consciente** (`/brain-sync` / INGEST), jamais auto (loi n°5).
 
 ## Fin d'epic
 Quand le dernier commit d'un epic est fait, propose a Jonathan de lancer `/epic-recap` pour generer le rapport dans Obsidian. Ne le lance pas automatiquement — demande d'abord.

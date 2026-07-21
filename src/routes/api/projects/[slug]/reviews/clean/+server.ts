@@ -21,5 +21,5 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 			isNotNull(gmbReviews.repliedAt)
 		));
 
-	return json({ ok: true, deleted: result.rowsAffected });
+	return json({ ok: true, deleted: result.rowCount ?? 0 });
 };

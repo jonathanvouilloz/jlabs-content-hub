@@ -47,7 +47,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			.select({ status: contents.status })
 			.from(contents)
 			.where(eq(contents.id, content.id))
-			.get();
+			.then((r) => r[0]);
 		if (fresh?.status === 'published') continue;
 
 		let gmbBody: GmbBody;

@@ -39,7 +39,7 @@ export const PATCH: RequestHandler = async (event) => {
 				eq(projectGmbLocations.gmbLocationId, locationId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 	if (!link) return errorResponse('Location not assigned to project', 404);
 
 	let payload: BasicPayload;

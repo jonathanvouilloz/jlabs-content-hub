@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import { createClient } from '@libsql/client';
-import { drizzle } from 'drizzle-orm/libsql';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { sql } from 'drizzle-orm';
 import { Octokit } from 'octokit';
 import * as schema from '../src/lib/server/db/schema.js';
@@ -11,11 +12,9 @@ const EXECUTE = process.argv.includes('--execute');
 const PRESERVE_GITHUB_PREFIX = 'content/physiopommier/';
 const COMMIT_MESSAGE = '[hub] chore: cleanup contenu (preservation physiopommier)';
 
-const client = createClient({
-	url: process.env.DATABASE_URL!,
-	authToken: process.env.DATABASE_AUTH_TOKEN
-});
-const db = drizzle(client, { schema });
+neonConfig.webSocketConstructor = ws;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const db = drizzle(pool, { schema });
 
 const octokit = new Octokit({ auth: process.env.GITHUB_PAT });
 const repo = { owner: process.env.GITHUB_OWNER!, repo: process.env.GITHUB_REPO! };

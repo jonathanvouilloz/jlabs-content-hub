@@ -85,7 +85,7 @@ export const load: PageServerLoad = async ({ params }) => {
 				lte(gmbInsightsDaily.date, current.end)
 			)
 		)
-		.all();
+		;
 
 	const currentRows = allRows.filter((r) => r.date >= current.start && r.date <= current.end);
 	const previousRows = allRows.filter((r) => r.date >= previousRange.start && r.date <= previousRange.end);

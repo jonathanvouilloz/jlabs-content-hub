@@ -101,7 +101,7 @@ export const POST: RequestHandler = async (event) => {
 						.set({ draftReply: event.reply })
 						.where(eq(gmbReviews.reviewId, event.review.reviewId));
 
-					if (upd.rowsAffected > 0) {
+					if ((upd.rowCount ?? 0) > 0) {
 						result.progress.current++;
 						// Persiste les mentions employés (idempotent : skip si déjà analysé sauf force)
 						try {

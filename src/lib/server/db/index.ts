@@ -1,5 +1,6 @@
-import { drizzle } from 'drizzle-orm/libsql';
-import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { env } from '$env/dynamic/private';
 import * as schema from './schema.js';
 
@@ -7,9 +8,10 @@ if (!env.DATABASE_URL) {
 	throw new Error('DATABASE_URL is not set');
 }
 
-const client = createClient({
-	url: env.DATABASE_URL,
-	authToken: env.DATABASE_AUTH_TOKEN
-});
+// WebSocket pour le driver Pool en environnement Node (< 22 sans WebSocket global).
+// No-op si un WebSocket global existe déjà (Node 22+, edge).
+neonConfig.webSocketConstructor = ws;
 
-export const db = drizzle(client, { schema });
+const pool = new Pool({ connectionString: env.DATABASE_URL });
+
+export const db = drizzle(pool, { schema });

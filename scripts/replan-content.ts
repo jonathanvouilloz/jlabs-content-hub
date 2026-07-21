@@ -1,15 +1,14 @@
 import 'dotenv/config';
-import { createClient } from '@libsql/client';
-import { drizzle } from 'drizzle-orm/libsql';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { eq } from 'drizzle-orm';
 import { contents, projects, statusHistory } from '../src/lib/server/db/schema.js';
 import { randomBytes } from 'node:crypto';
 
-const client = createClient({
-	url: process.env.DATABASE_URL!,
-	authToken: process.env.DATABASE_AUTH_TOKEN
-});
-const db = drizzle(client);
+neonConfig.webSocketConstructor = ws;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const db = drizzle(pool);
 
 function createId(): string {
 	return randomBytes(12).toString('hex');

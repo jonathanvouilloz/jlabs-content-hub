@@ -25,7 +25,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.select()
 		.from(contents)
 		.where(eq(contents.id, params.contentId))
-		.get();
+		.then((r) => r[0]);
 
 	if (!content || content.type !== 'gmb') {
 		return json({ error: 'GMB content not found' }, { status: 404 });
@@ -35,7 +35,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.select()
 		.from(projects)
 		.where(eq(projects.id, content.projectId))
-		.get();
+		.then((r) => r[0]);
 
 	if (!project) {
 		return json({ error: 'Project not found' }, { status: 404 });

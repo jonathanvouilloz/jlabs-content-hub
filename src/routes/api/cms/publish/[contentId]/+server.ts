@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.select()
 		.from(contents)
 		.where(eq(contents.id, params.contentId))
-		.get();
+		.then((r) => r[0]);
 
 	if (!content) {
 		return json({ error: 'Content not found' }, { status: 404 });
@@ -38,7 +38,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.select()
 		.from(cmsConnections)
 		.where(eq(cmsConnections.projectId, content.projectId))
-		.get();
+		.then((r) => r[0]);
 
 	if (!connection) {
 		return json({ error: 'No CMS connection for this project' }, { status: 404 });

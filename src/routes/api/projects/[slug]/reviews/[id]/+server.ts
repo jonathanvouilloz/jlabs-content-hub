@@ -28,7 +28,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 		.delete(gmbReviews)
 		.where(and(eq(gmbReviews.id, params.id), eq(gmbReviews.projectId, project.id)));
 
-	if (result.rowsAffected === 0) {
+	if ((result.rowCount ?? 0) === 0) {
 		return json({ error: 'Review not found' }, { status: 404 });
 	}
 

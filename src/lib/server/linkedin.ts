@@ -13,7 +13,7 @@ interface Tokens {
 // ── Settings helpers ───────────────────────────────────────────────
 
 async function getSetting(key: string): Promise<string | null> {
-	const row = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, key)).get();
+	const row = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, key)).then((r) => r[0]);
 	return row?.value ?? null;
 }
 

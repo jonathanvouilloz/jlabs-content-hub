@@ -8,3 +8,8 @@ node_modules/
 !.env.example
 package-lock.json
 .vercel
+
+# Outputs des skills SEO (archivés au cerveau via /seo-archive, pas dans le repo)
+.seo-data/
+# Locks runtime
+.claude/scheduled_tasks.lock

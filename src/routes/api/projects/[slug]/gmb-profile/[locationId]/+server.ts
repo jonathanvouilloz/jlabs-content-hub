@@ -33,7 +33,7 @@ export const GET: RequestHandler = async (event) => {
 				eq(projectGmbLocations.gmbLocationId, locationId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 	if (!link) return errorResponse('Location not assigned to project', 404);
 
 	const forceRefresh = event.url.searchParams.get('refresh') === '1';
@@ -47,7 +47,7 @@ export const GET: RequestHandler = async (event) => {
 				eq(gmbLocationProfiles.gmbLocationId, locationId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 
 	const stale = profile
 		? Date.now() - new Date(profile.syncedAt).getTime() > STALE_AFTER_MS

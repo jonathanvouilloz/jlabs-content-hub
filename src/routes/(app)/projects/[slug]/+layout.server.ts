@@ -16,14 +16,14 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.select()
 		.from(cmsConnections)
 		.where(eq(cmsConnections.projectId, project.id))
-		.get();
+		.then((r) => r[0]);
 
 	// Check GMB connection (global account tokens)
 	const gmbTokens = await db
 		.select()
 		.from(gmbSettings)
 		.where(eq(gmbSettings.key, 'account_tokens'))
-		.get();
+		.then((r) => r[0]);
 
 	// Check GMB locations assigned
 	const gmbLocations = await db
@@ -36,7 +36,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.select()
 		.from(linkedinSettings)
 		.where(eq(linkedinSettings.key, 'account_tokens'))
-		.get();
+		.then((r) => r[0]);
 
 	return {
 		project,

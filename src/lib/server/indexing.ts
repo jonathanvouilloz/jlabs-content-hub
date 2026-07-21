@@ -457,6 +457,6 @@ export async function countSubmissions(projectId: string): Promise<number> {
 		.select({ count: sql<number>`count(*)` })
 		.from(indexingSubmissions)
 		.where(eq(indexingSubmissions.projectId, projectId))
-		.get();
+		.then((r) => r[0]);
 	return Number(row?.count ?? 0);
 }

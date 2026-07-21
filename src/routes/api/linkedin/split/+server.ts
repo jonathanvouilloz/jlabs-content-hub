@@ -28,7 +28,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	// Load the batch content
-	const batch = await db.select().from(contents).where(eq(contents.id, batchContentId)).get();
+	const batch = await db.select().from(contents).where(eq(contents.id, batchContentId)).then((r) => r[0]);
 	if (!batch || batch.type !== 'linkedin') {
 		return json({ error: 'Batch content not found' }, { status: 404 });
 	}

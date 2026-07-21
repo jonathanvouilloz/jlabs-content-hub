@@ -53,7 +53,7 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 			.select({ n: sql<number>`count(*)` })
 			.from(publishLogs)
 			.where(where)
-			.get(),
+			.then((r) => r[0]),
 		db
 			.select()
 			.from(projectGmbLocations)

@@ -28,7 +28,7 @@ export const PUT: RequestHandler = async (event) => {
 			.update(gmbReviews)
 			.set({ draftReply })
 			.where(eq(gmbReviews.reviewId, reviewId));
-		if (result.rowsAffected > 0) updated++;
+		if ((result.rowCount ?? 0) > 0) updated++;
 	}
 
 	return json({ updated });

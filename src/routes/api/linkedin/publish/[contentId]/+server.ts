@@ -15,7 +15,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		.select()
 		.from(contents)
 		.where(eq(contents.id, params.contentId))
-		.get();
+		.then((r) => r[0]);
 
 	if (!content || content.type !== 'linkedin') {
 		return json({ error: 'LinkedIn content not found' }, { status: 404 });

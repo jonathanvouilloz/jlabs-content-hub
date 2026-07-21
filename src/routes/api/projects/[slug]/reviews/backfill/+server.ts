@@ -81,7 +81,7 @@ export const GET: RequestHandler = async (event) => {
 				})
 				.onConflictDoNothing();
 
-			if (result.rowsAffected > 0) {
+			if ((result.rowCount ?? 0) > 0) {
 				inserted++;
 			} else {
 				skipped++;

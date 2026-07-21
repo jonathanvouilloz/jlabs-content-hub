@@ -70,7 +70,7 @@ export const GET: RequestHandler = async (event) => {
 				eq(projectGmbLocations.gmbLocationId, locationId)
 			)
 		)
-		.get();
+		.then((r) => r[0]);
 	if (!link) return errorResponse('Location not assigned to project', 404);
 
 	const periodParam = (event.url.searchParams.get('period') ?? '30d') as Period;
@@ -91,7 +91,7 @@ export const GET: RequestHandler = async (event) => {
 				lte(gmbInsightsDaily.date, end)
 			)
 		)
-		.all();
+		;
 
 	if (refresh || existingCount.length === 0) {
 		const startDate = new Date(start);
@@ -119,7 +119,7 @@ export const GET: RequestHandler = async (event) => {
 				lte(gmbInsightsDaily.date, end)
 			)
 		)
-		.all();
+		;
 
 	// Pull série pour période précédente (pour diff %)
 	const prev = previousPeriod(start, end);
@@ -133,7 +133,7 @@ export const GET: RequestHandler = async (event) => {
 				lte(gmbInsightsDaily.date, prev.end)
 			)
 		)
-		.all();
+		;
 
 	// Agrégats par métrique
 	const aggregate = (rows: typeof currentRows) => {

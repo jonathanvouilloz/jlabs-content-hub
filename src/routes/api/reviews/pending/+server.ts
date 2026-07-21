@@ -30,7 +30,7 @@ export const GET: RequestHandler = async (event) => {
 			.select()
 			.from(projectContexts)
 			.where(eq(projectContexts.projectId, project.id))
-			.get();
+			.then((r) => r[0]);
 
 		result.push({
 			project: { id: project.id, name: project.name, slug: project.slug },
