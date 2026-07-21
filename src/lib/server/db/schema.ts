@@ -1041,3 +1041,83 @@ export const gmbInsightObservations = seostats.table(
 		index('idx_gmb_insight_obs_location_date').on(table.locationId, table.observedDate)
 	]
 );
+
+// ── DATA-005 — Findings & journal de décisions (SPEC §7.6/§7.7) ──────
+//
+// Un finding = une INTERPRÉTATION déterministe persistante (jamais un fait brut →
+// ça, c'est une observation, DATA-004). C'est la primitive centrale du produit
+// (SPEC §1542). Le `fingerprint` (projet + type + entité + discriminants) est
+// STABLE : le même problème détecté deux semaines de suite conserve le même
+// finding (unique project_id + fingerprint), on incrémente `occurrence_count` et
+// on rafraîchit `last_seen_at` — jamais de doublon hebdomadaire.
+//
+// Les PREUVES vivent dans `evidence_json` sous forme de POINTEURS (ids
+// d'observations, queries, pages), jamais recopiées en texte libre : pas de FK
+// dure vers une observation. Politique de suppression (acceptation DATA-005) : les
+// observations forment une série append-only jamais supprimée ; les références
+// souples d'evidence_json ne cascadent donc pas. `run_id` (nullable) trace le run
+// détecteur, cohérent avec les observations.
+export const findings = seostats.table(
+	'findings',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id), // nullable — run détecteur
+		fingerprint: text('fingerprint').notNull(), // clé stable de dédup (miroir de l'unique)
+		type: text('type').notNull(), // catalogue SPEC §10.4 (keyword_opportunity, ctr_gap, …)
+		entityType: text('entity_type').notNull(), // 'project'|'query'|'page'|'review'|'integration'
+		entityKey: text('entity_key').notNull().default(''), // l'URL/query/id concernée (vide si projet)
+		title: text('title').notNull(),
+		status: text('status').notNull().default('open'), // §7.6+reopened : open|acknowledged|planned|in_progress|resolved|dismissed|snoozed|reopened
+		severity: text('severity').notNull().default('info'), // info|low|medium|high|critical
+		priorityScore: integer('priority_score').notNull().default(0), // 0–100 (barème §10.2)
+		confidenceScore: integer('confidence_score').notNull().default(0), // 0–100
+		impactEstimateJson: text('impact_estimate_json'), // estimation d'impact (non secret)
+		evidenceJson: text('evidence_json'), // POINTEURS vers observations, pas de texte libre
+		detectorVersion: text('detector_version'),
+		recommendedSkill: text('recommended_skill'),
+		occurrenceCount: integer('occurrence_count').notNull().default(1),
+		firstSeenAt: text('first_seen_at').notNull().default(nowText),
+		lastSeenAt: text('last_seen_at').notNull().default(nowText),
+		resolutionReason: text('resolution_reason'),
+		resolvedAt: text('resolved_at'),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('findings_fingerprint_unique').on(table.projectId, table.fingerprint), // dédup
+		index('idx_findings_project_status').on(table.projectId, table.status),
+		index('idx_findings_project_severity').on(table.projectId, table.severity),
+		index('idx_findings_status').on(table.status) // inbox cross-projet
+	]
+);
+
+// Journal APPEND-ONLY des changements d'un finding (SPEC §7.7). Toute transition
+// (statut ou sévérité) porte un `event_type`, une `reason` (cause) et un `actor`
+// (auteur) → acceptation DATA-005 « toute transition possède un événement, une
+// cause et un auteur ». Jamais d'update/delete : uniquement des insertions.
+export const findingEvents = seostats.table(
+	'finding_events',
+	{
+		id: text('id').primaryKey(),
+		findingId: text('finding_id')
+			.notNull()
+			.references(() => findings.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id), // index/requêtes cross-projet directs
+		eventType: text('event_type').notNull(), // created|aggravated|improved|agent_comment|validated|rejected|snoozed|reopened|resolved
+		fromStatus: text('from_status'),
+		toStatus: text('to_status'),
+		reason: text('reason'), // cause de la transition
+		actor: text('actor').notNull().default('system'), // schedule|user|agent|system|detector
+		payloadJson: text('payload_json'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		index('idx_finding_events_finding').on(table.findingId),
+		index('idx_finding_events_project_created').on(table.projectId, table.createdAt)
+	]
+);

@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 45,
-    "modelCount": 45,
+    "liveCount": 47,
+    "modelCount": 47,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 45
+    "inBothCount": 47
   },
   "tables": [
     {
@@ -884,6 +884,286 @@
       "indexes": [
         "emp_mentions_unique",
         "employee_mentions_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "finding_events",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "finding_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "event_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "from_status",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "to_status",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "reason",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "actor",
+          "type": "text",
+          "nullable": false,
+          "default": "'system'::text"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "finding_events_finding_id_findings_id_fk",
+          "columns": [
+            "finding_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "findings",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "finding_events_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "finding_events_pkey",
+        "idx_finding_events_finding",
+        "idx_finding_events_project_created"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "findings",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fingerprint",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "entity_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "entity_key",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "title",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'open'::text"
+        },
+        {
+          "column": "severity",
+          "type": "text",
+          "nullable": false,
+          "default": "'info'::text"
+        },
+        {
+          "column": "priority_score",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "confidence_score",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "impact_estimate_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "evidence_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "detector_version",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "recommended_skill",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "occurrence_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "first_seen_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "last_seen_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "resolution_reason",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "resolved_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "findings_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "findings_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "findings_fingerprint_unique",
+        "findings_pkey",
+        "idx_findings_project_severity",
+        "idx_findings_project_status",
+        "idx_findings_status"
       ]
     },
     {
