@@ -4,6 +4,49 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-21 (DATA-004)
+
+**Fait :**
+- **DATA-004** phase **expand** : le modèle d'observations (SPEC §7.5), **10 tables** dans `schema.ts`.
+  Une observation = un **fait collecté**, jamais une interprétation (ça = un finding, DATA-005).
+  - Forme commune à chaque table : `project_id` · `run_id` (FK→`monitoring_runs`, nullable →
+    **traçabilité** jusqu'au run collecteur) · `provider` · `schema_version` · période/date ·
+    dimensions · métriques normalisées · `payload_json` **brut borné** (séparé du normalisé) ·
+    `fetched_at`. **Unique d'upsert** (projet + dimensions + période) = deux collectes identiques
+    ne dupliquent pas (acceptation 1). **Index (projet, période/date)** = fenêtres 7/28/90 j
+    couvertes (acceptation 3).
+  - Les 10 : `gsc_query_page` · `gsc_page` · `index` · `sitemap` · `plausible_page` ·
+    `keyword_rank` · `backlink` · `ai_visibility` · `gmb_review` · `gmb_insight` _observations_.
+    **5 ancrées** sur une source vivante à migrer (gsc_query_page, gsc_page, gmb_insight,
+    keyword_rank, index) ; **5 préfigurent** un collecteur à venir (sitemap, plausible, backlink,
+    ai_visibility, gmb_review) — expand étant additif, elles s'élargiront sans rupture.
+  - Helpers : `observation-state.ts` (**pur**, testé : `deriveObservationFingerprint` [dédup
+    déterministe, séparateur `0x1F`], `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`
+    [payload borné 32 Ko]) · `observations.ts` (upserts idempotents `onConflictDoUpdate` des **5
+    tables ancrées** ; garde `assertNoInlineSecret` + `assertBoundedPayload` sur le payload).
+  - Application : `drizzle/manual-data-004.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-004.ts`.
+- Vérif : `npm run test` = **57/57** (17 nouveaux) · `npm run check` = 0 err / 42 warn · introspection =
+  **45 tables, zéro dérive**, les 10 tables + uniques d'upsert + index de fenêtre attendus.
+- **Pas de backfill / pas de retrait** (migrate/contract = phase suivante).
+
+**Prochain :** **migrate/contract** désormais débloqué côté observations — backfill par lots
+`gsc_query_page_data` (73k, **dédupliquer d'abord**, aucune clé naturelle) + `gsc_snapshots` →
+`gsc_*_observations`, `gmb_insights_daily` → `gmb_insight_observations`, positions epic 23 →
+`keyword_rank_observations`. Puis **DATA-005** (`findings`/`finding_events`, désormais débloqué).
+Le morceau `ai_jobs → jobs` reste **écarté** (voir Décisions).
+
+**Pièges :**
+- Uniques en **index uniques** (`uniqueIndex`), pas contraintes — cohérent avec le reste du schéma.
+- `payload_json` : **borné** (`assertBoundedPayload`, 32 Ko) ET sans secret (`assertNoInlineSecret`)
+  avant persistance. Le brut illimité va ailleurs, jamais dans la série temporelle.
+- `gmb_review_observations` **recouvre** l'existant `gmb_reviews` (conservé) : la table d'observation
+  capture l'**état daté** (rating/sentiment/has_reply) pour la série réputation, sans dupliquer le
+  texte de l'avis (→ payload/finding).
+- Les 5 tables spéculatives n'ont **pas** de write-helper (on n'écrit pas ce qu'on ne collecte pas) :
+  leurs colonnes de métriques sont volontairement minimales, à élargir quand leur collecteur arrive.
+
+---
+
 ## Etat session 2026-07-21 (DATA-003)
 
 **Fait :**
@@ -157,7 +200,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (32 tables) ; +DATA-002 `project_integrations`/`project_projections`. |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (45 tables) ; +DATA-002/003/004 (intégrations, orchestration, 10 observations). |
+| `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
+| `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
+| `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
 | `src/lib/server/projection-state.ts` | Purs DATA-002 : `classifyProjection`, `assertNoInlineSecret`, `computeHealth`. |
 | `src/lib/server/projections.ts` | DATA-002 — record/dedup/versionnage transactionnel des projections. |
 | `src/lib/server/integrations.ts` | DATA-002 — upsert intégration (`onConflict`) + succès/erreur → santé. |
@@ -169,6 +215,14 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 - Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
 - **IDX-008** : garde à deux étages (flag maître `indexnow` + éligibilité type) ; refus audité en DB, zéro quota.
 - **DATA-002 (expand seul)** : `resource_key` discrimine plusieurs propriétés/locations d'un provider ; projections en **historique** (unique `(project_id, source_hash)` + unique partiel `current`) ; garde `assertNoInlineSecret` sur payload/config ; secrets via `secret_ref`, jamais inline. **Pas de backfill/retrait** des tables héritées.
+- **DATA-004 (expand seul)** : 10 tables d'observations (SPEC §7.5), forme commune (provider, run_id,
+  période/date, dims, métriques, payload borné, schema_version, fetched_at) ; unique d'upsert = dédup ;
+  index (projet, période) = fenêtres 7/28/90 j. 5 ancrées + 5 spéculatives (expand additif). **Décision
+  `ai_jobs` :** le « `ai_jobs → jobs type='ai'` » du plan initial est **écarté** — `ai_jobs` est un
+  *result-store poll é* vivant (fire-and-poll, colonne `result`, lu par `GET /api/jobs/[id]`), pas la
+  pull-queue durable que `jobs` modélise (claim/lease, aucune colonne résultat). Le folder mécanique
+  polluerait `jobs`. `ai_jobs` reste du **legacy pré-agentique**, à retirer quand le flux review-reply
+  devient agent+proposal (DATA-006/JOB-001), pas à remapper.
 - Nouvelles tables appliquées par **SQL additif idempotent** (pas `db:push`) ; `schema.ts` reste source de vérité, vérif par re-run de l'introspection (zéro dérive).
 - Renommage `jlabs-content-hub` limité à l'interne ; le client-facing est une décision de marque séparée.
 - Branche `feat/cockpit` depuis `feat/neon` (isole la phase agentique ; `feat/neon` figée pour le cutover Vercel P5A).

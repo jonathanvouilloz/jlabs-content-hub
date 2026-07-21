@@ -284,7 +284,7 @@ Acceptation :
 
 ## DATA-004 — Créer le modèle d'observations
 
-**Priorité :** P0 · **Taille :** L · **État :** READY · **Dépendances :** DATA-001
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-21, phase expand — 10 tables §7.5 + helpers purs/upserts ancrés ; backfill par lots = migrate/contract en phase suivante) · **Dépendances :** DATA-001
 
 Travail :
 
