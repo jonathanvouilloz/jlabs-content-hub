@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 30,
-    "modelCount": 30,
+    "liveCount": 32,
+    "modelCount": 32,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 30
+    "inBothCount": 32
   },
   "tables": [
     {
@@ -1810,6 +1810,210 @@
       "indexes": [
         "project_gmb_loc_unique",
         "project_gmb_locations_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "project_integrations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "resource_key",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'inactive'::text"
+        },
+        {
+          "column": "scopes",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "configuration_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "secret_ref",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_success_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_error_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_error_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "health_status",
+          "type": "text",
+          "nullable": false,
+          "default": "'unknown'::text"
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "project_integrations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_project_integrations_project",
+        "idx_project_integrations_provider",
+        "project_integrations_pkey",
+        "project_integrations_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "project_projections",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "source_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "payload",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'current'::text"
+        },
+        {
+          "column": "validation_errors",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "compiled_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "received_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "project_projections_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_project_projections_project_status",
+        "project_projections_hash_unique",
+        "project_projections_one_current",
+        "project_projections_pkey"
       ]
     },
     {

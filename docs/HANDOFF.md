@@ -9,5 +9,5 @@
 Cadre produit : [SPEC.md](SPEC.md) · [BACKLOG.md](BACKLOG.md) · décision UI → [DECISIONS.md](DECISIONS.md) (2026-07-21).
 
 ## Reprendre ici
-E00 sur `feat/cockpit` — fondations + **IDX-008** + **DATA-001 faits**. DATA-001 = cartographie du schéma → `docs/DATA-001-cartography.md` (30 tables, zéro dérive modèle↔DB, sort par table, expand/migrate/contract ; gros morceau = `gsc_query_page_data` 73k). Prochain : **DATA-002** (`project_integrations` + `project_projections`). En attente : **DATA-001b** (fixture anonymisée, différée) · décision de marque sur 3 chaînes `jlabs-content-hub` client-facing.
-Commit : `256c1a2` IDX-008 · code fondations `3d9be7d`. DATA-001 = à committer.
+E00 sur `feat/cockpit` — fondations + **IDX-008** + **DATA-001** + **DATA-002 faits**. DATA-002 (phase expand) = 2 tables socles `project_integrations` + `project_projections` (SPEC §7.1/§7.2) + helpers (dedup hash, garde anti-secret, santé) ; DB à 32 tables, zéro dérive. Prochain : **DATA-003** (`monitoring_runs`/`monitoring_steps`/`jobs`, SPEC §7.3/§7.4). En attente : migrate/contract (backfill vers les nouvelles tables) · **DATA-001b** (fixture, différée) · décision de marque sur 3 chaînes `jlabs-content-hub` client-facing.
+Commit : `256c1a2` IDX-008 · `d7484a9` DATA-001. DATA-002 = à committer.

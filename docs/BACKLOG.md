@@ -250,7 +250,7 @@ Acceptation :
 
 ## DATA-002 — Créer `project_integrations` et `project_projections`
 
-**Priorité :** P0 · **Taille :** M · **État :** READY · **Dépendances :** DATA-001
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-21, phase expand — tables + helpers ; backfill/migrate en phase suivante) · **Dépendances :** DATA-001
 
 Travail :
 

@@ -107,6 +107,17 @@ Aucune migration ne suppose une base vide. Séquence type, non destructive, pour
 - **`core` reste R/O** : la FK `projects.slug → core.entities.slug` est la couture noyau ; possédée
   par invoices, jamais mutée depuis seo-stats.
 
+## Mise à jour DATA-002 (2026-07-21)
+
+Deux tables **ajoutées** (phase expand, base passée à **32 tables**, toujours zéro dérive) :
+- `project_integrations` — unique `(project_id, provider, resource_key)` ; FK `project_id → projects`.
+  Cible d'unification (migrate/contract à venir) de `indexing_credentials`, `gmb_settings`,
+  `linkedin_settings`, `cms_connections`.
+- `project_projections` — unique `(project_id, source_hash)` + unique partiel `(project_id) WHERE
+  status='current'` ; FK `project_id → projects`. Remplacera `project_contexts`.
+
+Les tables héritées ci-dessus restent en place (aucun backfill/retrait en DATA-002).
+
 ## Suite
 - **DATA-001b** — fixture DB anonymisée (seed synthétique, zéro donnée client) : follow-up dédié.
-- **DATA-002/003** consommeront cette cartographie (intégrations, projections, runs, observations, jobs).
+- **DATA-003** consommera cette cartographie (runs, steps, jobs, observations).

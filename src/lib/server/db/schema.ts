@@ -535,3 +535,67 @@ export const seoReports = seostats.table(
 		index('seo_reports_content').on(table.contentId)
 	]
 );
+
+// ── DATA-002 — Intégrations & projections (socle agentique, SPEC §7.1/§7.2) ──
+
+// Unifie (à terme) les intégrations éparses (indexing_credentials, gmb_settings,
+// linkedin_settings, cms_connections). `resource_key` discrimine plusieurs
+// propriétés/localisations d'un même provider (propriété GSC, gmb_location_id…)
+// → unique (project_id, provider, resource_key), zéro collision.
+// ⚠️ Les SECRETS ne sont jamais ici : `secret_ref` pointe vers leur emplacement,
+// `configuration_json` ne porte que du non-secret (garde `assertNoInlineSecret`).
+export const projectIntegrations = seostats.table(
+	'project_integrations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		provider: text('provider').notNull(), // 'gsc' | 'gmb' | 'indexing' | 'linkedin' | 'cms' | 'plausible' | 'indexnow'
+		resourceKey: text('resource_key').notNull().default(''), // propriété/localisation ; '' si singleton
+		enabled: boolean('enabled').notNull().default(false),
+		status: text('status').notNull().default('inactive'), // 'inactive' | 'active' | 'error' | 'revoked'
+		scopes: text('scopes'), // liste sérialisée des scopes accordés
+		configurationJson: text('configuration_json'), // config NON secrète (endpoints, options)
+		secretRef: text('secret_ref'), // pointeur vers le secret, jamais le secret lui-même
+		lastSuccessAt: text('last_success_at'),
+		lastErrorAt: text('last_error_at'),
+		lastErrorCode: text('last_error_code'),
+		healthStatus: text('health_status').notNull().default('unknown'), // 'healthy' | 'degraded' | 'down' | 'unknown'
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('project_integrations_unique').on(table.projectId, table.provider, table.resourceKey),
+		index('idx_project_integrations_provider').on(table.provider),
+		index('idx_project_integrations_project').on(table.projectId)
+	]
+);
+
+// Projection de contexte compilée/hashée/versionnée (SPEC §3.2/§7.2).
+// Historique : 1 ligne par (project_id, source_hash) → une projection inchangée
+// n'est jamais dupliquée ; un nouveau hash = nouvelle version auditée. L'unique
+// partiel garantit une seule projection `current` par projet.
+export const projectProjections = seostats.table(
+	'project_projections',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		sourceHash: text('source_hash').notNull(),
+		payload: text('payload').notNull(), // contexte non secret (slug, domaine, règles de marque…)
+		status: text('status').notNull().default('current'), // 'current' | 'stale' | 'invalid'
+		validationErrors: text('validation_errors'),
+		compiledAt: text('compiled_at'),
+		receivedAt: text('received_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('project_projections_hash_unique').on(table.projectId, table.sourceHash),
+		uniqueIndex('project_projections_one_current')
+			.on(table.projectId)
+			.where(sql`status = 'current'`),
+		index('idx_project_projections_project_status').on(table.projectId, table.status)
+	]
+);

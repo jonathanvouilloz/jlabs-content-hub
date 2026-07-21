@@ -4,6 +4,33 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-21 (DATA-002)
+
+**Fait :**
+- **DATA-002** phase **expand** : 2 tables socles du modèle agentique (SPEC §7.1/§7.2) dans `schema.ts`.
+  - `project_integrations` — provider + `resource_key` (discriminateur) → **unique (project_id, provider,
+    resource_key)** = plusieurs propriétés/localisations sans collision. `secret_ref` (jamais le secret),
+    `configuration_json` non secret, fraîcheur (`last_success/error_at`) + `health_status`, `scopes`.
+  - `project_projections` — hashée/versionnée. **unique (project_id, source_hash)** = inchangée jamais
+    dupliquée ; **unique partiel `WHERE status='current'`** = une seule courante, versions passées `stale`.
+  - Helpers : `projection-state.ts` (**pur**, testé : `classifyProjection`, `assertNoInlineSecret`,
+    `computeHealth`) · `projections.ts` (record/dedup/versionnage transactionnel) · `integrations.ts`
+    (upsert `onConflict` + succès/erreur → santé). Garde anti-secret sur payload ET config.
+  - Application : `drizzle/manual-data-002.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-002.ts`.
+- Vérif : `npm run test` = **21/21** · `npm run check` = 0 err / 42 warn · introspection = **32 tables,
+  zéro dérive**, les 2 tables avec FK→projects + index attendus (dont l'unique partiel).
+- **Pas de backfill / pas de retrait** des tables héritées (migrate/contract = phase suivante).
+
+**Prochain :** **DATA-003** — `monitoring_runs` / `monitoring_steps` / `jobs` (SPEC §7.3/§7.4) :
+consommeront intégrations + projections. Puis migrate/contract (backfill `project_contexts` → projections,
+4 sources → intégrations) et **DATA-001b** (fixture).
+
+**Pièges :**
+- Uniques posées en **index uniques** (`uniqueIndex`), pas contraintes — cohérent avec le reste du schéma.
+- `configuration_json`/`payload` : toujours passer par `assertNoInlineSecret` avant persistance.
+
+---
+
 ## Etat session 2026-07-21 (DATA-001)
 
 **Fait :**
