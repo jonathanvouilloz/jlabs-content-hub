@@ -58,8 +58,10 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   validation humaine des actions sensibles.
 - **Vision complète** : [SPEC.md](SPEC.md) (23 sections, décisions validées).
 - **Exécution** : [BACKLOG.md](BACKLOG.md) — 14 epics `E00→E13`, jalons `M0→M6`, premier lot exécutable (§9).
-- **Statut (2026-07-21)** : **E00 EN COURS** sur `feat/cockpit` — bloc fondations in-repo livré (logger/config/flags,
-  GOV-003/005 + OPS-001). Détail + reste du lot → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
+- **Statut (2026-07-21)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
+  **IDX-008** (Indexing API restreinte) + **DATA-001** (cartographie) + **DATA-002** (tables
+  `project_integrations`/`project_projections`, phase expand) livrés. DB à 32 tables, zéro dérive.
+  Prochain : DATA-003. Détail + reste du lot → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
 

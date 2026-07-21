@@ -114,14 +114,24 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 |---------|------|
 | `src/lib/server/log.ts` | Logger structuré (OPS-001) — socle d'observabilité, masquage secrets. |
 | `src/lib/server/config.ts` | Config runtime centralisée (GOV-003) — schéma env, `validateStartup`, `requireEnv`. |
-| `src/lib/server/flags.ts` | Feature flags de migration (GOV-005) — 7 verticales OFF par défaut. |
+| `src/lib/server/flags.ts` | Feature flags de migration (GOV-005) — 7 verticales OFF ; `indexnow` = interrupteur maître IDX-008. |
 | `src/hooks.server.ts` | Import à effet de bord de `config.ts` → validation au boot serveur. |
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
-| `src/lib/server/indexing.ts` | Google Indexing API — cible IDX-008 (à restreindre) ; UA renommé. |
+| `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
+| `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (32 tables) ; +DATA-002 `project_integrations`/`project_projections`. |
+| `src/lib/server/projection-state.ts` | Purs DATA-002 : `classifyProjection`, `assertNoInlineSecret`, `computeHealth`. |
+| `src/lib/server/projections.ts` | DATA-002 — record/dedup/versionnage transactionnel des projections. |
+| `src/lib/server/integrations.ts` | DATA-002 — upsert intégration (`onConflict`) + succès/erreur → santé. |
+| `scripts/data-001-cartography.ts` | Introspection read-only Neon → cartographie + réconciliation modèle↔DB. |
+| `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
 - Config au boot **log-only** (pas de throw) pour protéger le daily driver ; fail-fast strict délégué à `requireEnv` au point d'usage.
 - Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
+- **IDX-008** : garde à deux étages (flag maître `indexnow` + éligibilité type) ; refus audité en DB, zéro quota.
+- **DATA-002 (expand seul)** : `resource_key` discrimine plusieurs propriétés/locations d'un provider ; projections en **historique** (unique `(project_id, source_hash)` + unique partiel `current`) ; garde `assertNoInlineSecret` sur payload/config ; secrets via `secret_ref`, jamais inline. **Pas de backfill/retrait** des tables héritées.
+- Nouvelles tables appliquées par **SQL additif idempotent** (pas `db:push`) ; `schema.ts` reste source de vérité, vérif par re-run de l'introspection (zéro dérive).
 - Renommage `jlabs-content-hub` limité à l'interne ; le client-facing est une décision de marque séparée.
 - Branche `feat/cockpit` depuis `feat/neon` (isole la phase agentique ; `feat/neon` figée pour le cutover Vercel P5A).
 
