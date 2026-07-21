@@ -1,7 +1,12 @@
-# Plan d'execution — jokiSEO (ex JLabs Content Hub)
+# Plan d'execution — seo-stats
 
-> Derniere mise a jour : 2026-06-24
-> **Pivot 2026-06-24 :** le produit devient **jokiSEO** (cockpit SEO & presence locale). Voir [PRD-jokiseo.md](PRD-jokiseo.md). Les phases 1-2 (MVP + V2 "Content Hub") restent l'historique ; la Phase 3 ci-dessous est la nouvelle direction.
+> Derniere mise a jour : 2026-07-21
+> **Cap actuel :** refonte **cockpit agentique de monitoring** (SPEC : [SPEC.md](SPEC.md) · execution : [BACKLOG.md](BACKLOG.md)).
+> Ce fichier ne garde que **l'historique du socle livré** (Phases 1-2, epics 1-23). La suite (E00→E13)
+> vit dans **[BACKLOG.md](BACKLOG.md)**, pas ici. Le pivot jokiSEO (2026-06-24) est archivé (`_archive/PRD-jokiseo.md`).
+>
+> **Pré-requis transverse en cours :** migration données Turso → Neon (voir [NEON-MIGRATION.md](NEON-MIGRATION.md) Phase 4)
+> avant de démarrer la reconstruction du BACKLOG.
 
 ---
 
@@ -44,27 +49,16 @@
 
 ---
 
-## Phase 3 — jokiSEO (cockpit SEO & presence locale)
+## Phase 3+ — Refonte agentique → voir [BACKLOG.md](BACKLOG.md)
 
-> Nouvelle direction, pivot du 2026-06-24. Source de verite : [PRD-jokiseo.md](PRD-jokiseo.md).
-> Sequencage : **24 + 25** (cadre + plomberie) → **26 + 27** (les deux douleurs prioritaires) → **28→32** (expansion, reordonnables).
-> Un fichier `features/` par epic, cree au fil de l'eau.
+La suite n'est plus planifiée ici. Le cadrage jokiSEO (epics 24-32) a été **absorbé et dépassé** par la
+refonte « cockpit agentique de monitoring » du 2026-07-21 :
 
-| # | Epic | Complexite | Statut | Detail |
-|---|------|-----------|--------|--------|
-| 24 | Focus & IA : retrait surface Articles/LinkedIn, nav 2 piliers (SEO / Presence locale), cockpit projet unifie | M | TODO | _a venir_ |
-| 25 | Couche providers DataForSEO + runner de jobs (fondation API externe + taches longues/planifiees) | M | TODO | _a venir_ |
-| 26 | Avis full-auto : cron sync branche + brouillon auto + envoi differe configurable + garde-fou par note | M | TODO | _a venir_ |
-| 27 | Rank tracking SERP reel (DataForSEO), geolocalise, par mot-cle suivi (absorbe epic 23) | L | TODO | _a venir_ |
-| 28 | Geo-grid local : rang GMB par point geographique autour de la fiche | M | TODO | _a venir_ |
-| 29 | Dashboard reputation : note/sentiment/taux de reponse/leaderboard employes dans le temps | S | TODO | _a venir_ |
-| 30 | Backlinks : domaines referents, nouveaux/perdus, autorite | M | TODO | _a venir_ |
-| 31 | Visibilite IA / GEO : citations ChatGPT/Perplexity/AI Overviews sur requetes cibles | M | TODO | _a venir_ |
-| 32 | Rapport client mensuel unifie (white-label, token + export) | M | TODO | _a venir_ |
+- **Quoi** : déléguer 90% du monitoring SEO/présence-locale récurrent à des agents, findings persistants,
+  validation humaine des actions sensibles.
+- **Vision complète** : [SPEC.md](SPEC.md) (23 sections, décisions validées).
+- **Exécution** : [BACKLOG.md](BACKLOG.md) — 14 epics `E00→E13`, jalons `M0→M6`, premier lot exécutable (§9).
+- **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
+  reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
 
-### Garde sous le coude (LATER)
-- Tracking concurrents (positions + GMB + backlinks)
-- Alertes proactives (chute position, avis negatif, perte backlink) — opt-in client
-- Multi-admin + roles
-- Commercialisation SaaS jokiSEO (a valider apres maturite multi-client)
-- Store analytique dedie si le volume time-series (geo-grid + rank quotidien) l'exige
+> Ne pas rouvrir les epics 24-32 : le BACKLOG les remplace.

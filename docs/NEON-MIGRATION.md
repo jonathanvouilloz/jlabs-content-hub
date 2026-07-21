@@ -1,8 +1,21 @@
-# seo-stats → Neon — Plan de migration (1 base, 3 schémas)
+# seo-stats → Neon — Migration (1 base, 3 schémas)
 
-> Statut : PLAN validé sur l'architecture (2026-07-20). Décision : **une seule base Neon
-> (`neondb`), trois schémas Postgres** `core` / `invoices` / `seostats`. Reste à exécuter.
-> Source app : `Desktop/apps/jlabs-content-hub` (Turso, 30 tables SQLite). Cible : `noyau/seo-stats`.
+> **Statut réel (2026-07-21) : refactor CODE fait + commité (branche `feat/neon`, typecheck 0 err).
+> App déjà dans `noyau/seo-stats`. Il RESTE la migration des DONNÉES (Phase 4) et le cutover (Phase 6).**
+> Décision : **une seule base Neon (`neondb`), trois schémas Postgres** `core` / `invoices` / `seostats`.
+> Les cases à cocher des phases ci-dessous étaient périmées — corrigées ci-dessous.
+
+## ⚡ Résumé de l'état (à jour)
+
+- ✅ **Phase 0-2** (Neon restructuré 3 schémas + côté invoices) — fait + vérifié 2026-07-20.
+- ✅ **Phase 3** (refactor code seo-stats Turso→Neon) — **FAIT** : `db/index.ts` neon-serverless, `schema.ts`
+  30 tables en `pgSchema('seostats')`, `drizzle.config` postgresql + `schemaFilter ['core','seostats']`,
+  FK `projects.slug → core.entities.slug`, deps basculées. Commit `feat/neon`.
+- ✅ **Phase 5** (app déplacée dans le noyau) — **FAIT** : le repo vit à `noyau/seo-stats`.
+- ⏳ **Phase 4** (données Turso → Neon `seostats`) — **À FAIRE**. Le schéma existe dans Neon (vide/partiel),
+  les données sont encore sur Turso. C'est le prochain gros chantier avant de reconstruire (SPEC/BACKLOG).
+- ⏳ **Phase 6** (roter password Neon exposé, décommissionner Turso) — **À FAIRE**.
+- ⚠️ **Pré-Phase 4 bloquant** : canonicaliser `bis-repetita` vs `bisrepetita` AVANT de poser la FK slug.
 
 ## Décision d'architecture
 
@@ -73,7 +86,7 @@ neondb
 - [ ] `drizzle.config.ts` : ajouter `schemaFilter: ['invoices', 'core']`.
 - [ ] `db:push` en dry-run, vérifier qu'aucune table seostats/inconnue n'est touchée. Build + smoke test.
 
-### Phase 3 — Code seo-stats : refactor Turso → Neon
+### Phase 3 — Code seo-stats : refactor Turso → Neon — ✅ FAIT (commit `feat/neon`)
 - [ ] `db/index.ts` : `drizzle-orm/libsql` + `@libsql/client` → `drizzle-orm/neon-http` + `@neondatabase/serverless`.
 - [ ] `drizzle.config.ts` : dialect `turso` → `postgresql` ; `dbCredentials.url = DATABASE_URL` (Neon) ;
       `schemaFilter: ['seostats']`.
@@ -87,14 +100,14 @@ neondb
 - [ ] `npm i @neondatabase/serverless` ; retirer `@libsql/client` des deps.
 - [ ] `db:push` (schemaFilter seostats) → crée les 30 tables dans `seostats`. Build.
 
-### Phase 4 — Migration des données Turso → Neon `seostats`
+### Phase 4 — Migration des données Turso → Neon `seostats` — ⏳ PROCHAIN CHANTIER
 - [ ] Export des 30 tables depuis Turso (script Node libsql → JSON, ou `turso db dump`).
 - [ ] Transform types : bool sqlite (0/1) → bool PG ; dates texte → timestamptz ; NULL cohérents.
 - [ ] Load dans `seostats.*` (ordre FK : `projects` d'abord, puis le reste).
 - [ ] Poser les FK `seostats.projects.slug → core.entities.slug` une fois les slugs canonicalisés.
 - [ ] Vérif intégrité : counts par table = source ; FK OK ; échantillon de lignes.
 
-### Phase 5 — Déplacer l'app dans le noyau
+### Phase 5 — Déplacer l'app dans le noyau — ✅ FAIT (repo à `noyau/seo-stats`)
 - [ ] Déplacer `Desktop/apps/jlabs-content-hub` → `noyau/seo-stats` (dossier entier : `.git`, `.vercel`, `.env`, `.seo-data`).
       Remplace le placeholder actuel (`README-MIGRATION.md`).
 - [ ] Vercel : env `DATABASE_URL` → Neon ; retirer `DATABASE_AUTH_TOKEN` ; crons → Vercel Cron si besoin.
