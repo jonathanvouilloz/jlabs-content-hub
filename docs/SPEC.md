@@ -5,7 +5,7 @@
 > **Statut :** base de refactor validée, prête à être découpée en epics  
 > **Produit cible :** `seo-stats`  
 > **Repo canonique :** `C:\Users\jojo-\Desktop\noyau\seo-stats`  
-> **Backlog d'exécution :** `seo-stats-agentic-monitoring-backlog.md`  
+> **Backlog d'exécution :** `docs/BACKLOG.md`  
 > **Remplace fonctionnellement :** le pivot jokiSEO incomplet du Content Hub  
 > **Objectif final :** déléguer 90 % des opérations récurrentes à des agents IA, avec validation humaine des décisions sensibles.
 

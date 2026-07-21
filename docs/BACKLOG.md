@@ -3,7 +3,7 @@
 > **Version :** 1.0  
 > **Date :** 2026-07-21  
 > **Statut :** backlog de référence prêt à exécuter  
-> **SPEC source :** `seo-stats-agentic-monitoring-spec.md` v0.2  
+> **SPEC source :** `docs/SPEC.md` v0.2  
 > **Produit et repo canonique :** `C:\Users\jojo-\Desktop\noyau\seo-stats`  
 > **Capacité cible :** 5 projets au lancement, 10 à 15 projets sans refonte  
 > **Objectif :** déléguer 90 % du monitoring récurrent à des agents, avec validation humaine des actions sensibles.

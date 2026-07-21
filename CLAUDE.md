@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Source de vérité DB = **Neon (Postgres)**, schéma `seostats` d'une base partagée avec `invoices` (voir `docs/NEON-MIGRATION.md`). Ex "Content Hub" / "jokiSEO". La sync GitHub a été retirée en 2026-05 (le repo `content/` reste une archive figée).
 
-> ⚠️ **Migration en cours** : le refactor code Turso→Neon est fait+commité (branche `feat/neon`), mais les **données** ne sont pas encore transférées (Turso → Neon `seostats`, Phase 4). Voir `docs/HANDOFF.md`.
+> ⚠️ **Migration quasi finie** : refactor code + **données** Turso→Neon faits et vérifiés (branche `feat/neon`, Phase 4 ✅ le 2026-07-21). Reste la Phase 6 (roter le password Neon exposé, décommissionner Turso). Voir `docs/HANDOFF.md`.
 
 ## Stack technique
 
@@ -152,11 +152,11 @@ Pour les images GMB, le skill `/publish-hub` doit :
 **Date :** 2026-07-21
 **Produit :** **seo-stats** — cockpit agentique de monitoring SEO & présence locale. Ex "Content Hub" / "jokiSEO".
 **Cap :** déléguer 90% du monitoring récurrent aux agents (findings persistants + validation humaine). Voir `docs/SPEC.md`.
-**Chantier transverse :** migration Turso → Neon. Refactor **code** fait+commité (branche `feat/neon`, typecheck 0 err) ; **données** encore sur Turso (Phase 4 = prochaine étape).
+**Chantier transverse :** migration Turso → Neon **quasi finie**. Refactor code + données faits+vérifiés (branche `feat/neon`, Phase 4 ✅ 2026-07-21). Reste Phase 6 (rotation password + décommissionnement Turso).
 **DB cible :** Neon `neondb`, schéma `seostats` (partagé avec `invoices` via schéma `core`). ~30 tables, ~6 projets GSC.
 **Socle livré :** epics 1-22 DONE, epic 23 (positions GSC) en prod. Refactor in-place, DataForSEO = fournisseur SEO externe.
 **Admin :** contact@jonlabs.ch
-**Prochaine étape :** Phase 4 (migration données Turso→Neon) → puis reconstruction agentique, premier lot `docs/BACKLOG.md` §9. Détail : `docs/HANDOFF.md`.
+**Prochaine étape :** Phase 6 (roter password Neon + décommissionner Turso) → puis reconstruction agentique, premier lot `docs/BACKLOG.md` §9. Détail : `docs/HANDOFF.md`.
 
 ## Carte des skills — domaine SEO (partition `noyau/seo-stats`)
 
