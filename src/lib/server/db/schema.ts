@@ -707,3 +707,337 @@ export const jobs = seostats.table(
 		index('idx_jobs_lease').on(table.leaseUntil)
 	]
 );
+
+// ── DATA-004 — Modèle d'observations (SPEC §7.5) ────────────────────
+//
+// Une observation = un FAIT collecté (jamais une interprétation → ça, c'est un
+// finding, DATA-005). Chaque table porte le contrat commun §7.5 : project_id,
+// provider, période/date, dimensions, métriques, run_id (traçabilité jusqu'au
+// run qui l'a collectée), fetched_at (date de collecte), schema_version, et un
+// payload_json BRUT BORNÉ (séparé des colonnes normalisées). L'unique d'upsert
+// (projet + dimensions + période) garantit que deux collectes identiques ne
+// dupliquent pas. Un index (projet, période/date) couvre les fenêtres 7/28/90 j.
+//
+// Cinq tables sont ancrées sur une source vivante à migrer (gsc_query_page,
+// gsc_page, gmb_insight, keyword_rank, index) ; cinq préfigurent un collecteur à
+// venir (sitemap, plausible, backlink, ai_visibility, gmb_review). expand étant
+// additif, les secondes s'élargiront sans rupture quand leur provider arrivera.
+
+// 1. GSC query×page×device (← gsc_query_page_data, 73k). Période hebdo.
+export const gscQueryPageObservations = seostats.table(
+	'gsc_query_page_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id), // nullable — run collecteur
+		provider: text('provider').notNull().default('gsc'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		periodStart: text('period_start').notNull(),
+		periodEnd: text('period_end').notNull(),
+		query: text('query').notNull(),
+		page: text('page').notNull(),
+		device: text('device').notNull().default(''),
+		clicks: integer('clicks').notNull().default(0),
+		impressions: integer('impressions').notNull().default(0),
+		ctr: doublePrecision('ctr').notNull().default(0),
+		position: doublePrecision('position').notNull().default(0),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('gsc_qp_obs_unique').on(
+			table.projectId,
+			table.periodStart,
+			table.query,
+			table.page,
+			table.device
+		),
+		index('idx_gsc_qp_obs_project_period').on(table.projectId, table.periodStart),
+		index('idx_gsc_qp_obs_project_query').on(table.projectId, table.query),
+		index('idx_gsc_qp_obs_project_page').on(table.projectId, table.page)
+	]
+);
+
+// 2. GSC agrégat page×device (← agrégation GSC page-level). Période hebdo.
+export const gscPageObservations = seostats.table(
+	'gsc_page_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gsc'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		periodStart: text('period_start').notNull(),
+		periodEnd: text('period_end').notNull(),
+		page: text('page').notNull(),
+		device: text('device').notNull().default(''),
+		clicks: integer('clicks').notNull().default(0),
+		impressions: integer('impressions').notNull().default(0),
+		ctr: doublePrecision('ctr').notNull().default(0),
+		position: doublePrecision('position').notNull().default(0),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('gsc_page_obs_unique').on(
+			table.projectId,
+			table.periodStart,
+			table.page,
+			table.device
+		),
+		index('idx_gsc_page_obs_project_period').on(table.projectId, table.periodStart),
+		index('idx_gsc_page_obs_project_page').on(table.projectId, table.page)
+	]
+);
+
+// 3. Indexation / URL Inspection (← IDX, coverageState). Date-grained.
+export const indexObservations = seostats.table(
+	'index_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('indexing'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		url: text('url').notNull(),
+		coverageState: text('coverage_state'), // indexed | crawled-not-indexed | discovered… (GSC)
+		verdict: text('verdict'), // PASS | NEUTRAL | FAIL
+		indexingState: text('indexing_state'),
+		robotsState: text('robots_state'),
+		googleCanonical: text('google_canonical'),
+		userCanonical: text('user_canonical'),
+		lastCrawlAt: text('last_crawl_at'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('index_obs_unique').on(table.projectId, table.url, table.observedDate),
+		index('idx_index_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_index_obs_project_coverage').on(table.projectId, table.coverageState)
+	]
+);
+
+// 4. Sitemap (← collecteur à venir). Date-grained.
+export const sitemapObservations = seostats.table(
+	'sitemap_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gsc'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		sitemapUrl: text('sitemap_url').notNull(),
+		submittedUrls: integer('submitted_urls').notNull().default(0),
+		indexedUrls: integer('indexed_urls').notNull().default(0),
+		errors: integer('errors').notNull().default(0),
+		warnings: integer('warnings').notNull().default(0),
+		isPending: boolean('is_pending').notNull().default(false),
+		lastSubmittedAt: text('last_submitted_at'),
+		lastDownloadedAt: text('last_downloaded_at'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('sitemap_obs_unique').on(table.projectId, table.sitemapUrl, table.observedDate),
+		index('idx_sitemap_obs_project_date').on(table.projectId, table.observedDate)
+	]
+);
+
+// 5. Analytics page (Plausible, ← collecteur à venir). Période.
+export const plausiblePageObservations = seostats.table(
+	'plausible_page_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('plausible'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		periodStart: text('period_start').notNull(),
+		periodEnd: text('period_end').notNull(),
+		page: text('page').notNull(),
+		visitors: integer('visitors').notNull().default(0),
+		pageviews: integer('pageviews').notNull().default(0),
+		bounceRate: doublePrecision('bounce_rate').notNull().default(0),
+		visitDuration: doublePrecision('visit_duration').notNull().default(0),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('plausible_page_obs_unique').on(table.projectId, table.periodStart, table.page),
+		index('idx_plausible_page_obs_project_period').on(table.projectId, table.periodStart),
+		index('idx_plausible_page_obs_project_page').on(table.projectId, table.page)
+	]
+);
+
+// 6. Positions mot-clé (← epic 23 / DataForSEO). Date-grained.
+export const keywordRankObservations = seostats.table(
+	'keyword_rank_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gsc'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		keyword: text('keyword').notNull(),
+		device: text('device').notNull().default(''),
+		page: text('page'), // URL qui ranke (nullable)
+		position: doublePrecision('position').notNull().default(0),
+		clicks: integer('clicks'),
+		impressions: integer('impressions'),
+		ctr: doublePrecision('ctr'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('keyword_rank_obs_unique').on(
+			table.projectId,
+			table.keyword,
+			table.device,
+			table.observedDate
+		),
+		index('idx_keyword_rank_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_keyword_rank_obs_project_keyword').on(table.projectId, table.keyword)
+	]
+);
+
+// 7. Backlinks (← seo_reports backlink / DataForSEO). Date-grained.
+export const backlinkObservations = seostats.table(
+	'backlink_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('dataforseo'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		sourceUrl: text('source_url').notNull(),
+		targetUrl: text('target_url').notNull(),
+		anchor: text('anchor'),
+		dofollow: boolean('dofollow'),
+		spamScore: integer('spam_score'),
+		domainRating: doublePrecision('domain_rating'),
+		firstSeenAt: text('first_seen_at'),
+		lastSeenAt: text('last_seen_at'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('backlink_obs_unique').on(
+			table.projectId,
+			table.sourceUrl,
+			table.targetUrl,
+			table.observedDate
+		),
+		index('idx_backlink_obs_project_date').on(table.projectId, table.observedDate)
+	]
+);
+
+// 8. Visibilité IA / GEO (← seo_reports ai_visibility). Date-grained.
+export const aiVisibilityObservations = seostats.table(
+	'ai_visibility_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('ai'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		engine: text('engine').notNull(), // claude | aio | chatgpt | perplexity | gemini
+		promptHash: text('prompt_hash').notNull(),
+		promptText: text('prompt_text'),
+		cited: boolean('cited').notNull().default(false),
+		score: integer('score'),
+		position: doublePrecision('position'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('ai_visibility_obs_unique').on(
+			table.projectId,
+			table.engine,
+			table.promptHash,
+			table.observedDate
+		),
+		index('idx_ai_visibility_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_ai_visibility_obs_project_engine').on(table.projectId, table.engine)
+	]
+);
+
+// 9. Avis GMB comme observation d'état (← gmb_reviews). Recouvre l'existant
+// `gmb_reviews` (conservé) : ici on capture l'état dérivé daté pour la série
+// temporelle réputation, sans dupliquer le texte de l'avis (→ payload/finding).
+export const gmbReviewObservations = seostats.table(
+	'gmb_review_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gmb'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		locationId: text('location_id').notNull(),
+		reviewId: text('review_id').notNull(),
+		rating: integer('rating'),
+		sentiment: text('sentiment'), // positive | neutral | negative
+		hasReply: boolean('has_reply').notNull().default(false),
+		replyLatencyHours: integer('reply_latency_hours'),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('gmb_review_obs_unique').on(table.projectId, table.reviewId, table.observedDate),
+		index('idx_gmb_review_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_gmb_review_obs_project_location').on(table.projectId, table.locationId)
+	]
+);
+
+// 10. Métriques Performance GMB (← gmb_insights_daily). 1 row/(location,date,metric).
+export const gmbInsightObservations = seostats.table(
+	'gmb_insight_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gmb'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		locationId: text('location_id').notNull(),
+		metric: text('metric').notNull(), // BUSINESS_IMPRESSIONS_* | WEBSITE_CLICKS | CALL_CLICKS | …
+		value: integer('value').notNull().default(0),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('gmb_insight_obs_unique').on(
+			table.projectId,
+			table.locationId,
+			table.observedDate,
+			table.metric
+		),
+		index('idx_gmb_insight_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_gmb_insight_obs_location_date').on(table.locationId, table.observedDate)
+	]
+);

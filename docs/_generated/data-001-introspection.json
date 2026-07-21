@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 35,
-    "modelCount": 35,
+    "liveCount": 45,
+    "modelCount": 45,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 35
+    "inBothCount": 45
   },
   "tables": [
     {
@@ -224,6 +224,267 @@
       "indexes": [
         "ai_jobs_pkey",
         "idx_ai_jobs_project"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "ai_visibility_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'ai'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "engine",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "prompt_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "prompt_text",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "cited",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "score",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "position",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "ai_visibility_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "ai_visibility_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "ai_visibility_obs_unique",
+        "ai_visibility_observations_pkey",
+        "idx_ai_visibility_obs_project_date",
+        "idx_ai_visibility_obs_project_engine"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "backlink_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'dataforseo'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "source_url",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "target_url",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "anchor",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "dofollow",
+          "type": "boolean",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "spam_score",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "domain_rating",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "first_seen_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_seen_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "backlink_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "backlink_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "backlink_obs_unique",
+        "backlink_observations_pkey",
+        "idx_backlink_obs_project_date"
       ]
     },
     {
@@ -697,6 +958,113 @@
     },
     {
       "schema": "seostats",
+      "table": "gmb_insight_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gmb'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "metric",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_insight_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "gmb_insight_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_insight_obs_unique",
+        "gmb_insight_observations_pkey",
+        "idx_gmb_insight_obs_location_date",
+        "idx_gmb_insight_obs_project_date"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "gmb_insights_daily",
       "rowCount": 0,
       "columns": [
@@ -1041,6 +1409,131 @@
     },
     {
       "schema": "seostats",
+      "table": "gmb_review_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gmb'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "location_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "review_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "rating",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "sentiment",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "has_reply",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "reply_latency_hours",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gmb_review_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "gmb_review_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gmb_review_obs_unique",
+        "gmb_review_observations_pkey",
+        "idx_gmb_review_obs_project_date",
+        "idx_gmb_review_obs_project_location"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "gmb_reviews",
       "rowCount": 358,
       "columns": [
@@ -1181,6 +1674,137 @@
     },
     {
       "schema": "seostats",
+      "table": "gsc_page_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gsc'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "period_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_end",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "page",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "device",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "clicks",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "impressions",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "ctr",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "position",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gsc_page_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "gsc_page_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gsc_page_obs_unique",
+        "gsc_page_observations_pkey",
+        "idx_gsc_page_obs_project_page",
+        "idx_gsc_page_obs_project_period"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "gsc_query_page_data",
       "rowCount": 73009,
       "columns": [
@@ -1284,6 +1908,144 @@
         "gsc_qp_project_query",
         "gsc_qp_project_week",
         "gsc_query_page_data_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "gsc_query_page_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gsc'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "period_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_end",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "query",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "page",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "device",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "clicks",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "impressions",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "ctr",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "position",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "gsc_query_page_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "gsc_query_page_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "gsc_qp_obs_unique",
+        "gsc_query_page_observations_pkey",
+        "idx_gsc_qp_obs_project_page",
+        "idx_gsc_qp_obs_project_period",
+        "idx_gsc_qp_obs_project_query"
       ]
     },
     {
@@ -1472,6 +2234,143 @@
       "indexes": [
         "gsc_diffs_project_week",
         "gsc_weekly_diffs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "index_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'indexing'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "url",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "coverage_state",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "verdict",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "indexing_state",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "robots_state",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "google_canonical",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "user_canonical",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_crawl_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "index_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "index_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_index_obs_project_coverage",
+        "idx_index_obs_project_date",
+        "index_obs_unique",
+        "index_observations_pkey"
       ]
     },
     {
@@ -1820,6 +2719,137 @@
     },
     {
       "schema": "seostats",
+      "table": "keyword_rank_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gsc'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "keyword",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "device",
+          "type": "text",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "column": "page",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "position",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "clicks",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "impressions",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "ctr",
+          "type": "double precision",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "keyword_rank_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "keyword_rank_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_keyword_rank_obs_project_date",
+        "idx_keyword_rank_obs_project_keyword",
+        "keyword_rank_obs_unique",
+        "keyword_rank_observations_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "linkedin_settings",
       "rowCount": 3,
       "columns": [
@@ -2083,6 +3113,131 @@
         "idx_monitoring_steps_run_status",
         "monitoring_steps_pkey",
         "monitoring_steps_run_type_attempt_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "plausible_page_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'plausible'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "period_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_end",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "page",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "visitors",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "pageviews",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "bounce_rate",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "visit_duration",
+          "type": "double precision",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "plausible_page_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "plausible_page_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_plausible_page_obs_project_page",
+        "idx_plausible_page_obs_project_period",
+        "plausible_page_obs_unique",
+        "plausible_page_observations_pkey"
       ]
     },
     {
@@ -2807,6 +3962,142 @@
       "indexes": [
         "session_pkey",
         "session_token_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "sitemap_observations",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "run_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "provider",
+          "type": "text",
+          "nullable": false,
+          "default": "'gsc'::text"
+        },
+        {
+          "column": "schema_version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "observed_date",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "sitemap_url",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "submitted_urls",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "indexed_urls",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "errors",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "warnings",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "is_pending",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "last_submitted_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "last_downloaded_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "payload_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "fetched_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "sitemap_observations_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "sitemap_observations_run_id_monitoring_runs_id_fk",
+          "columns": [
+            "run_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "monitoring_runs",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_sitemap_obs_project_date",
+        "sitemap_obs_unique",
+        "sitemap_observations_pkey"
       ]
     },
     {
