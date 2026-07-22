@@ -13,9 +13,10 @@
  * (assertBoundedPayload) et sans secret (assertNoInlineSecret) avant persistance.
  */
 import { eq, sql } from 'drizzle-orm';
-import { db } from './db/index.js';
 import { findings, findingEvents } from './db/schema.js';
+import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
+import { toDbTimestamp } from './timestamps.js';
 import { assertNoInlineSecret } from './projection-state.js';
 import { assertBoundedPayload } from './observation-state.js';
 import {
@@ -26,7 +27,23 @@ import {
 	type FindingEventType
 } from './finding-state.js';
 
-const nowIso = () => new Date().toISOString();
+// Format DB canonique (cf. timestamps.ts) : ces colonnes ont un DEFAULT
+// `to_char(now(), 'YYYY-MM-DD HH24:MI:SS')`, écrire de l'ISO les rendrait
+// incomparables lexicalement avec les lignes posées par le default.
+const nowDb = () => toDbTimestamp();
+
+/**
+ * Client d'écriture : celui de l'app par défaut, ou un client INJECTÉ (runner
+ * `scripts/`, qui construit son propre Pool). L'import de `db/index.js` est
+ * DYNAMIQUE et n'a lieu que si aucun client n'est fourni : ce module reste donc
+ * chargeable hors runtime SvelteKit (où `$env/dynamic/private` n'existe pas),
+ * et une seule implémentation d'upsert sert les deux chemins.
+ */
+async function resolveDb(client?: AppDb): Promise<AppDb> {
+	if (client) return client;
+	const mod = await import('./db/index.js');
+	return mod.db;
+}
 
 function guardPayload(payloadJson: string | null | undefined, context: string): void {
 	assertBoundedPayload(payloadJson, context);
@@ -69,9 +86,13 @@ export interface UpsertFindingResult {
  * `occurrence_count + 1`, `last_seen_at` = maintenant, scores/preuves rafraîchis ;
  * `first_seen_at` inchangé.
  */
-export async function upsertFinding(input: UpsertFindingInput): Promise<UpsertFindingResult> {
+export async function upsertFinding(
+	input: UpsertFindingInput,
+	client?: AppDb
+): Promise<UpsertFindingResult> {
 	guardPayload(input.evidenceJson, 'evidence_json finding');
 	guardPayload(input.impactEstimateJson, 'impact_estimate_json finding');
+	const db = await resolveDb(client);
 
 	const fingerprint =
 		input.fingerprint ??
@@ -83,7 +104,7 @@ export async function upsertFinding(input: UpsertFindingInput): Promise<UpsertFi
 		});
 
 	const id = createId();
-	const now = nowIso();
+	const now = nowDb();
 	// Colonnes rafraîchies à chaque re-détection (l'identité et first_seen_at restent).
 	const refreshed = {
 		title: input.title,
@@ -143,8 +164,12 @@ export interface RecordFindingEventInput {
 }
 
 /** Insère une ligne de journal (append-only : jamais d'update/delete). */
-export async function recordFindingEvent(input: RecordFindingEventInput): Promise<{ id: string }> {
+export async function recordFindingEvent(
+	input: RecordFindingEventInput,
+	client?: AppDb
+): Promise<{ id: string }> {
 	guardPayload(input.payloadJson, 'payload_json finding_event');
+	const db = await resolveDb(client);
 	const id = createId();
 	await db.insert(findingEvents).values({
 		id,
@@ -180,9 +205,11 @@ export interface TransitionFindingInput {
  * n'existe pas ou si le statut est inchangé.
  */
 export async function transitionFinding(
-	input: TransitionFindingInput
+	input: TransitionFindingInput,
+	client?: AppDb
 ): Promise<{ eventId: string; eventType: FindingEventType }> {
 	guardPayload(input.payloadJson, 'payload_json transition finding');
+	const db = await resolveDb(client);
 
 	return db.transaction(async (tx) => {
 		const current = await tx
@@ -201,7 +228,7 @@ export async function transitionFinding(
 			);
 		}
 
-		const now = nowIso();
+		const now = nowDb();
 		const resolving = input.toStatus === 'resolved';
 		await tx
 			.update(findings)

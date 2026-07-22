@@ -8,11 +8,24 @@
  * produisent qu'un seul run/job logique (unique index + onConflictDoNothing).
  */
 import { and, eq } from 'drizzle-orm';
-import { db } from './db/index.js';
 import { jobs, monitoringRuns, monitoringSteps } from './db/schema.js';
+import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
+import { toDbTimestamp } from './timestamps.js';
 import { assertNoInlineSecret } from './projection-state.js';
 import { classifyRunOutcome, type RunType, type StepStatus, type TriggerSource } from './monitoring-state.js';
+
+/**
+ * Client d'écriture : celui de l'app par défaut, ou un client INJECTÉ (runners
+ * `scripts/`, qui construisent leur propre Pool). L'import de `db/index.js` est
+ * DYNAMIQUE et n'a lieu qu'à défaut de client fourni → ce module reste chargeable
+ * hors runtime SvelteKit (où `$env/dynamic/private` n'existe pas).
+ */
+async function resolveDb(client?: AppDb): Promise<AppDb> {
+	if (client) return client;
+	const mod = await import('./db/index.js');
+	return mod.db;
+}
 
 // ── Runs ────────────────────────────────────────────────────────────
 
@@ -38,7 +51,8 @@ export interface CreateRunResult {
  * concurrence : deux appels simultanés avec la même clé → un seul run inséré,
  * l'autre récupère l'id existant.
  */
-export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
+export async function createRun(input: CreateRunInput, client?: AppDb): Promise<CreateRunResult> {
+	const db = await resolveDb(client);
 	const id = createId();
 
 	const inserted = await db
@@ -74,7 +88,8 @@ export async function createRun(input: CreateRunInput): Promise<CreateRunResult>
  * Recalcule le statut d'un run depuis les statuts de ses steps (classifyRunOutcome)
  * et le persiste. `partial` = mix succès + échec. No-op si le run n'existe pas.
  */
-export async function recomputeRunStatus(runId: string): Promise<void> {
+export async function recomputeRunStatus(runId: string, client?: AppDb): Promise<void> {
+	const db = await resolveDb(client);
 	const steps = await db.query.monitoringSteps.findMany({
 		where: eq(monitoringSteps.runId, runId),
 		columns: { status: true }
@@ -82,7 +97,7 @@ export async function recomputeRunStatus(runId: string): Promise<void> {
 	const status = classifyRunOutcome(steps.map((s) => s.status as StepStatus));
 	await db
 		.update(monitoringRuns)
-		.set({ status, updatedAt: new Date().toISOString() })
+		.set({ status, updatedAt: toDbTimestamp() })
 		.where(eq(monitoringRuns.id, runId));
 }
 
@@ -109,8 +124,9 @@ export interface RecordStepInput {
  * `onConflictDoNothing` rend l'insert idempotent (rejeu de la même tentative =
  * no-op). `force` doit passer un `attempt` supérieur pour créer une nouvelle ligne.
  */
-export async function recordStep(input: RecordStepInput): Promise<{ id: string }> {
+export async function recordStep(input: RecordStepInput, client?: AppDb): Promise<{ id: string }> {
 	assertNoInlineSecret(input.metadataJson, 'metadata_json de step');
+	const db = await resolveDb(client);
 
 	const id = createId();
 	const inserted = await db
@@ -172,8 +188,9 @@ export interface EnqueueJobResult {
  * Même garantie de concurrence que `createRun` (unique (project_id, idempotency_key)
  * + onConflictDoNothing) : pas de doublon de job pour une même clé.
  */
-export async function enqueueJob(input: EnqueueJobInput): Promise<EnqueueJobResult> {
+export async function enqueueJob(input: EnqueueJobInput, client?: AppDb): Promise<EnqueueJobResult> {
 	assertNoInlineSecret(input.payloadJson, 'payload_json de job');
+	const db = await resolveDb(client);
 
 	const id = createId();
 	const values: typeof jobs.$inferInsert = {
