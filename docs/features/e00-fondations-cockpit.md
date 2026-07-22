@@ -968,7 +968,8 @@ docs DATA-006 · `15a92cb` DATA-007 · `a8bdd2f` docs DATA-007 · `0f78d89` DATA
 DATA-008 · `f9b7801` wrap DATA-007/008 · `9e25e5d` fix timestamps + injection db · `717bb71`
 FIND-001/004 détecteur · `7321f5a` JOB-001 claim atomique · `cc6a92f` docs FIND/JOB · `5428ec7`
 FIND-003 cycle de vie · `9d6976d` docs FIND-003 · `8aea66e` JOB-002 bail/heartbeat/récupération ·
-`77b570b` docs JOB-002 · `1c31db6` décisions JOB-002.
+`77b570b` docs JOB-002 · `1c31db6` décisions JOB-002 · **`e7a3a44` JOB-003 retry classé, backoff
+jitté et dead-letter reprenable**.
 
 ## Reste du premier lot §9 (non fait)
 - [ ] **GOV-001 (reste)** — marquer `Desktop/apps/jlabs-content-hub` legacy read-only (garder comme backup

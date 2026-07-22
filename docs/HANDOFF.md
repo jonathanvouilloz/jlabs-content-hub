@@ -18,6 +18,8 @@ lit les findings et produit des `action_proposals` gouvernées par les policies 
 Contexte, pièges et carte du code → le fichier feature. JOB-003 vient de fermer le trou « toute
 erreur traitée pareil » et débloque JOB-006, JOB-007, IDX-007 et GMB-006.
 
+Commit : `e7a3a44` [hub] add: JOB-003 retry classé, backoff jitté et dead-letter reprenable.
+
 **À trancher avant JOB-007 :** 22 lignes de test `__test_claim` (dont **7 en dead-letter**) traînent
 dans la vraie file, héritées d'exécutions dont le nettoyage échouait en silence (corrigé). Elles
 pollueront la console. Purge proposée, non exécutée.
