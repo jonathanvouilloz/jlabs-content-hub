@@ -335,7 +335,13 @@ Acceptation :
 
 ## DATA-007 — Créer les politiques d'avis et d'automatisation
 
-**Priorité :** P1 · **Taille :** M · **État :** READY · **Dépendances :** DATA-002
+**Priorité :** P1 · **Taille :** M · **État :** DONE (2026-07-22) · **Dépendances :** DATA-002
+
+> Livré : `review_automation_policies` (versionnée, une seule courante par scope) + `policy_promotions`
+> (journal append-only). Modes `draft_only|guarded_auto|manual`, kill switch global/localisation,
+> seuils/délai/jitter/plages/catégories d'escalade, version. Invariants purs (`policy-state.ts`) :
+> kill switch bloque les envois sans bloquer la sync ; versionnage → aucune ancienne proposition ne
+> profite d'une nouvelle policy ; toute promotion journalisée. 52 tables, zéro dérive · test 144/144.
 
 Travail :
 

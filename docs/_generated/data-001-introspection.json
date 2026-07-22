@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 50,
-    "modelCount": 50,
+    "liveCount": 52,
+    "modelCount": 52,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 50
+    "inBothCount": 52
   },
   "tables": [
     {
@@ -3896,6 +3896,135 @@
     },
     {
       "schema": "seostats",
+      "table": "policy_promotions",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "policy_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "from_policy_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "scope_key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "from_version",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "to_version",
+          "type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "from_mode",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "to_mode",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "kind",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "actor",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "reason",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "policy_promotions_from_policy_id_review_automation_policies_id_",
+          "columns": [
+            "from_policy_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "review_automation_policies",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "policy_promotions_policy_id_review_automation_policies_id_fk",
+          "columns": [
+            "policy_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "review_automation_policies",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "policy_promotions_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_policy_promotions_policy",
+        "idx_policy_promotions_project_scope",
+        "policy_promotions_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "project_contexts",
       "rowCount": 5,
       "columns": [
@@ -4564,6 +4693,168 @@
         "idx_publish_logs_content",
         "idx_publish_logs_project_date",
         "publish_logs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "review_automation_policies",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "location_id",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "scope_key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "version",
+          "type": "integer",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "column": "policy_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "mode",
+          "type": "text",
+          "nullable": false,
+          "default": "'draft_only'::text"
+        },
+        {
+          "column": "sync_enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "column": "auto_generation_enabled",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "kill_switch",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "min_rating_for_auto_send",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "send_delay_minutes",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "jitter_minutes",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "send_windows_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "default_language",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "signature",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "escalation_categories_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "max_sends_per_run",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'current'::text"
+        },
+        {
+          "column": "promoted_by",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "promoted_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "review_automation_policies_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_review_automation_policies_project_status",
+        "review_automation_policies_one_current",
+        "review_automation_policies_pkey",
+        "review_automation_policies_version_unique"
       ]
     },
     {

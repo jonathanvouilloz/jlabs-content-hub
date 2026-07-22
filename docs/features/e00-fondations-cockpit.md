@@ -4,6 +4,59 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (DATA-007 — review_automation_policies + policy_promotions)
+
+**Fait :**
+- **DATA-007** phase **expand** : 2 tables des politiques d'avis & d'automatisation (SPEC §7.10) dans
+  `schema.ts`. Une policy gouverne l'automatisation des réponses aux avis pour un projet, affinable
+  par localisation. Elle est **versionnée** (même modèle que `project_projections`) : jamais modifiée
+  en place → on **promeut** une nouvelle version, l'ancienne passe `superseded`.
+  - `review_automation_policies` (§7.10) — mode `draft_only|guarded_auto|manual`, `sync_enabled`,
+    `auto_generation_enabled`, **`kill_switch`**, note minimale, délai + **jitter**, plages horaires
+    (JSON), langue, signature, catégories d'escalade (JSON), max/run. **`scope_key` = `location_id ?? '*'`**
+    → rend robuste le partial-unique `WHERE status='current'` (Postgres traite les NULL comme distincts,
+    ce qui casserait l'unicité de la policy projet-wide). **`policy_hash`** (sha256 de la config canonique)
+    → dédup d'une re-promotion identique. Unique `(project_id, scope_key, version)` + unique partiel
+    **une seule courante par scope**.
+  - `policy_promotions` (**journal append-only**, BACKLOG « tracer toute promotion ») — 1 ligne par
+    transition : `from/to_version`, `from/to_mode`, `kind` (create|mode_change|kill_switch|config_change),
+    `actor`, `reason`. Jamais d'update/delete → la policy effective à toute date se reconstruit depuis
+    le journal (« la policy effective est visible dans l'audit »).
+  - Helpers : `policy-state.ts` (**pur**, testé : `deriveScopeKey`, `nextPolicyVersion`,
+    `canonicalPolicyConfig` [sérialisation stable → hash], **`evaluatePolicyGates`** [invariant :
+    `syncAllowed` ignore le kill switch], **`canAutoSendReview`** [§8.4 : draft_only/manual jamais,
+    guarded_auto seulement 5★ non escaladé], `resolveEffectiveKillSwitch` [global OU localisation],
+    `derivePromotionKind`, tuples de vocabulaire) · `policies.ts` (`promotePolicy` **transactionnel**
+    idempotent [dédup par hash, versionne sinon, écrit le journal] + `computePolicyHash` [sha256],
+    `setKillSwitch` [bascule = promotion journalisée, ne touche jamais `sync_enabled`],
+    `getCurrentPolicy`/`getEffectivePolicy` ; garde `assertBoundedPayload`/`assertNoInlineSecret` sur
+    les blobs JSON).
+  - Application : `drizzle/manual-data-007.sql` (additif, `IF NOT EXISTS`) via `scripts/apply-data-007.ts`.
+- Vérif : `npm run test` = **144/144** (29 nouveaux) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL **appliqué sur Neon** (2/2 tables) · introspection = **52 tables, zéro dérive**.
+- **3 acceptations couvertes** : (1) versionnage (unique current + `policy_hash`) → aucune ancienne
+  proposition ne profite silencieusement d'une nouvelle policy ; (2) `evaluatePolicyGates` → le kill
+  switch bloque les envois **sans** bloquer la sync ; (3) `policy_promotions` append-only → la policy
+  effective est visible dans l'audit.
+- **Pas d'exécuteur, pas de cron, pas d'UI** (expand seul). GMB-005 (application réelle des modes/kill
+  switch au flux review-reply) reste **BLOCKED**, débloqué côté données par cette table.
+
+**Prochain :** **DATA-008** (rétention/purge, désormais débloqué : agrégats semaine/mois/année avant purge,
+24 mois de détail, dry-run + métriques + reprise). Puis la chaîne agentique aval (1er détecteur déterministe
++ agent réel qui produit findings→proposals, gouvernés par ces policies).
+
+**Pièges :**
+- `scope_key` = `location_id ?? '*'` : **toujours** passer par `deriveScopeKey` côté écriture, sinon le
+  partial-unique `current` peut laisser deux policies projet-wide coexister (NULL distincts en Postgres).
+- `policy_hash` = sha256 de `canonicalPolicyConfig` (ordre de champs **figé**) → réordonner les champs
+  invalide tous les hash existants (re-promotion vue comme changement). Ne pas toucher sans migration.
+- Le kill switch est **versionné dans la config** (pas une colonne mutée en place) : une bascule crée une
+  nouvelle version + une ligne de journal → l'historique du kill switch est auditable.
+- `setKillSwitch` sur un scope sans policy crée une `draft_only` sûre (kill switch demandé) : jamais
+  d'envoi possible par défaut.
+
+---
+
 ## Etat session 2026-07-22 (DATA-006 — proposals + approvals + agent_runs)
 
 **Fait :**
@@ -348,6 +401,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/policy-state.ts` | Purs DATA-007 : `deriveScopeKey`, `nextPolicyVersion`, `canonicalPolicyConfig` (hash), `evaluatePolicyGates` (kill switch ⟂ sync), `canAutoSendReview` (§8.4), `resolveEffectiveKillSwitch`, `derivePromotionKind`, tuples (modes/statuts/kinds). |
+| `src/lib/server/policy-state.test.ts` | Vitest DATA-007 — 29 tests (scope, versionnage, canonicalisation, invariant kill-switch⟂sync, éligibilité envoi, kinds). |
+| `src/lib/server/policies.ts` | DATA-007 — `promotePolicy` transactionnel idempotent (+`computePolicyHash` sha256, journal), `setKillSwitch` (promotion journalisée sans toucher la sync), `getCurrentPolicy`/`getEffectivePolicy`. |
+| `scripts/apply-data-007.ts` + `drizzle/manual-data-007.sql` | Application déterministe du DDL additif DATA-007 (`review_automation_policies` + `policy_promotions`). |
 | `src/lib/server/proposal-state.ts` | Purs DATA-006 : `canActorApprove` (séparation des niveaux L0–L4), `isApprovalValid` (hash lié + expiration), `statusAfterPayloadChange`, tuples (statuts/niveaux/méthodes/vérif). |
 | `src/lib/server/proposal-state.test.ts` | Vitest DATA-006 — 18 tests (niveaux d'approbation, validité hash/expiration, transitions). |
 | `src/lib/server/proposals.ts` | DATA-006 — `createProposal` idempotent (+`computePayloadHash` sha256), `approveProposal` transactionnel (refus niveau), `updateProposalPayload` (invalidation), agent runs. |
@@ -367,7 +424,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (50 tables) ; +DATA-002/003/004/005/006 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs). |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (52 tables) ; +DATA-002/003/004/005/006/007 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs, review_automation_policies+policy_promotions). |
 | `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
 | `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
 | `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
