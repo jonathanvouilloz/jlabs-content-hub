@@ -18,11 +18,12 @@
  */
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { db } from './db/index.js';
 import { reviewAutomationPolicies, policyPromotions } from './db/schema.js';
+import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
 import { assertNoInlineSecret } from './projection-state.js';
 import { assertBoundedPayload } from './observation-state.js';
+import { toDbTimestamp } from './timestamps.js';
 import {
 	canonicalPolicyConfig,
 	deriveScopeKey,
@@ -32,7 +33,23 @@ import {
 	type PolicyConfig
 } from './policy-state.js';
 
-const nowIso = () => new Date().toISOString();
+/**
+ * Format DB canonique (cf. `timestamps.ts`) : `promoted_at` a un DEFAULT SQL au
+ * format `YYYY-MM-DD HH24:MI:SS`. Mélanger de l'ISO dans la même colonne rendrait
+ * l'historique des promotions incomparable lexicalement — donc intriable.
+ */
+const nowDb = () => toDbTimestamp();
+
+/**
+ * Client d'écriture : celui de l'app par défaut, ou un client INJECTÉ (runner
+ * `scripts/`). Import DYNAMIQUE de `db/index.js`, comme `findings.ts` : sinon ce
+ * module tire `$env/dynamic/private` et devient inchargeable hors SvelteKit.
+ */
+async function resolveDb(client?: AppDb): Promise<AppDb> {
+	if (client) return client;
+	const mod = await import('./db/index.js');
+	return mod.db;
+}
 
 /** Hash canonique d'une config de policy : sha256 hex de sa sérialisation stable.
  *  Toute modification de la config change le hash → nouvelle version au lieu d'un no-op. */
@@ -50,8 +67,13 @@ function guardConfigBlobs(config: PolicyConfig): void {
 // ── Lecture ─────────────────────────────────────────────────────────
 
 /** Policy courante d'un scope (projet + localisation, ou projet-wide si locationId absent). */
-export async function getCurrentPolicy(projectId: string, locationId?: string | null) {
+export async function getCurrentPolicy(
+	projectId: string,
+	locationId?: string | null,
+	client?: AppDb
+) {
 	const scopeKey = deriveScopeKey(locationId);
+	const db = await resolveDb(client);
 	return db.query.reviewAutomationPolicies.findFirst({
 		where: and(
 			eq(reviewAutomationPolicies.projectId, projectId),
@@ -66,10 +88,14 @@ export async function getCurrentPolicy(projectId: string, locationId?: string | 
  * (ou undefined), plus le kill switch effectif combinant la localisation et la
  * policy projet-wide. Un kill switch actif à l'un ou l'autre niveau bloque les envois.
  */
-export async function getEffectivePolicy(projectId: string, locationId: string) {
+export async function getEffectivePolicy(
+	projectId: string,
+	locationId: string,
+	client?: AppDb
+) {
 	const [location, projectWide] = await Promise.all([
-		getCurrentPolicy(projectId, locationId),
-		getCurrentPolicy(projectId, null)
+		getCurrentPolicy(projectId, locationId, client),
+		getCurrentPolicy(projectId, null, client)
 	]);
 	return {
 		policy: location,
@@ -107,10 +133,14 @@ export interface PromotePolicyResult {
  * Le remplacement (superseded → insert current) et l'écriture du journal sont
  * transactionnels : « une seule policy courante par scope » reste vrai à tout instant.
  */
-export async function promotePolicy(input: PromotePolicyInput): Promise<PromotePolicyResult> {
+export async function promotePolicy(
+	input: PromotePolicyInput,
+	client?: AppDb
+): Promise<PromotePolicyResult> {
 	guardConfigBlobs(input.config);
 	const scopeKey = deriveScopeKey(input.locationId);
 	const hash = computePolicyHash(input.config);
+	const db = await resolveDb(client);
 
 	return db.transaction(async (tx) => {
 		const currentRows = await tx
@@ -133,7 +163,7 @@ export async function promotePolicy(input: PromotePolicyInput): Promise<PromoteP
 
 		const id = createId();
 		const version = nextPolicyVersion(current?.version);
-		const now = nowIso();
+		const now = nowDb();
 
 		if (current) {
 			await tx
@@ -214,8 +244,8 @@ export async function setKillSwitch(input: {
 	on: boolean;
 	actor: string;
 	reason?: string | null;
-}): Promise<PromotePolicyResult> {
-	const current = await getCurrentPolicy(input.projectId, input.locationId);
+}, client?: AppDb): Promise<PromotePolicyResult> {
+	const current = await getCurrentPolicy(input.projectId, input.locationId, client);
 	const base: PolicyConfig = current
 		? {
 				mode: current.mode,
@@ -233,11 +263,14 @@ export async function setKillSwitch(input: {
 			}
 		: { ...DEFAULT_CONFIG };
 
-	return promotePolicy({
-		projectId: input.projectId,
-		locationId: input.locationId,
-		config: { ...base, killSwitch: input.on },
-		actor: input.actor,
-		reason: input.reason ?? (input.on ? 'kill switch activé' : 'kill switch désactivé')
-	});
+	return promotePolicy(
+		{
+			projectId: input.projectId,
+			locationId: input.locationId,
+			config: { ...base, killSwitch: input.on },
+			actor: input.actor,
+			reason: input.reason ?? (input.on ? 'kill switch activé' : 'kill switch désactivé')
+		},
+		client
+	);
 }

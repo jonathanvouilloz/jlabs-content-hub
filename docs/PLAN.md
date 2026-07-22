@@ -69,10 +69,13 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   d'exploitation `/jobs` : liste, chronologie, retry ciblé, annulation auditée) et **JOB-005**
   (scheduler timezone-aware : tick horaire `/api/cron/tick` qui planifie les cadences
   `Europe/Zurich` — DST comprise, zéro DDL — **et draine la file** : plus rien ne dépend d'un
-  lancement manuel). DB à **57 tables, zéro dérive** · test **414/414**. Prochain : l'**agent réel**
-  (findings → proposals, gouverné par les policies DATA-007), **JOB-006** (prévenir le 429),
-  **JOB-004** (DAG de steps) et l'inbox UI (E11). Détail →
-  [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
+  lancement manuel). **La chaîne de décision est fermée** : **AGT-000** (producteur déterministe
+  findings → `action_proposals`, niveaux L0–L4 figés, payload stable donc dédup réelle, plafond par
+  projet, auto-approbation bornée à L2 sous policy explicite ; job `propose:actions` planifié le
+  lundi après le détecteur). DB à **57 tables, zéro dérive** · test **464/464**. Prochain :
+  **JOB-004** (DAG de steps — le scheduler enfile `detect` puis `propose` mais n'ordonnance rien),
+  **JOB-006** (prévenir le 429) et l'inbox UI (E11/DASH-005) qui affichera findings ET propositions.
+  Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
 

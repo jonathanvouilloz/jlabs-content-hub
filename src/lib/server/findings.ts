@@ -17,7 +17,7 @@
  * Garde commune : `evidence_json` / `impact_estimate_json` / `payload_json` BORNÉS
  * (assertBoundedPayload) et sans secret (assertNoInlineSecret) avant persistance.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { findings, findingEvents } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
@@ -25,6 +25,7 @@ import { toDbTimestamp } from './timestamps.js';
 import { assertNoInlineSecret } from './projection-state.js';
 import { assertBoundedPayload } from './observation-state.js';
 import {
+	ACTIVE_STATUSES,
 	AUTO_RESOLUTION_REASON,
 	RECURRENCE_REASON,
 	SNOOZE_EXPIRED_REASON,
@@ -606,4 +607,148 @@ export async function reconcileDetectionRun(
 	}
 
 	return result;
+}
+
+// ── Lecture (AGT-000) ───────────────────────────────────────────────
+//
+// Ce module n'a longtemps porté que des ÉCRITURES : les détecteurs écrivaient
+// des findings que personne ne relisait. Tout consommateur en aval — le
+// producteur de propositions, l'API agent en lecture, l'inbox — a besoin des
+// deux mêmes accès, et les avoir ici évite que chacun réinvente son filtre de
+// statut (et se trompe sur `snoozed`/`dismissed`).
+
+/** Un finding tel que les consommateurs le lisent. */
+export interface FindingRow {
+	id: string;
+	projectId: string;
+	runId: string | null;
+	fingerprint: string;
+	type: string;
+	entityType: string;
+	entityKey: string;
+	title: string;
+	status: string;
+	severity: string;
+	priorityScore: number;
+	confidenceScore: number;
+	impactEstimateJson: string | null;
+	evidenceJson: string | null;
+	detectorVersion: string | null;
+	recommendedSkill: string | null;
+	occurrenceCount: number;
+	firstSeenAt: string;
+	lastSeenAt: string;
+	updatedAt: string;
+}
+
+const FINDING_COLUMNS = {
+	id: findings.id,
+	projectId: findings.projectId,
+	runId: findings.runId,
+	fingerprint: findings.fingerprint,
+	type: findings.type,
+	entityType: findings.entityType,
+	entityKey: findings.entityKey,
+	title: findings.title,
+	status: findings.status,
+	severity: findings.severity,
+	priorityScore: findings.priorityScore,
+	confidenceScore: findings.confidenceScore,
+	impactEstimateJson: findings.impactEstimateJson,
+	evidenceJson: findings.evidenceJson,
+	detectorVersion: findings.detectorVersion,
+	recommendedSkill: findings.recommendedSkill,
+	occurrenceCount: findings.occurrenceCount,
+	firstSeenAt: findings.firstSeenAt,
+	lastSeenAt: findings.lastSeenAt,
+	updatedAt: findings.updatedAt
+} as const;
+
+export interface ListFindingsInput {
+	projectId?: string;
+	/** Statuts retenus ; par défaut, les statuts ACTIFS (l'inbox). */
+	statuses?: readonly string[];
+	types?: readonly string[];
+	minPriority?: number;
+	limit?: number;
+}
+
+/**
+ * Liste les findings, triés par priorité décroissante puis fingerprint (ordre
+ * TOTAL et déterministe : deux findings à score égal ne peuvent pas permuter
+ * d'un appel à l'autre, ce dont dépend la reproductibilité du producteur).
+ *
+ * Le défaut est volontairement l'inbox (`ACTIVE_STATUSES`) et non « tout » :
+ * un appelant qui oublie de filtrer récupérerait sinon les `dismissed` et les
+ * `snoozed`, c'est-à-dire précisément ce que des humains ont décidé de ne plus
+ * voir. `projectId + status` consomme `idx_findings_project_status`.
+ */
+export async function listFindings(
+	input: ListFindingsInput = {},
+	client?: AppDb
+): Promise<FindingRow[]> {
+	const db = await resolveDb(client);
+	const statuses = input.statuses ?? ACTIVE_STATUSES;
+
+	const filters = [];
+	if (input.projectId) filters.push(eq(findings.projectId, input.projectId));
+	if (statuses.length > 0) filters.push(inArray(findings.status, [...statuses]));
+	if (input.types && input.types.length > 0) filters.push(inArray(findings.type, [...input.types]));
+	if (typeof input.minPriority === 'number' && Number.isFinite(input.minPriority)) {
+		filters.push(gte(findings.priorityScore, Math.floor(input.minPriority)));
+	}
+
+	const rows = await db
+		.select(FINDING_COLUMNS)
+		.from(findings)
+		.where(filters.length > 0 ? and(...filters) : undefined)
+		.orderBy(desc(findings.priorityScore), findings.fingerprint)
+		.limit(Math.max(1, Math.floor(input.limit ?? 500)));
+
+	return rows;
+}
+
+/**
+ * Un finding et son journal (SPEC §13.3 « vue finding »). Les événements sont
+ * rendus du plus ancien au plus récent : c'est une chronologie, elle se lit dans
+ * l'ordre où les choses sont arrivées.
+ */
+export async function getFindingWithEvidence(
+	findingId: string,
+	client?: AppDb
+): Promise<{
+	finding: FindingRow;
+	events: {
+		id: string;
+		eventType: string;
+		fromStatus: string | null;
+		toStatus: string | null;
+		reason: string | null;
+		actor: string;
+		createdAt: string;
+	}[];
+} | null> {
+	const db = await resolveDb(client);
+	const rows = await db
+		.select(FINDING_COLUMNS)
+		.from(findings)
+		.where(eq(findings.id, findingId))
+		.limit(1);
+	if (rows.length === 0) return null;
+
+	const events = await db
+		.select({
+			id: findingEvents.id,
+			eventType: findingEvents.eventType,
+			fromStatus: findingEvents.fromStatus,
+			toStatus: findingEvents.toStatus,
+			reason: findingEvents.reason,
+			actor: findingEvents.actor,
+			createdAt: findingEvents.createdAt
+		})
+		.from(findingEvents)
+		.where(eq(findingEvents.findingId, findingId))
+		.orderBy(findingEvents.createdAt);
+
+	return { finding: rows[0], events };
 }

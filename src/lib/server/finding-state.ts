@@ -132,6 +132,33 @@ export function deriveFindingFingerprint(input: {
 	return parts.join(FINDING_FINGERPRINT_SEP);
 }
 
+/**
+ * Lecture inverse de `deriveFindingFingerprint`. Le fingerprint est la SEULE
+ * source de certains discriminants : `findings.entity_key` ne porte qu'une
+ * dimension (pour `keyword_opportunity`, la query), alors que la page vit en
+ * discriminant. Un producteur d'actions a besoin de la cible — la parser ici,
+ * à côté de la fonction qui la compose, évite qu'un appelant refasse un `split`
+ * sur un séparateur qu'il aurait deviné.
+ *
+ * Tolérante par construction : un fingerprint malformé rend des parties vides
+ * plutôt qu'une exception. Un finding illisible ne doit pas faire tomber un run
+ * entier — il ne produira simplement aucune action.
+ */
+export function parseFindingFingerprint(fingerprint: string): {
+	type: string;
+	entityType: string;
+	entityKey: string;
+	discriminators: string[];
+} {
+	const parts = (fingerprint ?? '').split(FINDING_FINGERPRINT_SEP);
+	return {
+		type: parts[0] ?? '',
+		entityType: parts[1] ?? '',
+		entityKey: parts[2] ?? '',
+		discriminators: parts.slice(3)
+	};
+}
+
 // ── Priorité (barème SPEC §10.2) ────────────────────────────────────
 
 /** Borne un score entier dans [min, max] (défaut [0, 100]). */

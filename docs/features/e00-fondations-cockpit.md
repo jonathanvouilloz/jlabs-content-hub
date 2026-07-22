@@ -4,6 +4,120 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (AGT-000 — un finding devient enfin une action)
+
+**Fait :** la chaîne SPEC `observations → détecteurs → findings → PROPOSITIONS → approbation`
+s'arrêtait net après `findings`. **En amont tout produisait** (13 findings en base, détectés,
+scorés, avec leur cycle de vie) ; **en aval tout attendait** — `proposals.ts`/`proposal-state.ts`
+(DATA-006) et `policies.ts` (DATA-007) étaient **complets et jamais appelés**, leurs 3 tables
+vides. **Au milieu, rien** : `findings.ts` (609 lignes) n'exposait **que de l'écriture**. Le
+producteur ferme le trou. **Zéro DDL** (57 tables, zéro dérive) : tout existait depuis DATA-006.
+
+- **Déterministe, sans IA — délibérément.** La structure d'une proposition (type d'action, cible,
+  **niveau L0–L4**, risque) sort d'une table figée, comme le détecteur sort son fait d'une
+  arithmétique. Faire écrire cette structure par un modèle rendrait le **niveau d'autorisation
+  lui-même** non déterministe, c'est-à-dire qu'un modèle pourrait s'accorder un L4 — précisément
+  l'invariant que `canActorApprove` existe pour interdire. L'agent IA viendra *rédiger* et
+  *regrouper*, sur un squelette déjà gouverné et déjà borné (SPEC §3.3, §12.2).
+- **LE PIÈGE CENTRAL : le payload hashé ne doit contenir AUCUNE mesure hebdomadaire.**
+  `createProposal` dédup sur `payload_hash`. Une position à la décimale dans le payload (7.4 cette
+  semaine, 7.1 la suivante) produirait un hash neuf **à chaque run**, donc une proposition neuve :
+  **l'inbox doublerait toutes les semaines** sans qu'aucune garde ne bronche — un mode de panne
+  silencieux, progressif, et qui ne ressemble pas à un bug. Le payload ne porte donc que
+  l'identité et l'intention ; les chiffres du moment vivent dans `rationale`/`expected_impact`
+  (**non hashés**, donc rafraîchis à chaque run) et dans `input_hashes_json`. Un test dédié
+  verrouille l'invariant : mêmes findings, mesures différentes → **payload identique**.
+- **Les niveaux viennent littéralement de §12.1**, pas d'une intuition : « plan de refresh » y est
+  **L2**, « modification contenu » **L3**, « 301, canonical, suppression, désindexation » **L4**.
+  D'où le choix d'action de `keyword_opportunity`, tranché par la **position** : ≤ 10 → la page est
+  déjà servie, c'est le snippet qui ne convertit pas → `meta_rewrite` (**L3**) ; > 10 → réécrire le
+  snippet ne suffit pas, il faut d'abord gagner des places → `refresh_plan` (**L2**, un brouillon).
+  **Une seule action par finding** : en proposer deux ne dirait rien de plus et doublerait l'inbox.
+- **Le risque vient de l'ACTION, pas de la gravité du problème.** Un finding critique ne rend pas
+  plus risqué d'écrire un brouillon. La seule modulation retenue est celle qui a un sens réel :
+  toucher une page **qui reçoit déjà des clics expose un acquis** (≥ 10 clics/sem → `medium` monte
+  à `high`). Écart assumé au plan, qui prévoyait `deriveRiskLevel(actionType, severity)`.
+- **Plafond conservateur, conséquence directe de la décision `barberconcept`.** En laissant partir
+  ses 50 findings, un producteur sans garde écrirait 50 propositions d'un coup et l'inbox de
+  propositions naîtrait aussi inutilisable que celle des findings. Défauts : `minPriority = 60`
+  (aligné sur `findings list --min-priority 60`, §11.2) et `maxProposals = 10` par projet et par
+  run. `matched` **complet** est exposé à côté de `selected` (leçon FIND-003) et la troncature
+  s'annonce avec le total réel.
+- **La supersession ne réécrit jamais une décision prise.** Seules les propositions encore
+  **ouvertes** (`proposed`/`invalidated`) sont périmées. Une proposition **`approved`** dont le
+  payload ne reflète plus la réalité pose un vrai dilemme : la périmer efface une décision
+  humaine, la laisser filer ferait exécuter une action sur un état périmé. Elle est donc
+  **remontée** (`staleApproved`) et **laissée intacte** — un humain tranche.
+- **Deux gardes de rang différent sur le snooze/dismiss**, et c'est voulu : `listFindings` filtre
+  par défaut sur `ACTIVE_STATUSES` (un finding en veille n'est **même pas lu**), et
+  `selectProposableFindings` re-filtre. Un appelant futur qui élargirait les statuts ne casserait
+  donc pas la promesse de silence du snooze ni le dismiss « à vie ».
+- **Bug trouvé en vérifiant (hors périmètre, corrigé)** : `proposals.ts` et `policies.ts`
+  écrivaient leurs horodatages en **ISO** (`new Date().toISOString()`) dans des colonnes dont le
+  DEFAULT SQL est au format DB — exactement le piège lexical que `timestamps.ts` documente
+  (`'T'` 0x54 > `' '` 0x20). `proposal-state.isApprovalValid` compare ces chaînes : deux formats
+  mélangés y font expirer une approbation au mauvais moment. Rien n'avait cassé **parce que les
+  tables étaient vides** ; ce lot est le premier à y écrire. Corrigé avant la première ligne.
+- **Second blocage trouvé en vérifiant** : `proposals.ts`/`policies.ts` importaient `db`
+  **statiquement** (`db/index.js` → `$env/dynamic/private`), donc **inchargeables hors runtime
+  SvelteKit** — aucune preuve sur Neon n'était possible. Passés au client injecté de `findings.ts`
+  (import dynamique, `client?` optionnel) : les appelants app ne changent pas.
+- Vérif : `npm run test` = **464/464** (+50) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **57 tables, zéro dérive** · **`scripts/agt-000-proposer-proof.ts`
+  = 41/41 vertes sur Neon**, **rejouée deux fois**, base rendue à l'identique (**13 → 13** findings,
+  **0 → 0** propositions) · non-régression : `job-005-schedule-proof`, `job-007-console-proof`,
+  `job-003-retry-proof`, `job-002-recovery-proof`, `job-claim-concurrency` — **0 échec chacune** ·
+  **0 horodatage ISO** dans `action_proposals`/`agent_runs`/`proposal_approvals`.
+- **Chaîne réelle démontrée** : `propose:actions` enfilé sur `jonlabs` → réclamé et exécuté par
+  `runWorker` (`claimed: 1, succeeded: 1`) → **4 propositions** `meta_rewrite` **L3 `proposed`**
+  (aucune auto-approuvée : aucun projet n'a de policy), `agent_run` **clos `succeeded`**, tentative
+  journalisée. **Rejoué : 4 → 4, 0 créée, 4 rafraîchies**, et **4** `agent_comment` au journal des
+  findings — pas 8.
+
+**Acceptations couvertes.** (1) « rejouer sur des findings inchangés ne crée aucune proposition » :
+prouvé en base (2 runs → 3 propositions, `created: 0` au second) **et en production** (4 → 4) ;
+(2) « un agent ne peut approuver ni L3 ni L4, et rien ne part sans policy explicite » :
+`approveProposal` **lève** pour un agent sur une L3, le refus **n'écrit rien** (statut inchangé),
+et `decideAutoApproval` refuse **par défaut** sans policy — l'état de tous les projets aujourd'hui ;
+(3) « un finding en veille, dismissé ou résolu ne produit aucune proposition » : les deux gardes
+vérifiées en base, le finding n'est **même plus lu**.
+
+**Prochain :** **JOB-004** (DAG de steps + statut `partial` — le scheduler met `detect` puis
+`propose` en file mais **n'ordonnance rien** ; c'est la seule dépendance réelle qui manque au run
+hebdo) · **JOB-006** (prévenir le 429) · l'**inbox UI** qui affiche findings ET propositions
+(E11/DASH-005) — tout est en base, rien ne le montre encore.
+
+**Pièges :**
+- **Ne JAMAIS mettre une mesure dans `payload_json`.** C'est lui qui est hashé, donc lui qui porte
+  la dédup. Tout ajout de champ volatil (date, compteur, position, impressions) fait exploser
+  l'inbox semaine après semaine, sans erreur, sans log, sans test rouge — sauf celui qui garde
+  l'invariant. Les chiffres vont dans `rationale`/`expected_impact`, jamais dans le payload.
+- **Le catalogue `weekly` déclenche du VRAI travail sur les 6 projets** (rappel JOB-005), et il
+  enfile désormais **deux** jobs par projet.
+- **`priority: 8` contre `10` est un ordre de SERVICE, pas une dépendance.** Rien n'attend la fin
+  du détecteur. Si le producteur passe d'abord (deux workers, un détecteur reporté pour quota), il
+  travaille sur les findings de la semaine précédente et rattrape au tick suivant — acceptable
+  **parce qu'il est idempotent**. Le vrai ordre est le périmètre de **JOB-004**.
+- **Une preuve qui appelle le producteur DOIT passer `findingIds`.** Sans cette restriction, elle
+  écrit des propositions sur les findings de **production** du projet qui l'héberge — le type doit
+  être le vrai `keyword_opportunity` (sinon aucune action n'est dérivable), donc l'isolation ne
+  peut pas passer par lui. Même raison d'être que le `catalog` substituable de `planDueJobs`.
+- **Le nettoyage d'une preuve va enfants d'abord** : `proposal_approvals` → `action_proposals` →
+  `agent_runs` → `finding_events` → `findings`. Et les `agent_runs` **ne portent aucun marqueur de
+  test** (le producteur ne doit pas savoir qu'un test l'appelle) : ils se collectent **à la volée**.
+- **`observations.ts` écrit encore `fetched_at` en ISO**, dans une table **peuplée**. Pas comparé
+  lexicalement aujourd'hui (le détecteur filtre sur `week_start`) — dette nommée, non corrigée.
+- **Un type de finding sans correspondance ne produit RIEN**, et c'est compté (`withoutAction`).
+  Les 9 autres types du catalogue §10.4 n'ont pas encore de table d'actions.
+- Toujours en suspens hors AGT-000 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` **planifiable sans
+  handler** (E03) · **rien ne bat tant que ce n'est pas déployé** · au 1er tick, `barberconcept`
+  écrira ses **50 findings** (décision de Jonathan : on les laisse partir).
+
+**Commit :** _(voir la trace des commits ci-dessous)_
+
+---
+
 ## Etat session 2026-07-22 (JOB-005 — la file cesse d'attendre qu'on la lance)
 
 **Fait :** JOB-001/002/003/007 avaient tout construit — réclamation atomique, bail vivant, reaper,
@@ -1033,14 +1147,19 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
-| **`src/lib/server/schedule-state.ts`** | **Purs JOB-005** : cadences (`SCHEDULE_CADENCES`, `SCHEDULE_DEFAULTS` — hebdo lundi 09:00 §8.1), `zoneOffsetMs`/`utcToZonedFields`/**`zonedFieldsToUtc`** (les deux offsets testés → heure inexistante qui **glisse**, heure doublée résolue à la première), **`formatLocalSlot`** (la clé d'occurrence, LOCALE), `dueOccurrences`/`nextOccurrence`, `resolveScheduleConfig` (tolérant), **`SCHEDULE_CATALOG`** (cadence → jobs), `postPublishSlots`. `Intl` seul, aucune dépendance. |
+| **`src/lib/server/proposer-state.ts`** | **Purs AGT-000** : `PROPOSAL_ACTION_TYPES` (catalogue **fermé**), `APPROVAL_LEVEL_BY_ACTION` (table **figée** L0–L4, §12.1) + `deriveApprovalLevel` (inconnu → `null`, jamais de défaut permissif), `deriveRiskLevel` (le niveau de l'action, relevé si la page a des **clics à perdre**), `mapFindingToActions` (position ≶ 10 → `meta_rewrite` L3 / `refresh_plan` L2 ; type inconnu → **rien**), **`buildProposalPayload`/`canonicalProposalPayload`** (STABLE dans le temps — c'est lui qui est hashé), `canonicalInputSignature` (volatile, **séparée**), `selectProposableFindings` (statuts actifs + `minPriority`, expose `matched` **et** `selected`), `decideSupersession` (n'écrase jamais une décision prise, **remonte** les `approved` périmées), `decideAutoApproval` (≤ L2 **et** policy `guarded_auto` — refus par défaut). |
+| **`src/lib/server/proposer-state.test.ts`** | **Vitest AGT-000 — 49 tests**, dont l'invariant qui tient tout : **mesures qui bougent → payload identique** (sinon l'inbox doublerait chaque semaine), la cohérence de la table des niveaux avec `canActorApprove`, et l'absence de tout champ volatil dans le payload sérialisé. |
+| **`src/lib/server/proposers/finding-proposer.ts`** | **IO AGT-000** : `db` **injecté**, ouvre/clôt un **`agent_run`** (y compris **en échec** — un run laissé `running` mentirait à la supervision), lit la config projet (`payload.proposers.finding_proposer`, idiome tolérant), écrit par `createProposal` (idempotent), périme via `supersedeProposals`, journalise un **`agent_comment`** côté finding **à la première proposition seulement**, auto-approuve **uniquement** L0–L2 sous policy. Paramètre **`findingIds`** = substitution pour les preuves (cf. `catalog` de `planDueJobs`). |
+| **`scripts/propose.ts`** | Runner AGT-000 **DRY-RUN par défaut** (`--execute`, `--project=<slug\|all>`, `--min-priority`, `--max`, `--limit`) : run+step de traçabilité, rapport annonçant troncature, findings sans action, propositions périmées et **approbations devenues obsolètes**. |
+| **`scripts/agt-000-proposer-proof.ts`** | **Preuve AGT-000 sur Neon (41 vérifs)** : idempotence, rafraîchissement des champs **non hashés** à hash constant, supersession, refus d'approbation L3 par un agent, invalidation liée au hash, snooze/dismiss qui tiennent, `agent_run` clos, troncature annoncée, **0 horodatage ISO**, et **base rendue à l'identique**. Bornée par `findingIds` ; nettoyage **enfants d'abord**. |
+| **`src/lib/server/schedule-state.ts`** | **Purs JOB-005** : cadences (`SCHEDULE_CADENCES`, `SCHEDULE_DEFAULTS` — hebdo lundi 09:00 §8.1), `zoneOffsetMs`/`utcToZonedFields`/**`zonedFieldsToUtc`** (les deux offsets testés → heure inexistante qui **glisse**, heure doublée résolue à la première), **`formatLocalSlot`** (la clé d'occurrence, LOCALE), `dueOccurrences`/`nextOccurrence`, `resolveScheduleConfig` (tolérant), **`SCHEDULE_CATALOG`** (cadence → jobs ; hebdo = `detect:keyword_opportunity` **puis** `propose:actions`, ordre de service par `priority DESC`), `postPublishSlots`. `Intl` seul, aucune dépendance. |
 | **`src/lib/server/schedule-state.test.ts`** | **Vitest JOB-005 — 38 tests**, dont les **deux bascules DST** (2026-03-29 : 02:30 inexistant → 03:30, lundi 09:00 = 08:00 puis 07:00 UTC · 2026-10-25 : 02:30 doublé → une seule occurrence, journée de 25 h sans créneau sauté) et l'invariant « chaque occurrence est rattrapée par le tick horaire qui la suit ». |
 | **`src/lib/server/scheduler.ts`** | **IO JOB-005** : `planDueJobs` (occurrences dues sur une fenêtre de rattrapage, `createRun` + `enqueueJob` avec la clé du **créneau local**, isolation par projet, `catalog` substituable pour les preuves), `listNextOccurrences` (**calculée**, jamais persistée), `loadProjectScheduleConfig` (projection `payload.schedules`), `schedulePostPublish` (J+3/J+7/J+28 via `available_at`). **Aucune table.** |
 | **`src/routes/api/cron/tick/+server.ts`** | **Le battement** (`0 * * * *`, `maxDuration: 300`) : planifie **puis** draine (`runWorker({once})`, budget 240 s via `AbortController`, reaper inclus). Bearer `CRON_SECRET`. 500 si une moitié tombe — un cron toujours vert ne remonte dans aucune alerte. |
 | **`scripts/schedule.ts`** | Runner JOB-005 **dry-run par défaut** (`--execute`, `--now=<ISO>` pour rejouer une date DST, `--project`, `--lookback-hours`, `--next-only`) : occurrences dues + **prochaine exécution par projet** en heure métier ET en UTC. |
 | **`scripts/job-005-schedule-proof.ts`** | **Preuve JOB-005 sur Neon (33 vérifs)** : idempotence du créneau (restart et tick en retard), les deux régimes DST écrits en base, chaîne planifier→réclamer→`succeeded`, prochaine exécution par projet, post-publication. Catalogue **substitué** (`__test_schedule:<runId>`) pour ne pas déclencher de vraie détection ; nettoyage enfants d'abord, **`monitoring_steps` compris**. |
-| `src/lib/server/finding-state.ts` | Purs DATA-005 **+ FIND-003** : fingerprint, scoring §10.2, dérivation d'événements (dont `unsnoozed`), **`canTransition`** (graphe §10.1), `decideOnRedetection`/`decideOnAbsence`, `isSnoozeExpired`/`computeSnoozeUntil`, `resolveLifecycleConfig`, `ACTIVE_STATUSES`. |
-| `src/lib/server/findings.ts` | DATA-005 **+ FIND-003** : `upsertFinding`, `recordFindingEvent`, `transitionFinding` (légalité + effets de bord du cycle de vie), `snoozeFinding`/`dismissFinding`/`reopenFinding`, `expireSnoozes`, **`reconcileDetectionRun`**. |
+| `src/lib/server/finding-state.ts` | Purs DATA-005 **+ FIND-003** : fingerprint, scoring §10.2, dérivation d'événements (dont `unsnoozed`), **`canTransition`** (graphe §10.1), `decideOnRedetection`/`decideOnAbsence`, `isSnoozeExpired`/`computeSnoozeUntil`, `resolveLifecycleConfig`, `ACTIVE_STATUSES` — **+ AGT-000 `parseFindingFingerprint`** : la PAGE d'un `keyword_opportunity` ne vit que dans le fingerprint (`entity_key` ne porte que la query), et une cible d'action doit pouvoir la relire sans deviner le séparateur.
+| `src/lib/server/findings.ts` | DATA-005 **+ FIND-003 + AGT-000** : `upsertFinding`, `recordFindingEvent`, `transitionFinding` (légalité + effets de bord du cycle de vie), `snoozeFinding`/`dismissFinding`/`reopenFinding`, `expireSnoozes`, **`reconcileDetectionRun`** — et depuis AGT-000 la **LECTURE**, qui manquait entièrement : **`listFindings`** (défaut = les statuts **ACTIFS**, tri total déterministe) et **`getFindingWithEvidence`**. Brique commune à l'API agent (AGT-001) et à l'inbox (E11).
 | `scripts/apply-find-003.ts` + `drizzle/manual-find-003.sql` | DDL additif FIND-003 (5 colonnes de cycle de vie sur `findings` + index partiel d'expiration de veille) ; vérifie colonnes ET index. |
 | `scripts/find-003-lifecycle-proof.ts` | Preuve du cycle de vie sur Neon (37 vérifs : persistance, auto-résolution confirmée, récidive, expiration de veille, snooze et dismiss qui tiennent, transition illégale refusée) ; nettoie ses propres lignes. |
 | `src/lib/server/detector-state.ts` | Purs FIND-001/004 : `buildWindow`/`areWindowsComparable` (fenêtres hebdo comparables), `aggregateWindow` (position pondérée), `selectOpportunities` (+ bruit configuré, troncature reportée), `scoreOpportunity` (composantes §10.2), `deriveOpportunitySeverity` (plafond faible volume), `buildOpportunityEvidence` (pointeurs). |
@@ -1052,7 +1171,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | **`src/lib/server/job-retry.ts`** | **Purs JOB-003** : `classifyJobFailure` (**raison avant statut** — 403+quota Google, 400+`invalid_grant`), `parseRetryAfter`/`extractRetryAfterMs` (plafond 6 h), `applyJitter` (`random` **injecté**), `RETRY_DEFAULTS` par classe, `decideRetry` (retry / defer / dead + `deadReason`). |
 | **`src/lib/server/job-retry.test.ts`** | **Vitest JOB-003 — 55 tests** (table de classification, priorité raison>statut, Retry-After, bornes et déterminisme du jitter, les 4 classes, les deux plafonds). |
 | `src/lib/server/jobs-claim.ts` | JOB-001 + JOB-003 + **JOB-007** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, `deferJob` (quota : tentative rendue), `requeueDeadJob` (transactionnel, journalise la reprise), `listDeadJobs`, **`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`** (lecture de la console) et **`cancelJob`** (transactionnel : retire le bail, clôt la tentative ouverte, écrit la ligne d'audit). |
-| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** + **JOB-005** — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` ; **`concludeRunStep`** écrit le step et recalcule le run **aux seules issues terminales** (sans quoi un run planifié restait `queued` à vie), non bloquante. |
+| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** + **JOB-005** + **AGT-000** (`propose:actions`) — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` ; **`concludeRunStep`** écrit le step et recalcule le run **aux seules issues terminales** (sans quoi un run planifié restait `queued` à vie), non bloquante. |
 | `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
 | `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; **type unique par exécution** + nettoyage enfants-d'abord (corrigé en JOB-003). |
 | **`scripts/job-003-retry-proof.ts`** | **Preuve JOB-003 sur Neon (44 vérifs)** : 5xx replanifié/jitté, 429 reporté (tentative rendue, Retry-After honoré), 403-quota Google ≠ 403 structurel, dead-letter immédiat, plafond de reports, reprise manuelle avec historique intact ; nettoie ses propres lignes. |
@@ -1076,11 +1195,11 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-008.ts` + `drizzle/manual-data-008.sql` | Application déterministe du DDL additif DATA-008 (`retention_policies` + `observation_aggregates` + `purge_runs`). |
 | `src/lib/server/policy-state.ts` | Purs DATA-007 : `deriveScopeKey`, `nextPolicyVersion`, `canonicalPolicyConfig` (hash), `evaluatePolicyGates` (kill switch ⟂ sync), `canAutoSendReview` (§8.4), `resolveEffectiveKillSwitch`, `derivePromotionKind`, tuples (modes/statuts/kinds). |
 | `src/lib/server/policy-state.test.ts` | Vitest DATA-007 — 29 tests (scope, versionnage, canonicalisation, invariant kill-switch⟂sync, éligibilité envoi, kinds). |
-| `src/lib/server/policies.ts` | DATA-007 — `promotePolicy` transactionnel idempotent (+`computePolicyHash` sha256, journal), `setKillSwitch` (promotion journalisée sans toucher la sync), `getCurrentPolicy`/`getEffectivePolicy`. |
+| `src/lib/server/policies.ts` | DATA-007 — `promotePolicy` transactionnel idempotent (+`computePolicyHash` sha256, journal), `setKillSwitch` (promotion journalisée sans toucher la sync), `getCurrentPolicy`/`getEffectivePolicy`. **Client injecté** + horodatages au **format DB** (mêmes deux corrections qu'AGT-000 a dû faire sur `proposals.ts`).
 | `scripts/apply-data-007.ts` + `drizzle/manual-data-007.sql` | Application déterministe du DDL additif DATA-007 (`review_automation_policies` + `policy_promotions`). |
 | `src/lib/server/proposal-state.ts` | Purs DATA-006 : `canActorApprove` (séparation des niveaux L0–L4), `isApprovalValid` (hash lié + expiration), `statusAfterPayloadChange`, tuples (statuts/niveaux/méthodes/vérif). |
 | `src/lib/server/proposal-state.test.ts` | Vitest DATA-006 — 18 tests (niveaux d'approbation, validité hash/expiration, transitions). |
-| `src/lib/server/proposals.ts` | DATA-006 — `createProposal` idempotent (+`computePayloadHash` sha256), `approveProposal` transactionnel (refus niveau), `updateProposalPayload` (invalidation), agent runs. |
+| `src/lib/server/proposals.ts` | DATA-006 **+ AGT-000** — `createProposal` idempotent (+`computePayloadHash` sha256) qui **rafraîchit désormais les champs NON hashés** (rationale/impact : sans quoi une proposition afficherait éternellement les mesures de sa première semaine), `approveProposal` transactionnel (refus niveau), `updateProposalPayload` (invalidation), **`listProposalsForFinding`**, **`supersedeProposals`** (gardée sur les statuts ouverts), agent runs. **Client injecté** + horodatages au **format DB** (deux corrections AGT-000 : le module était inchargeable hors SvelteKit et écrivait de l'ISO).
 | `scripts/apply-data-006.ts` + `drizzle/manual-data-006.sql` | Application déterministe du DDL additif DATA-006 (`action_proposals` + `proposal_approvals` + `agent_runs`). |
 | `src/lib/server/finding-state.ts` | Purs DATA-005 : `deriveFindingFingerprint`, `computePriorityScore` (§10.2), `deriveSeverityEventType`/`deriveStatusEventType`, tuples de vocabulaire (types/statuts/sévérités/entités/événements/acteurs). |
 | `src/lib/server/finding-state.test.ts` | Vitest DATA-005 — 27 tests (fingerprint stable, scoring borné, dérivation d'événements, vocab). |

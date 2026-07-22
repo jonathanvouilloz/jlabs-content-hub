@@ -54,6 +54,7 @@ import {
 import { recordStep, recomputeRunStatus } from './monitoring.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
+import { runFindingProposer } from './proposers/finding-proposer.js';
 import { expireSnoozes } from './findings.js';
 
 const logger = log('worker');
@@ -82,6 +83,13 @@ export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
  * deviendrait un enterrement).
  */
 export const JOB_TYPE_FINDINGS_LIFECYCLE = 'findings:lifecycle';
+
+/**
+ * AGT-000 — production de propositions à partir des findings actifs. Job À PART
+ * du détecteur : il lit ce que la détection a laissé en base, et rejouer l'un
+ * n'oblige pas à rejouer l'autre. Idempotent (dédup par `payload_hash`).
+ */
+export const JOB_TYPE_PROPOSE_ACTIONS = 'propose:actions';
 
 /** Job sans effet, utilisé par le test de concurrence et les fumigations. */
 export const JOB_TYPE_NOOP = 'noop';
@@ -125,6 +133,29 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					projectId: job.projectId,
 					reopened: res.reopened.length,
 					stillSnoozed: res.stillSnoozed
+				});
+			}
+		],
+		[
+			JOB_TYPE_PROPOSE_ACTIONS,
+			async ({ db, job }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await runFindingProposer({
+					db,
+					projectId: (payload.projectId as string) ?? job.projectId,
+					runId: job.runId
+				});
+				logger.info('propositions produites', {
+					jobId: job.id,
+					projectId: job.projectId,
+					proposer: res.proposerVersion,
+					created: res.counts.created,
+					refreshed: res.counts.refreshed,
+					superseded: res.counts.superseded,
+					// La troncature remonte dans les logs comme elle remonte en CLI :
+					// un plafond atteint ne doit jamais se lire comme « tout est couvert ».
+					truncated: res.truncated,
+					totalMatched: res.totalMatched
 				});
 			}
 		],

@@ -1553,6 +1553,31 @@ Acceptation :
 **Jalon :** M5  
 **Référence SPEC :** section 11.
 
+## AGT-000 — Producteur déterministe de propositions
+
+**Priorité :** P0 · **Taille :** M · **État :** **DONE** (2026-07-22 — `proposer-state.ts` (pur) : catalogue fermé de 11 `action_type`, table figée des niveaux L0–L4, payload canonique STABLE dans le temps, sélection/troncature exposant `matched` complet, supersession, auto-approbation bornée ; `proposers/finding-proposer.ts` : IO client injecté, `agent_run` ouvert/clos, `finding_event` `agent_comment` ; lecture `listFindings`/`getFindingWithEvidence` ajoutée à `findings.ts` ; job `propose:actions` + catalogue `weekly` ; `scripts/propose.ts` dry-run par défaut. 49 tests purs + 1 sur le catalogue hebdo, preuve Neon 41/41, **zéro DDL**. Détail : `docs/features/e00-fondations-cockpit.md`) · **Dépendances :** DATA-006, DATA-007, FIND-003
+
+Ticket ajouté au backlog en cours de route : aucun n'existait pour ce maillon. La chaîne SPEC
+(`observations → détecteurs → findings → analyse agent → propositions → approbation`) s'arrêtait
+après `findings`, et les couches amont comme aval étaient toutes deux construites — seul le
+passage de l'une à l'autre manquait. `AGT-005C` (« le skill `seo-actions` transforme des findings
+persistés en propositions ») couvre le même besoin **côté skill**, mais reste BLOCKED par
+`AGT-002` (l'API) : ce ticket-ci fait le travail **en base**, sans dépendre d'aucune API.
+
+Travail :
+
+- dériver de chaque finding une action typée, dotée d'un niveau L0–L4 **figé** ;
+- produire un payload versionné, hashé et **stable dans le temps** (la dédup en dépend) ;
+- borner le volume par projet et par run, sans jamais tronquer en silence ;
+- périmer les propositions rendues obsolètes, sans réécrire une décision prise ;
+- journaliser l'invocation (`agent_runs`) et la trace côté finding.
+
+Acceptation :
+
+- rejouer le producteur sur des findings inchangés ne crée aucune proposition ;
+- un agent ne peut approuver ni une L3 ni une L4, et rien ne part sans policy explicite ;
+- un finding en veille, dismissé ou résolu ne produit aucune proposition.
+
 ## AGT-001 — API agent v1 en lecture
 
 **Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-005, SEC-001

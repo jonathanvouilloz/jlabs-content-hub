@@ -427,8 +427,19 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	hourly: [],
 	// Les veilles doivent expirer même une semaine sans détection (FIND-003).
 	daily: [{ jobType: 'findings:lifecycle', priority: 5 }],
-	// Le run hebdo de référence (SPEC §8.1) — pour l'instant, le seul détecteur.
-	weekly: [{ jobType: 'detect:keyword_opportunity', priority: 10, payload: { weeks: 4 } }],
+	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de
+	// propositions — dans cet ordre, parce que la file sert par `priority DESC`.
+	//
+	// ⚠️ C'est un ordre de SERVICE, pas une dépendance : rien n'attend la fin du
+	// détecteur (le DAG de steps est l'affaire de JOB-004). Si le producteur
+	// passe en premier — deux workers concurrents, un détecteur reporté pour
+	// quota — il travaille sur les findings de la semaine précédente et rattrape
+	// au tick suivant. C'est acceptable ici PARCE QUE le producteur est
+	// idempotent : au pire il ne propose rien de neuf, jamais un doublon.
+	weekly: [
+		{ jobType: 'detect:keyword_opportunity', priority: 10, payload: { weeks: 4 } },
+		{ jobType: 'propose:actions', priority: 8 }
+	],
 	monthly: []
 };
 

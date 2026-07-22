@@ -346,9 +346,21 @@ describe('SCHEDULE_CATALOG', () => {
 		expect(Object.keys(SCHEDULE_CATALOG).sort()).toEqual([...SCHEDULE_CADENCES].sort());
 	});
 
-	it('hebdo = détecteur, quotidien = expiration des veilles', () => {
-		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual(['detect:keyword_opportunity']);
+	it('hebdo = détecter puis proposer, quotidien = expiration des veilles', () => {
+		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual([
+			'detect:keyword_opportunity',
+			'propose:actions'
+		]);
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual(['findings:lifecycle']);
+	});
+
+	it('la production de propositions est servie APRÈS la détection (priority DESC)', () => {
+		const weekly = catalogFor('weekly');
+		const detect = weekly.find((e) => e.jobType === 'detect:keyword_opportunity')!;
+		const propose = weekly.find((e) => e.jobType === 'propose:actions')!;
+		// La file sert par `priority DESC` : une priorité plus basse passe après.
+		// Ce n'est PAS une dépendance (cf. JOB-004), seulement un ordre de service.
+		expect(propose.priority).toBeLessThan(detect.priority);
 	});
 
 	it('hourly et monthly restent SANS job câblé (aucun type fantôme en file)', () => {
