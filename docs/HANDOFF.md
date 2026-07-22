@@ -14,4 +14,4 @@ permanent), backoff avec jitter, bornage des tentatives, et action de reprise de
 en conservant l'historique des tentatives (`job_attempts` existe désormais pour ça). Contexte,
 pièges et carte du code → le fichier feature. JOB-002 vient de fermer le trou « worker mort » et
 débloque JOB-003 + JOB-007.
-Commit : `<à venir>` [hub] add: JOB-002 bail, heartbeat et récupération après crash.
+Commit : `8aea66e` [hub] add: JOB-002 bail, heartbeat et récupération après crash.
