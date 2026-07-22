@@ -506,6 +506,21 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
   `execution_job_id` FK→`jobs` + `verification_status` (pas de table exécution). Idempotence :
   unique `(project_id, finding_id, action_type, payload_hash)`. `agent_runs` distinct de
   `monitoring_runs` (raisonnement agent vs orchestration collecteur). **Pas d'agent/exécuteur/UI.**
+- **DATA-007 (expand seul)** : `review_automation_policies` + `policy_promotions` (SPEC §7.10). Policy
+  **versionnée** (modèle `project_projections` : unique current par scope, ancienne `superseded`) →
+  aucune ancienne proposition ne profite d'une nouvelle policy. **`scope_key = location_id ?? '*'`**
+  (robustesse NULL du unique current) ; **`policy_hash`** (sha256 config canonique) → dédup re-promotion.
+  Kill switch **versionné dans la config** (bascule = promotion journalisée). Invariants purs
+  (`policy-state.ts`) : **`evaluatePolicyGates`** (kill switch bloque les envois **sans** bloquer la sync)
+  + **`canAutoSendReview`** (§8.4 : draft_only/manual jamais, guarded_auto seulement 5★ non escaladé).
+  `policy_promotions` **append-only** → policy effective auditable. **Pas d'exécuteur/cron/UI.**
+- **DATA-008 (expand + dry-run, pas de suppression réelle)** : `retention_policies` + `observation_aggregates`
+  + `purge_runs` (SPEC §7.11). Rétention **configurable par type** (seedée §7.11). Invariants purs
+  (`retention-state.ts`) : **`isPurgeable`** (protégé/infini/inactif jamais purgé), **`assertPurgeAuthorized`**
+  (suppression d'audit = L4 sinon throw), **`derivePeriod`** (buckets week/month/year déterministes).
+  Runner `scripts/purge.ts` **DRY-RUN par défaut** (annonce lignes+périodes exactes) ; **`--execute` REFUSÉ**
+  — l'agrégation+delete réels (par lots, reprise `checkpoint_json`, L4 pour audit) sont **différés** en
+  session dédiée. Colonne d'âge = `period_end` sauf `keyword_rank_observations` = `observed_date`.
 - **DATA-005 (expand seul)** : `findings` + `finding_events` (SPEC §7.6/§7.7). **Statuts** = les 7 de §7.6
   **+ `reopened`** (§10.1) ; `new` transitoire (naît `open`). **Dédup** = unique `(project_id, fingerprint)`
   (fingerprint stable = miroir applicatif dans `finding-state.ts`, séparateur `\x1f`). **Preuves** =
