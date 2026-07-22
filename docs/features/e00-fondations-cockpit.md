@@ -114,7 +114,7 @@ hebdo) · **JOB-006** (prévenir le 429) · l'**inbox UI** qui affiche findings 
   handler** (E03) · **rien ne bat tant que ce n'est pas déployé** · au 1er tick, `barberconcept`
   écrira ses **50 findings** (décision de Jonathan : on les laisse partir).
 
-**Commit :** _(voir la trace des commits ci-dessous)_
+**Commit :** `a0c6f59` [hub] add: AGT-000 producteur de propositions (findings → action_proposals)
 
 ---
 
