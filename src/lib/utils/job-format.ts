@@ -23,6 +23,9 @@ export const OUTCOME_LABEL: Record<string, string> = {
 	deferred: 'REPORTÉE (quota)',
 	requeued: 'RELANCÉE (manuel)',
 	cancelled: 'ANNULÉE',
+	// JOB-004 — pas une tentative : le job n'a jamais tourné, son prérequis obligatoire
+	// ayant échoué pour de bon. C'est le FAIT qui est journalisé, pas un essai.
+	skipped: 'SAUTÉE (dépendance)',
 	dead: 'DEAD-LETTER'
 };
 
@@ -55,7 +58,10 @@ export const STATUS_LABEL: Record<string, string> = {
 	succeeded: 'réussi',
 	failed: 'échoué',
 	dead: 'dead-letter',
-	cancelled: 'annulé'
+	cancelled: 'annulé',
+	// Distinct d'`annulé`, qui est une décision humaine : ici personne n'a rien décidé,
+	// c'est la conséquence mécanique d'un prérequis perdu.
+	skipped: 'ignoré (dépendance)'
 };
 
 // ── Formats (colonnes `text`, format DB `YYYY-MM-DD HH:MM:SS`) ──────

@@ -29,7 +29,21 @@ export const STEP_STATUSES = [
 ] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
-export const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'dead', 'cancelled'] as const;
+/**
+ * `skipped` (JOB-004) = le job n'a JAMAIS été tenté, un prérequis obligatoire ayant
+ * échoué pour de bon. Statut à part de `cancelled` — celui-là est une décision
+ * humaine, avec un acteur et une raison au journal (JOB-007). Les confondre ferait
+ * dire à `explainFailure` « annulé par un opérateur » là où personne n'a rien décidé.
+ */
+export const JOB_STATUSES = [
+	'queued',
+	'running',
+	'succeeded',
+	'failed',
+	'dead',
+	'cancelled',
+	'skipped'
+] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 // ── Clé d'idempotence (SPEC §8.3) ──────────────────────────────────
@@ -75,6 +89,57 @@ export function classifyRunOutcome(stepStatuses: StepStatus[]): RunStatus {
 	if (anyOk && anyKo) return 'partial';
 	if (anyKo) return 'failed';
 	return 'success';
+}
+
+/** Une ligne de `monitoring_steps`, réduite à ce qui décide du statut du run. */
+export interface StepAttempt {
+	stepType: string;
+	attempt: number;
+	status: StepStatus | string;
+	/** Format DB (`YYYY-MM-DD HH:MM:SS`) ; null pour un step non conclu. */
+	finishedAt?: string | null;
+}
+
+/**
+ * Compare deux horodatages de step. Le séparateur est NORMALISÉ avant comparaison :
+ * une valeur ISO qui se serait glissée là (`'T'` = 0x54 > `' '` = 0x20) se trierait
+ * sinon après tout le reste de la journée — le piège exact que `timestamps.ts`
+ * documente. Un step non conclu (`null`) est le plus ancien.
+ */
+function compareFinishedAt(a: string | null | undefined, b: string | null | undefined): number {
+	const norm = (v: string | null | undefined) => (v ? v.replace('T', ' ').slice(0, 19) : '');
+	return norm(a).localeCompare(norm(b));
+}
+
+/**
+ * JOB-004 — Ne garde que le DERNIER verdict de chaque `step_type`.
+ *
+ * `monitoring_steps` est un journal : deux tentatives d'un même step y laissent deux
+ * lignes (unique sur `(run_id, step_type, attempt)`). Les passer toutes à
+ * `classifyRunOutcome` fait mentir le statut du run — un job mort à la tentative 5
+ * (step `failed`) puis repris et réussi laisserait son run en `partial` À VIE, alors
+ * qu'il a fini par aboutir.
+ *
+ * L'ordre est TEMPOREL, pas numérique, et c'est le point à ne pas rater :
+ * `requeueDeadJob` remet `attempts` À ZÉRO (JOB-003), donc la tentative qui réussit
+ * après une reprise porte un numéro PLUS PETIT que celle qui est morte. Trier sur
+ * `attempt` garderait le verdict d'échec pour toujours — exactement le bug qu'on
+ * ferme. `finished_at` fait foi ; `attempt` ne sert que de départage.
+ */
+export function latestAttemptPerStep(steps: StepAttempt[]): StepStatus[] {
+	const latest = new Map<string, StepAttempt>();
+	for (const step of steps) {
+		const seen = latest.get(step.stepType);
+		if (!seen) {
+			latest.set(step.stepType, step);
+			continue;
+		}
+		const byTime = compareFinishedAt(step.finishedAt, seen.finishedAt);
+		if (byTime > 0 || (byTime === 0 && step.attempt >= seen.attempt)) {
+			latest.set(step.stepType, step);
+		}
+	}
+	return [...latest.values()].map((s) => s.status as StepStatus);
 }
 
 // ── Retry / backoff / dead-letter (SPEC §6.2) ──────────────────────

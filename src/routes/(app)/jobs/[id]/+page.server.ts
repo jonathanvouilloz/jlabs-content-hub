@@ -3,7 +3,14 @@ import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { getJobDetail } from '$lib/server/jobs-claim.js';
 import { listJobAttempts } from '$lib/server/jobs-lease.js';
-import { canCancelJob, canRequeueJob, explainFailure } from '$lib/server/job-console.js';
+import {
+	canCancelJob,
+	canRequeueJob,
+	describeDependencies,
+	explainFailure
+} from '$lib/server/job-console.js';
+import { parseDependencies } from '$lib/server/job-graph.js';
+import { loadDependencyStatuses } from '$lib/server/jobs-graph.js';
 import { toDbTimestamp } from '$lib/server/timestamps.js';
 
 /**
@@ -19,13 +26,24 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	const attempts = await listJobAttempts({ db, jobId: job.id });
 
+	// JOB-004 — l'état des prérequis, DÉRIVÉ : c'est lui qui explique pourquoi un job
+	// `queued` ne part pas, et pourquoi un job `skipped` n'a jamais tourné.
+	const deps = parseDependencies(job.dependsOn);
+	const dependencies = describeDependencies({
+		deps,
+		statuses: await loadDependencyStatuses({ db, jobIds: deps.map((d) => d.jobId) }),
+		status: job.status
+	});
+
 	return {
 		job,
 		attempts,
+		dependencies,
 		explanation: explainFailure({
 			status: job.status,
 			errorClass: job.errorClass,
 			errorCode: job.errorCode,
+			errorMessage: job.errorMessage,
 			attempts: job.attempts,
 			maxAttempts: job.maxAttempts,
 			deferrals: job.deferrals,

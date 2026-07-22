@@ -1,7 +1,9 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { countJobs, countJobsByStatus, listJobs } from '$lib/server/jobs-claim.js';
-import { normalizeJobFilters } from '$lib/server/job-console.js';
+import { describeDependencies, normalizeJobFilters } from '$lib/server/job-console.js';
+import { parseDependencies } from '$lib/server/job-graph.js';
+import { loadDependencyStatuses } from '$lib/server/jobs-graph.js';
 import { listNextOccurrences } from '$lib/server/scheduler.js';
 import { BUSINESS_TIMEZONE } from '$lib/server/schedule-state.js';
 import { toDbTimestamp } from '$lib/server/timestamps.js';
@@ -54,12 +56,29 @@ export const load: PageServerLoad = async ({ url }) => {
 		listNextOccurrences({ db, now })
 	]);
 
+	// JOB-004 — l'attente d'un job est DÉRIVÉE (arêtes + statut des prérequis), jamais
+	// stockée. Sans ce calcul, un job que la garde de réclamation retient s'afficherait
+	// « en file » comme les autres et ressemblerait à un job coincé : l'opérateur
+	// relancerait le mauvais. Une seule requête, sur les seuls prérequis référencés.
+	const depsByJob = new Map(jobs.map((j) => [j.id, parseDependencies(j.dependsOn)]));
+	const prereqIds = [...new Set([...depsByJob.values()].flatMap((d) => d.map((x) => x.jobId)))];
+	const prereqStatuses = await loadDependencyStatuses({ db, jobIds: prereqIds });
+	const dependencies: Record<string, string | null> = {};
+	for (const job of jobs) {
+		dependencies[job.id] = describeDependencies({
+			deps: depsByJob.get(job.id) ?? [],
+			statuses: prereqStatuses,
+			status: job.status
+		}).label;
+	}
+
 	return {
 		jobs,
 		total,
 		byStatus,
 		types,
 		filters,
+		dependencies,
 		schedule: {
 			timeZone: BUSINESS_TIMEZONE,
 			// Le filtre projet de la page vaut aussi pour la planification : redescendre

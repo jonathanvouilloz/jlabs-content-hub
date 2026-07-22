@@ -23,6 +23,7 @@
 		running: 'bg-blue-50 text-blue-700 border-blue-200',
 		queued: 'bg-surface-50 text-surface-700 border-surface-200',
 		failed: 'bg-amber-50 text-amber-700 border-amber-200',
+		skipped: 'bg-violet-50 text-violet-700 border-violet-200',
 		cancelled: 'bg-surface-50 text-surface-500 border-surface-200',
 		succeeded: 'bg-emerald-50 text-emerald-700 border-emerald-200'
 	};
@@ -215,6 +216,44 @@
 				donc au plus tard dans l'heure. Pour ne pas attendre :
 				<code>npx tsx scripts/worker.ts --once</code>.
 			</p>
+		</div>
+	{/if}
+
+	<!-- Dépendances (JOB-004) — dérivées, jamais stockées -->
+	{#if data.dependencies.rows.length > 0}
+		<div class="mt-4 rounded-lg border border-surface-200 bg-white p-4">
+			<h2 class="text-sm font-semibold text-surface-900">Dépendances</h2>
+			<p class="mt-0.5 text-xs text-surface-400">
+				Ce job n'est réclamable qu'une fois ses prérequis <strong>obligatoires</strong> réussis.
+				Un prérequis <em>optionnel</em> en échec ne le bloque pas. Cet état est recalculé à chaque
+				affichage — il ne peut pas diverger de ce que la file appliquera.
+			</p>
+
+			{#if data.dependencies.blocked}
+				<p class="mt-2 rounded border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700">
+					⏸ Retenu par la garde de réclamation : {data.dependencies.label}. Ce job n'est pas
+					coincé — il attend son tour.
+				</p>
+			{/if}
+
+			<ul class="mt-3 space-y-1.5">
+				{#each data.dependencies.rows as dep (dep.jobId)}
+					<li class="flex items-center gap-2 text-xs">
+						<span class="w-4 text-center">
+							{#if dep.satisfied}✅{:else if dep.status === 'queued' || dep.status === 'running'}⏳{:else}⛔{/if}
+						</span>
+						<a href="/jobs/{dep.jobId}" class="font-medium text-surface-900 hover:text-primary-600 hover:underline">
+							{dep.jobType}
+						</a>
+						<span class="text-surface-500">
+							{dep.status ? (STATUS_LABEL[dep.status] ?? dep.status) : 'introuvable'}
+						</span>
+						<span class="text-[10px] text-surface-400">
+							{dep.required ? '(obligatoire)' : '(optionnel)'}
+						</span>
+					</li>
+				{/each}
+			</ul>
 		</div>
 	{/if}
 

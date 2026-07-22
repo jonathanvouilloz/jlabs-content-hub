@@ -4,6 +4,123 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (JOB-004 — l'ordre de service devient une dépendance)
+
+**Fait :** le catalogue hebdo enfilait `detect` **puis** `propose`, et son propre commentaire le
+disait : `priority: 10` contre `8` était **un ordre de SERVICE, pas une dépendance**. Rien
+n'attendait rien. Deux workers, ou un détecteur reporté pour quota, et le producteur travaillait
+sur les findings de la **semaine précédente** — en silence, l'idempotence évitant les doublons sans
+rien dire du décalage. La colonne `jobs.depends_on` existait depuis DATA-003 (« JSON array d'ids de
+jobs prérequis, §6.2 ») et **n'avait jamais été ni écrite ni lue** ; `STEP_STATUSES` portait
+`skipped` depuis DATA-003 sans que personne ne l'écrive. **Zéro DDL** (57 tables, zéro dérive) :
+tout était là, rien ne s'en servait.
+
+- **La garde est DANS la réclamation, pas dans le worker.** `claimJob` gagne une condition, et c'est
+  ce qui rend la promesse structurelle : aucun appelant futur ne peut l'oublier, et deux workers
+  concurrents la subissent tous les deux. Un dépendant n'est pas réclamable si **un** prérequis est
+  encore `queued`/`running` — obligatoire **ou optionnel**, parce que le lancer pendant que l'autre
+  écrit ses données le ferait travailler sur un état à moitié posé.
+- **La seconde moitié de la garde n'est pas cosmétique** : elle bloque aussi les **obligatoires
+  déjà morts**. Sans elle, un dépendant dont le prérequis vient de mourir partirait **avant** que la
+  passe de résolution ne l'ait marqué `skipped` — une course, et le job tournerait pour rien.
+- **Un prérequis OPTIONNEL mort ne bloque personne** — c'est littéralement l'acceptation « Plausible
+  indisponible ne bloque pas un rapport GSC ». Prouvé en base : prérequis `dead`, le dépendant
+  optionnel s'exécute et finit `succeeded`, le dépendant obligatoire est sauté.
+- **`required` vaut `true` par défaut, à tous les niveaux** (JSON sans la clé, `->> 'required'`
+  valant `NULL` en SQL, catalogue sans `required`). On ne relâche jamais une garde sur ce qu'on n'a
+  pas su lire — miroir exact de « une erreur illisible retombe sur `retryable` » (JOB-003).
+- **`skipped` est un statut à part, pas un `cancelled`** (décision de Jonathan). `cancelled` est une
+  décision **humaine**, avec un acteur et une raison au journal (JOB-007) ; ici personne n'a rien
+  décidé. Les confondre ferait dire à `explainFailure` « annulé par un opérateur » là où la cause est
+  ailleurs — dans le prérequis — et enverrait l'opérateur relancer le mauvais job.
+- **Le skip n'est pas un cul-de-sac.** `requeueDeadJob` accepte désormais `skipped` : rien ne
+  ressuscite un statut terminal, même une fois le prérequis réparé et réussi. Sans cette reprise on
+  rouvrait exactement le cul-de-sac que JOB-003 avait fermé pour la dead-letter. L'ordre est dans
+  `explainFailure` : **le prérequis d'abord**, le dépendant ensuite.
+- **Bug trouvé en écrivant les tests (dans ce lot, corrigé avant la première ligne de base)** :
+  `latestAttemptPerStep` trie sur le TEMPS, pas sur `attempt`. Le réflexe — « la tentative la plus
+  haute gagne » — est **faux ici**, parce que `requeueDeadJob` remet `attempts` **à zéro** : la
+  tentative qui réussit après une reprise porte un numéro **plus petit** que celle qui est morte.
+  Trier sur `attempt` aurait gardé le verdict d'échec **pour toujours**. Le comparateur normalise en
+  prime le séparateur (`'T'` 0x54 > `' '` 0x20), le piège que `timestamps.ts` documente.
+- **Le statut de run était déjà faux avant ce lot** : `recomputeRunStatus` agrégeait **toutes** les
+  lignes de `monitoring_steps`, tentatives multiples comprises. Un job mort puis repris et réussi
+  laissait son run `partial` **à vie**. Réduit au dernier verdict par `step_type` — hors périmètre
+  déclaré, mais c'est la moitié « calculer le statut final du run » du backlog.
+- **La passe de résolution est une jumelle du reaper** : bornée, non bloquante, jouée au **démarrage**
+  et à **chaque tour à vide** — donc **avant** le `break` de `once`, ce qui permet à un même tick de
+  planifier, exécuter, et conclure le run. Aucun état nouveau n'est persisté : l'attente est
+  **dérivée** de `depends_on` + statut des prérequis. Même raison qu'au « zéro table de
+  planification » de JOB-005 — deux états qui peuvent diverger valent moins qu'un seul qui se
+  recalcule.
+- **Le graphe est validé UNE fois, avant toute écriture**, et pour toutes les cadences. La règle est
+  plus forte qu'une absence de cycle : chaque prérequis doit être déclaré **strictement avant** son
+  dépendant, ce dont `planOne` a besoin (il résout les ids au fil de la mise en file) et ce qui exclut
+  du même geste l'auto-dépendance et les cycles. Une erreur y **lève** : le catalogue est un littéral
+  du code, pas une donnée douteuse.
+- **`enqueueJob` sérialise lui-même la colonne** (`dependsOn: JobDependency[]`, plus jamais du texte).
+  La garde casse `depends_on` en `jsonb` : une valeur malformée y ferait échouer la requête de
+  réclamation **entière**, donc la file, pas seulement le job fautif.
+- Vérif : `npm run test` = **523/523** (+59) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **57 tables, zéro dérive** · **`scripts/job-004-dag-proof.ts` =
+  45/45 vertes sur Neon**, **rejouée trois fois**, base rendue à l'identique · non-régression :
+  `job-005-schedule-proof`, `job-007-console-proof`, `job-003-retry-proof`, `job-002-recovery-proof`,
+  `agt-000-proposer-proof`, `job-claim-concurrency` — **0 échec chacune** · **13 findings intacts**,
+  **4 propositions intactes** · routes sondées en dev : `/api/cron/tick` → 401 sans bearer, **401
+  avec un mauvais**, **200 avec le bon** (0 occurrence due, aucune détection déclenchée), `/jobs` et
+  `/jobs/[id]` → 303 `/login`.
+- **Chaîne réelle démontrée, en UN seul drain** : le prérequis part (priority 10), meurt en
+  `permanent` (403 nu) → dead-letter **à la première tentative** avec son step `failed` → le
+  dépendant **optionnel** devient réclamable et réussit → le dépendant **obligatoire** ne l'est
+  jamais, et c'est la passe du tour à vide qui le conclut `skipped` → **run `partial`**.
+
+**Acceptations couvertes.** (1) « un collecteur GSC échoué bloque les détecteurs qui en dépendent » :
+le dépendant n'est pas réclamable tant que le prérequis est `queued`, ni pendant qu'il `running`, ni
+après sa mort — et la garde est dans la réclamation, pas dans un appelant ; (2) « Plausible
+indisponible ne bloque pas un rapport GSC » : prérequis `dead` + arête optionnelle → le dépendant
+s'exécute et finit `succeeded` ; (3) « le rapport indique précisément les données manquantes » : le
+step sauté porte `DependencySkipped` et **nomme le prérequis et son état**, le run vaut `partial`
+(ni succès, ni échec total), et le journal garde qui a décidé (`system:dependency`) et sur quelles
+arêtes. Débloque **GSC-002**, **IDX-001**, **DASH-002**, **REP-001**, **OPS-002**.
+
+**Prochain :** **JOB-006** (prévenir le 429 au lieu d'y réagir) · l'**inbox UI** qui affiche findings
+ET propositions (E11/DASH-005) — tout est en base, rien ne le montre encore · les collecteurs E03,
+qui donneront enfin des arêtes profondes au graphe §8.2.
+
+**Pièges :**
+- **La garde lit du JSON dans le chemin CHAUD.** Un `depends_on` malformé casserait le cast et donc
+  la réclamation de **toute la file**. C'est pourquoi `enqueueJob` sérialise lui-même et n'accepte
+  plus de texte libre — ne jamais écrire cette colonne à la main, ni en SQL, ni dans une preuve.
+- **Ne jamais trier les tentatives d'un step par `attempt`.** `requeueDeadJob` remet le compteur à
+  zéro : le verdict le plus récent peut porter le plus petit numéro. C'est `finished_at` qui fait foi.
+- **Une chaîne de profondeur N se résout en N-1 passes** (le prérequis intermédiaire doit d'abord
+  devenir `skipped` pour que le skip cascade). Le catalogue actuel est de profondeur 2 : une passe
+  suffit. Un graphe plus profond (collecteurs E03) prendra un tick de plus par niveau — acceptable,
+  mais à savoir avant de conclure qu'un job « ne part pas ».
+- **`propose:actions` ne tournera plus une semaine où la détection meurt.** Conséquence assumée de la
+  décision : c'est le run `partial` qui le dit, au lieu de propositions fondées sur des mesures
+  périmées.
+- **Un job sauté ne repart JAMAIS tout seul**, même prérequis réparé. C'est volontaire (rien ne
+  ressuscite un statut terminal) et c'est pour ça que la reprise manuelle l'accepte.
+- **Le catalogue doit rester déclaré dans l'ordre topologique.** `validateCatalogGraph` lève sinon —
+  au démarrage de `planDueJobs`, avant toute écriture.
+- **Une ligne héritée au format ISO traîne dans `monitoring_steps`** (run manuel de `detect.ts`
+  d'avant sa correction). Inoffensive — le comparateur normalise le séparateur — mais nommée :
+  supprimer la ligne d'un vrai run est une décision, pas un nettoyage.
+- **Reste à vérifier de visu** (inchangé depuis JOB-007) : le rendu de `/jobs` et `/jobs/[id]` n'a pas
+  pu être constaté — aucune session admin ouverte, et fournir un mot de passe est exclu. Le
+  chargement serveur est vérifié (303 vers `/login`, `npm run check` vert).
+- Toujours en suspens hors JOB-004 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` **planifiable sans
+  handler** (E03) · **`observations.ts` écrit encore `fetched_at` en ISO** · **rien ne bat tant que
+  ce n'est pas déployé** · au 1er tick, `barberconcept` écrira ses **50 findings** (décision de
+  Jonathan : on les laisse partir) — et son `propose:actions` **attendra** désormais la fin de cette
+  détection au lieu de partir en parallèle.
+
+**Commit :** `PENDING` [hub] add: JOB-004 dépendances entre jobs, skip propagé, statut de run exact
+
+---
+
 ## Etat session 2026-07-22 (AGT-000 — un finding devient enfin une action)
 
 **Fait :** la chaîne SPEC `observations → détecteurs → findings → PROPOSITIONS → approbation`
@@ -1147,14 +1264,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/job-graph.ts`** | **Purs JOB-004** : `JobDependency` (`jobId` + `jobType` + `required`), **`parseDependencies`** (tolérant, ne lève jamais ; `required` absent → **`true`**), `serializeDependencies` (vide → `NULL`, pour que la garde SQL court-circuite), **`classifyDependencyGate`** (`wait` / `skip` / `ready` — un prérequis en cours prime sur un prérequis mort, un OPTIONNEL mort ne bloque pas, un prérequis `skipped` **cascade**), **`validateCatalogGraph`** (chaque prérequis déclaré **strictement avant** son dépendant → exclut auto-dépendance et cycles), `resolveDependencies` (types → ids réels). |
+| **`src/lib/server/job-graph.test.ts`** | **Vitest JOB-004 — 38 tests** : table de décision complète (optionnel mort → `ready`, obligatoire mort → `skip`, cascade, prérequis introuvable, mort **à côté** d'un vivant → `wait`), tolérance de lecture (JSON cassé, `required` illisible), et les 4 formes de catalogue invalide. |
+| **`src/lib/server/jobs-graph.ts`** | **IO JOB-004** : `listBlockedJobs` (jobs `queued` porteurs d'arêtes + statut de leurs prérequis), **`settleBlockedJobs`** (conclut en `skipped` ce qu'aucun prérequis ne débloquera — UPDATE **gardé sur `status='queued'`** + ligne `job_attempts` `system:dependency` **en une transaction**, puis step `skipped`), `loadDependencyStatuses` (aussi consommée par la console). **Aucun état nouveau** : l'attente est dérivée, jamais persistée. |
+| **`scripts/job-004-dag-proof.ts`** | **Preuve JOB-004 sur Neon (45 vérifs)** : arêtes écrites vers de vrais ids, dépendant non réclamable (prérequis `queued` **puis** `running`), prérequis mort → **optionnel exécuté / obligatoire `skipped`** avec la cause nommée, journal audité, **run `partial`**, passe **rejouable**, replanification sans doublon. Catalogue **substitué** (`__test_dag:<runId>`), le prérequis meurt **par le chemin réel du worker** (403 nu → `permanent`) — le faire mourir à la main aurait sauté son step et la preuve aurait mesuré son propre raccourci. |
 | **`src/lib/server/proposer-state.ts`** | **Purs AGT-000** : `PROPOSAL_ACTION_TYPES` (catalogue **fermé**), `APPROVAL_LEVEL_BY_ACTION` (table **figée** L0–L4, §12.1) + `deriveApprovalLevel` (inconnu → `null`, jamais de défaut permissif), `deriveRiskLevel` (le niveau de l'action, relevé si la page a des **clics à perdre**), `mapFindingToActions` (position ≶ 10 → `meta_rewrite` L3 / `refresh_plan` L2 ; type inconnu → **rien**), **`buildProposalPayload`/`canonicalProposalPayload`** (STABLE dans le temps — c'est lui qui est hashé), `canonicalInputSignature` (volatile, **séparée**), `selectProposableFindings` (statuts actifs + `minPriority`, expose `matched` **et** `selected`), `decideSupersession` (n'écrase jamais une décision prise, **remonte** les `approved` périmées), `decideAutoApproval` (≤ L2 **et** policy `guarded_auto` — refus par défaut). |
 | **`src/lib/server/proposer-state.test.ts`** | **Vitest AGT-000 — 49 tests**, dont l'invariant qui tient tout : **mesures qui bougent → payload identique** (sinon l'inbox doublerait chaque semaine), la cohérence de la table des niveaux avec `canActorApprove`, et l'absence de tout champ volatil dans le payload sérialisé. |
 | **`src/lib/server/proposers/finding-proposer.ts`** | **IO AGT-000** : `db` **injecté**, ouvre/clôt un **`agent_run`** (y compris **en échec** — un run laissé `running` mentirait à la supervision), lit la config projet (`payload.proposers.finding_proposer`, idiome tolérant), écrit par `createProposal` (idempotent), périme via `supersedeProposals`, journalise un **`agent_comment`** côté finding **à la première proposition seulement**, auto-approuve **uniquement** L0–L2 sous policy. Paramètre **`findingIds`** = substitution pour les preuves (cf. `catalog` de `planDueJobs`). |
 | **`scripts/propose.ts`** | Runner AGT-000 **DRY-RUN par défaut** (`--execute`, `--project=<slug\|all>`, `--min-priority`, `--max`, `--limit`) : run+step de traçabilité, rapport annonçant troncature, findings sans action, propositions périmées et **approbations devenues obsolètes**. |
 | **`scripts/agt-000-proposer-proof.ts`** | **Preuve AGT-000 sur Neon (41 vérifs)** : idempotence, rafraîchissement des champs **non hashés** à hash constant, supersession, refus d'approbation L3 par un agent, invalidation liée au hash, snooze/dismiss qui tiennent, `agent_run` clos, troncature annoncée, **0 horodatage ISO**, et **base rendue à l'identique**. Bornée par `findingIds` ; nettoyage **enfants d'abord**. |
-| **`src/lib/server/schedule-state.ts`** | **Purs JOB-005** : cadences (`SCHEDULE_CADENCES`, `SCHEDULE_DEFAULTS` — hebdo lundi 09:00 §8.1), `zoneOffsetMs`/`utcToZonedFields`/**`zonedFieldsToUtc`** (les deux offsets testés → heure inexistante qui **glisse**, heure doublée résolue à la première), **`formatLocalSlot`** (la clé d'occurrence, LOCALE), `dueOccurrences`/`nextOccurrence`, `resolveScheduleConfig` (tolérant), **`SCHEDULE_CATALOG`** (cadence → jobs ; hebdo = `detect:keyword_opportunity` **puis** `propose:actions`, ordre de service par `priority DESC`), `postPublishSlots`. `Intl` seul, aucune dépendance. |
+| **`src/lib/server/schedule-state.ts`** | **Purs JOB-005** : cadences (`SCHEDULE_CADENCES`, `SCHEDULE_DEFAULTS` — hebdo lundi 09:00 §8.1), `zoneOffsetMs`/`utcToZonedFields`/**`zonedFieldsToUtc`** (les deux offsets testés → heure inexistante qui **glisse**, heure doublée résolue à la première), **`formatLocalSlot`** (la clé d'occurrence, LOCALE), `dueOccurrences`/`nextOccurrence`, `resolveScheduleConfig` (tolérant), **`SCHEDULE_CATALOG`** (cadence → jobs ; hebdo = `detect:keyword_opportunity` **puis** `propose:actions`, et depuis **JOB-004** c'est une vraie **`dependsOn` obligatoire**, plus seulement un ordre de service), `postPublishSlots`. `Intl` seul, aucune dépendance. |
 | **`src/lib/server/schedule-state.test.ts`** | **Vitest JOB-005 — 38 tests**, dont les **deux bascules DST** (2026-03-29 : 02:30 inexistant → 03:30, lundi 09:00 = 08:00 puis 07:00 UTC · 2026-10-25 : 02:30 doublé → une seule occurrence, journée de 25 h sans créneau sauté) et l'invariant « chaque occurrence est rattrapée par le tick horaire qui la suit ». |
-| **`src/lib/server/scheduler.ts`** | **IO JOB-005** : `planDueJobs` (occurrences dues sur une fenêtre de rattrapage, `createRun` + `enqueueJob` avec la clé du **créneau local**, isolation par projet, `catalog` substituable pour les preuves), `listNextOccurrences` (**calculée**, jamais persistée), `loadProjectScheduleConfig` (projection `payload.schedules`), `schedulePostPublish` (J+3/J+7/J+28 via `available_at`). **Aucune table.** |
+| **`src/lib/server/scheduler.ts`** | **IO JOB-005** : `planDueJobs` (occurrences dues sur une fenêtre de rattrapage, `createRun` + `enqueueJob` avec la clé du **créneau local**, isolation par projet, `catalog` substituable pour les preuves ; **JOB-004** : valide le graphe **avant toute écriture** et résout les arêtes du catalogue en ids réels au fil de la mise en file), `listNextOccurrences` (**calculée**, jamais persistée), `loadProjectScheduleConfig` (projection `payload.schedules`), `schedulePostPublish` (J+3/J+7/J+28 via `available_at`). **Aucune table.** |
 | **`src/routes/api/cron/tick/+server.ts`** | **Le battement** (`0 * * * *`, `maxDuration: 300`) : planifie **puis** draine (`runWorker({once})`, budget 240 s via `AbortController`, reaper inclus). Bearer `CRON_SECRET`. 500 si une moitié tombe — un cron toujours vert ne remonte dans aucune alerte. |
 | **`scripts/schedule.ts`** | Runner JOB-005 **dry-run par défaut** (`--execute`, `--now=<ISO>` pour rejouer une date DST, `--project`, `--lookback-hours`, `--next-only`) : occurrences dues + **prochaine exécution par projet** en heure métier ET en UTC. |
 | **`scripts/job-005-schedule-proof.ts`** | **Preuve JOB-005 sur Neon (33 vérifs)** : idempotence du créneau (restart et tick en retard), les deux régimes DST écrits en base, chaîne planifier→réclamer→`succeeded`, prochaine exécution par projet, post-publication. Catalogue **substitué** (`__test_schedule:<runId>`) pour ne pas déclencher de vraie détection ; nettoyage enfants d'abord, **`monitoring_steps` compris**. |
@@ -1170,15 +1291,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `src/lib/server/job-state.test.ts` | Vitest JOB-001/002 — 39 tests (backoff exponentiel plafonné, dead-letter au plafond exact, bail, heartbeat, nature d'abandon). |
 | **`src/lib/server/job-retry.ts`** | **Purs JOB-003** : `classifyJobFailure` (**raison avant statut** — 403+quota Google, 400+`invalid_grant`), `parseRetryAfter`/`extractRetryAfterMs` (plafond 6 h), `applyJitter` (`random` **injecté**), `RETRY_DEFAULTS` par classe, `decideRetry` (retry / defer / dead + `deadReason`). |
 | **`src/lib/server/job-retry.test.ts`** | **Vitest JOB-003 — 55 tests** (table de classification, priorité raison>statut, Retry-After, bornes et déterminisme du jitter, les 4 classes, les deux plafonds). |
-| `src/lib/server/jobs-claim.ts` | JOB-001 + JOB-003 + **JOB-007** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, `deferJob` (quota : tentative rendue), `requeueDeadJob` (transactionnel, journalise la reprise), `listDeadJobs`, **`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`** (lecture de la console) et **`cancelJob`** (transactionnel : retire le bail, clôt la tentative ouverte, écrit la ligne d'audit). |
-| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** + **JOB-005** + **AGT-000** (`propose:actions`) — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` ; **`concludeRunStep`** écrit le step et recalcule le run **aux seules issues terminales** (sans quoi un run planifié restait `queued` à vie), non bloquante. |
+| `src/lib/server/jobs-claim.ts` | JOB-001 + JOB-003 + JOB-007 + **JOB-004** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction) et sa **`DEPENDENCY_GATE`** : non réclamable si un prérequis est `queued`/`running`, **ou** si un prérequis **obligatoire** n'a pas abouti (cette seconde moitié ferme la course avec `settleBlockedJobs`) ; `requeueDeadJob` accepte désormais **`skipped`**, pour que le skip ne soit pas un cul-de-sac, `completeJob`/`failJob` (classé)/`releaseJob`, `deferJob` (quota : tentative rendue), `requeueDeadJob` (transactionnel, journalise la reprise), `listDeadJobs`, **`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`** (lecture de la console) et **`cancelJob`** (transactionnel : retire le bail, clôt la tentative ouverte, écrit la ligne d'audit). |
+| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** + **JOB-005** + **AGT-000** (`propose:actions`) — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` ; **`concludeRunStep`** délègue à `monitoring.concludeJobStep` (partagée avec la passe de dépendances) et n'écrit **qu'aux issues terminales** ; **JOB-004** ajoute **`settleOnce`**, jumelle du reaper — bornée, non bloquante, jouée au démarrage et à chaque tour à vide, **avant** le `break` de `once`. |
 | `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
 | `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; **type unique par exécution** + nettoyage enfants-d'abord (corrigé en JOB-003). |
 | **`scripts/job-003-retry-proof.ts`** | **Preuve JOB-003 sur Neon (44 vérifs)** : 5xx replanifié/jitté, 429 reporté (tentative rendue, Retry-After honoré), 403-quota Google ≠ 403 structurel, dead-letter immédiat, plafond de reports, reprise manuelle avec historique intact ; nettoie ses propres lignes. |
 | **`scripts/jobs-requeue.ts`** | Reprise d'un job depuis la dead-letter (`--job`, `--actor`, `--reason`, `--dry-run`) ; refuse un job vivant, prévient sur cause `auth`/`permanent`. |
 | `scripts/jobs-inspect.ts` | Chronologie d'un job et vue dead-letter en CLI (`--job`, `--project`, `--status`, `--dead`, `--class`) ; **libellés importés de `utils/job-format.ts`** depuis JOB-007 — mêmes mots que la console. |
-| **`src/lib/server/job-console.ts`** | **Purs JOB-007 (serveur)** : `normalizeJobFilters` (l'URL réduite au vocabulaire connu **avant** toute requête), `canCancelJob`/`canRequeueJob` (légalité des actions, miroir des gardes SQL), **`explainFailure`** (classe d'erreur → verdict + action + `willRepeat`). |
-| **`src/lib/server/job-console.test.ts`** | **Vitest JOB-007 — 22 tests** (filtres hostiles écartés, pagination bornée, matrice d'annulation/reprise, les 4 classes expliquées, annulation ≠ échec). |
+| **`src/lib/server/job-console.ts`** | **Purs JOB-007 (serveur)** : `normalizeJobFilters` (l'URL réduite au vocabulaire connu **avant** toute requête), `canCancelJob`/`canRequeueJob` (légalité des actions, miroir des gardes SQL), **`explainFailure`** (classe d'erreur → verdict + action + `willRepeat` ; **JOB-004** : un `skipped` renvoie vers le **prérequis**, jamais vers le job lui-même), **`describeDependencies`** (badge « attend … » **dérivé**, jamais stocké — sans lui un job retenu par la garde ressemble à un job coincé). |
+| **`src/lib/server/job-console.test.ts`** | **Vitest JOB-007/JOB-004 — 33 tests** (filtres hostiles écartés, pagination bornée, matrice d'annulation/reprise, les 4 classes expliquées, annulation ≠ échec). |
 | **`src/lib/utils/job-format.ts`** (+ `.test.ts`) | **Libellés et formats partagés CLI ↔ console** — `OUTCOME_LABEL`/`CLASS_LABEL`/`KIND_LABEL`/`STATUS_LABEL`, **`CADENCE_LABEL`** (JOB-005), `formatDbTimestamp`/`formatDbTime`/`formatDuration`/`formatRelative` (`now` injecté), `parseDbTimestamp` (**UTC explicite**), **`formatScheduleSlot`** (créneau LOCAL, jamais reconverti). Dans `utils/` parce qu'une page Svelte ne peut pas importer `$lib/server`. 11 tests. |
 | **`src/routes/(app)/jobs/+page.server.ts` + `+page.svelte`** | **La file** : filtres normalisés côté serveur, `listJobs`/`countJobs`/`countJobsByStatus`, compteurs cliquables par statut, table dense, pagination ; `now` serveur passé à la page (jamais l'horloge du navigateur). **+ JOB-005** : panneau **Planification** (`listNextOccurrences`, heure métier **et** UTC, cadences non câblées nommées une fois), soumis au même filtre projet que la file. |
 | **`src/routes/(app)/jobs/[id]/+page.server.ts` + `+page.svelte`** | **Un job** : verdict `explainFailure`, chronologie `job_attempts` (jamais `jobs.attempts`), payload **en lecture seule**, Relancer/Annuler avec raison obligatoire. |

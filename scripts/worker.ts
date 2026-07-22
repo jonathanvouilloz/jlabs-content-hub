@@ -135,6 +135,7 @@ async function main() {
 	console.log(
 		`\nRésumé : ${stats.claimed} réclamés · ${stats.succeeded} réussis · ` +
 			`${stats.failed} échoués (dont ${stats.deadLettered} dead-letter) · ` +
+			`${stats.skipped} sautés (dépendance) · ` +
 			`${stats.released} relâchés · ${stats.idleTicks} tours à vide` +
 			(stats.stoppedGracefully ? ' · arrêt gracieux' : '')
 	);

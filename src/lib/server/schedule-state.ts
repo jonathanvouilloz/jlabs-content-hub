@@ -1,8 +1,9 @@
 /**
  * JOB-005 — Helpers PURS du scheduler (cadences, timezone métier, occurrences).
  *
- * Zéro import (ni db, ni `$env`) → testables en isolation par vitest, comme
- * `detector-state.ts`, `finding-state.ts` et `job-retry.ts`.
+ * Aucun import de runtime (ni db, ni `$env`) → testables en isolation par vitest,
+ * comme `detector-state.ts`, `finding-state.ts` et `job-retry.ts`. Le seul `import`
+ * est un `import type`, effacé à la compilation.
  *
  * Deux idées portent tout le reste :
  *
@@ -22,6 +23,8 @@
  * La timezone est traitée par `Intl.DateTimeFormat` — natif, base ICU du runtime,
  * aucune dépendance ajoutée (pas de date-fns-tz ni de table de règles à maintenir).
  */
+
+import type { CatalogDependency } from './job-graph.js';
 
 // ── Vocabulaire ─────────────────────────────────────────────────────
 
@@ -409,6 +412,16 @@ export interface CatalogEntry {
 	priority: number;
 	/** Charge non secrète passée au handler. */
 	payload?: Record<string, unknown>;
+	/**
+	 * JOB-004 — prérequis DANS LA MÊME occurrence, par type. `required` vaut `true`
+	 * par défaut : un prérequis obligatoire mort fait SAUTER le dépendant (run
+	 * `partial`), un optionnel mort ne bloque personne.
+	 *
+	 * Un prérequis doit être déclaré AVANT son dépendant dans le tableau —
+	 * `validateCatalogGraph` le vérifie, et `planOne` en dépend (il résout les ids
+	 * au fil de la mise en file).
+	 */
+	dependsOn?: CatalogDependency[];
 }
 
 /**
@@ -418,8 +431,9 @@ export interface CatalogEntry {
  * mais ne produisent aucun job tant que les collecteurs E03 n'existent pas — le
  * runner l'annonce, plutôt que d'enfiler un type que personne ne sait exécuter.
  *
- * Les types sont ceux de `job-runner.ts` (`JOB_TYPE_*`), repris ici en littéral pour
- * que ce module reste PUR (aucun import).
+ * Les types sont ceux de `job-runner.ts` (`JOB_TYPE_*`), repris ici en littéral : ce
+ * module ne connaît aucun runtime (le seul `import` est un `import type`, effacé à la
+ * compilation).
  */
 export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// Rien d'horaire tant que la synchronisation des avis (SPEC §8.1) n'est pas
@@ -428,17 +442,22 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// Les veilles doivent expirer même une semaine sans détection (FIND-003).
 	daily: [{ jobType: 'findings:lifecycle', priority: 5 }],
 	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de
-	// propositions — dans cet ordre, parce que la file sert par `priority DESC`.
+	// propositions.
 	//
-	// ⚠️ C'est un ordre de SERVICE, pas une dépendance : rien n'attend la fin du
-	// détecteur (le DAG de steps est l'affaire de JOB-004). Si le producteur
-	// passe en premier — deux workers concurrents, un détecteur reporté pour
-	// quota — il travaille sur les findings de la semaine précédente et rattrape
-	// au tick suivant. C'est acceptable ici PARCE QUE le producteur est
-	// idempotent : au pire il ne propose rien de neuf, jamais un doublon.
+	// Depuis JOB-004, c'est une vraie DÉPENDANCE et plus seulement un ordre de
+	// service : le producteur n'est pas réclamable tant que la détection n'a pas
+	// abouti. Auparavant, deux workers concurrents ou un détecteur reporté pour
+	// quota le faisaient travailler sur les findings de la SEMAINE PRÉCÉDENTE, en
+	// silence — l'idempotence évitait les doublons, elle ne disait rien du décalage.
+	// La `priority` reste : elle sert encore l'ordre au sein d'un même tour de drain.
+	//
+	// Le lien est OBLIGATOIRE (décision produit) : si la détection meurt, le
+	// producteur est `skipped` et le run vaut `partial`. Le trou de la semaine est
+	// alors visible, au lieu d'être masqué par des propositions fondées sur des
+	// mesures périmées.
 	weekly: [
 		{ jobType: 'detect:keyword_opportunity', priority: 10, payload: { weeks: 4 } },
-		{ jobType: 'propose:actions', priority: 8 }
+		{ jobType: 'propose:actions', priority: 8, dependsOn: [{ jobType: 'detect:keyword_opportunity' }] }
 	],
 	monthly: []
 };

@@ -17,6 +17,7 @@ import {
 	zonedFieldsToUtc,
 	type CadenceSpec
 } from './schedule-state.js';
+import { resolveDependencies, validateCatalogGraph } from './job-graph.js';
 
 const TZ = BUSINESS_TIMEZONE;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -359,8 +360,33 @@ describe('SCHEDULE_CATALOG', () => {
 		const detect = weekly.find((e) => e.jobType === 'detect:keyword_opportunity')!;
 		const propose = weekly.find((e) => e.jobType === 'propose:actions')!;
 		// La file sert par `priority DESC` : une priorité plus basse passe après.
-		// Ce n'est PAS une dépendance (cf. JOB-004), seulement un ordre de service.
+		// Depuis JOB-004 ce n'est plus le SEUL garde-fou (cf. `dependsOn` ci-dessous),
+		// mais l'ordre de service reste utile au sein d'un même tour de drain.
 		expect(propose.priority).toBeLessThan(detect.priority);
+	});
+
+	it('JOB-004 — le producteur DÉPEND de la détection, et c’est obligatoire', () => {
+		const propose = catalogFor('weekly').find((e) => e.jobType === 'propose:actions')!;
+		expect(propose.dependsOn).toEqual([{ jobType: 'detect:keyword_opportunity' }]);
+		// `required` absent = obligatoire (cf. `parseDependencies`) : si la détection
+		// meurt, le producteur est sauté et le run vaut `partial`. Le trou de la
+		// semaine devient visible, au lieu d'être masqué par des propositions
+		// fondées sur les mesures de la semaine précédente.
+		expect(resolveDependencies(propose.dependsOn, new Map([['detect:keyword_opportunity', 'j1']]))[0])
+			.toEqual({ jobId: 'j1', jobType: 'detect:keyword_opportunity', required: true });
+	});
+
+	it('le détecteur, lui, ne dépend de rien (il ouvre la chaîne)', () => {
+		const detect = catalogFor('weekly').find((e) => e.jobType === 'detect:keyword_opportunity')!;
+		expect(detect.dependsOn).toBeUndefined();
+	});
+
+	it('chaque cadence déclare un graphe VALIDE (prérequis avant dépendant, sans cycle)', () => {
+		// Le catalogue est un littéral : ce test ferme la question pour de bon, et
+		// `planDueJobs` le revalide avant toute écriture.
+		for (const cadence of SCHEDULE_CADENCES) {
+			expect(() => validateCatalogGraph(catalogFor(cadence))).not.toThrow();
+		}
 	});
 
 	it('hourly et monthly restent SANS job câblé (aucun type fantôme en file)', () => {

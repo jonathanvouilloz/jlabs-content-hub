@@ -31,13 +31,24 @@
 	});
 
 	/** Ordre d'affichage des compteurs : ce qui alerte d'abord, ce qui rassure ensuite. */
-	const STATUS_ORDER = ['dead', 'running', 'queued', 'failed', 'cancelled', 'succeeded'];
+	const STATUS_ORDER = [
+		'dead',
+		'running',
+		'queued',
+		'failed',
+		'skipped',
+		'cancelled',
+		'succeeded'
+	];
 
 	const STATUS_TONE: Record<string, string> = {
 		dead: 'bg-red-50 text-red-700 border-red-200',
 		running: 'bg-blue-50 text-blue-700 border-blue-200',
 		queued: 'bg-surface-50 text-surface-700 border-surface-200',
 		failed: 'bg-amber-50 text-amber-700 border-amber-200',
+		// JOB-004 — teinte propre : un job sauté n'est ni un échec (rien n'a été tenté),
+		// ni une annulation humaine (personne n'a rien décidé).
+		skipped: 'bg-violet-50 text-violet-700 border-violet-200',
 		cancelled: 'bg-surface-50 text-surface-500 border-surface-200',
 		succeeded: 'bg-emerald-50 text-emerald-700 border-emerald-200'
 	};
@@ -310,6 +321,13 @@
 										{job.type}
 									</a>
 									<div class="text-[10px] text-surface-400">{job.id.slice(0, 10)}</div>
+									<!-- JOB-004 — sans cette ligne, un job que la garde de dépendance
+									     retient ressemble EXACTEMENT à un job coincé. -->
+									{#if data.dependencies[job.id]}
+										<div class="mt-0.5 text-[10px] font-medium text-violet-600">
+											⏸ {data.dependencies[job.id]}
+										</div>
+									{/if}
 								</td>
 								<td class="px-3 py-2 text-surface-600 whitespace-nowrap">{job.projectSlug}</td>
 								<td class="px-3 py-2 whitespace-nowrap text-surface-600 tabular-nums">

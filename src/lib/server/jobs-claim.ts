@@ -94,6 +94,40 @@ export interface ClaimJobInput {
 }
 
 /**
+ * JOB-004 — La garde de dépendance, en SQL, dans la réclamation elle-même.
+ *
+ * Un job n'est PAS réclamable si l'une de ces deux choses est vraie :
+ *   1. un prérequis — obligatoire OU optionnel — est encore `queued`/`running` :
+ *      le lancer maintenant le ferait travailler sur un état à moitié posé ;
+ *   2. un prérequis OBLIGATOIRE n'a pas abouti (mort, annulé, sauté, ou sa ligne
+ *      a disparu). Cette moitié-là n'est pas cosmétique : sans elle, un dépendant
+ *      dont le prérequis vient de mourir partirait AVANT que `settleBlockedJobs`
+ *      n'ait eu le temps de le marquer `skipped` — une course, et le job tournerait
+ *      pour rien sur des données absentes.
+ *
+ * Un prérequis optionnel mort ne bloque personne : c'est l'acceptation « Plausible
+ * indisponible ne bloque pas un rapport GSC ».
+ *
+ * `(… ->> 'required')::boolean IS NOT FALSE` : clé absente → `NULL` → traité comme
+ * OBLIGATOIRE. On ne relâche jamais une garde sur ce qu'on n'a pas su lire.
+ * `coalesce(pr.status, '')` couvre le prérequis introuvable (LEFT JOIN sans ligne).
+ *
+ * `c.depends_on IS NULL` court-circuite pour l'écrasante majorité des jobs, qui n'ont
+ * aucune arête : le JSON n'est même pas touché. C'est aussi pourquoi `enqueueJob`
+ * sérialise lui-même la colonne — un contenu malformé ferait échouer le cast, et donc
+ * la réclamation de TOUTE la file, pas seulement celle du job fautif.
+ */
+const DEPENDENCY_GATE = sql`
+	AND (c.depends_on IS NULL OR NOT EXISTS (
+	      SELECT 1
+	        FROM jsonb_array_elements(c.depends_on::jsonb) AS d
+	        LEFT JOIN "seostats"."jobs" AS pr ON pr.id = (d.value ->> 'jobId')
+	       WHERE pr.status IN ('queued', 'running')
+	          OR ((d.value ->> 'required')::boolean IS NOT FALSE
+	              AND coalesce(pr.status, '') <> 'succeeded')
+	))`;
+
+/**
  * Réclame AU PLUS un job disponible, atomiquement. Renvoie `null` si la file n'a
  * rien de réclamable (aucun job `queued` disponible, ou tous déjà verrouillés).
  *
@@ -134,6 +168,7 @@ export async function claimJob(input: ClaimJobInput): Promise<ClaimedJob | null>
 		        WHERE c.status = 'queued'
 		          AND c.available_at::timestamp <= ${now}::timestamp
 		          ${typeFilter}
+		          ${DEPENDENCY_GATE}
 		        ORDER BY c.priority DESC, c.available_at ASC
 		        FOR UPDATE SKIP LOCKED
 		        LIMIT 1
@@ -417,6 +452,8 @@ export interface QueueJob {
 	createdAt: string;
 	updatedAt: string;
 	finishedAt: string | null;
+	/** JOB-004 — arêtes brutes (`depends_on`), à lire avec `parseDependencies`. */
+	dependsOn: string | null;
 }
 
 export interface JobQuery {
@@ -452,6 +489,7 @@ interface RawQueueRow {
 	created_at: string;
 	updated_at: string;
 	finished_at: string | null;
+	depends_on: string | null;
 }
 
 function toQueueJob(r: RawQueueRow): QueueJob {
@@ -476,7 +514,8 @@ function toQueueJob(r: RawQueueRow): QueueJob {
 		leaseUntil: r.lease_until,
 		createdAt: r.created_at,
 		updatedAt: r.updated_at,
-		finishedAt: r.finished_at
+		finishedAt: r.finished_at,
+		dependsOn: r.depends_on
 	};
 }
 
@@ -523,7 +562,7 @@ export async function listJobs(input: JobQuery): Promise<QueueJob[]> {
 		       j.attempts, j.max_attempts, j.deferrals, j.requeued_count,
 		       j.last_error_class, j.last_error_code, j.last_error_message,
 		       j.available_at, j.lease_owner, j.lease_until,
-		       j.created_at, j.updated_at, j.finished_at
+		       j.created_at, j.updated_at, j.finished_at, j.depends_on
 		  FROM "seostats"."jobs" AS j
 		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
 		 WHERE 1 = 1 ${jobFilterSql(input)}
@@ -770,8 +809,10 @@ export async function requeueDeadJob(input: {
 	let result: RequeueResult | null = null;
 
 	await input.db.transaction(async (tx) => {
-		// Garde : seuls un job MORT (ou `failed`, statut du vocabulaire jamais écrit
-		// aujourd'hui) se reprennent. On ne réveille jamais un job vivant.
+		// Garde : seuls se reprennent un job MORT, `failed` (statut du vocabulaire
+		// jamais écrit aujourd'hui) ou SAUTÉ (JOB-004 — sinon le skip serait un
+		// cul-de-sac : rien ne ressuscite un statut terminal, même une fois le
+		// prérequis relancé et réussi). On ne réveille jamais un job vivant.
 		const res = await tx.execute(sql`
 			UPDATE "seostats"."jobs"
 			   SET status = 'queued',
@@ -786,7 +827,7 @@ export async function requeueDeadJob(input: {
 			       lease_until = NULL,
 			       finished_at = NULL,
 			       updated_at = ${nowDb}
-			 WHERE id = ${input.jobId} AND status IN ('dead', 'failed')
+			 WHERE id = ${input.jobId} AND status IN ('dead', 'failed', 'skipped')
 			 RETURNING id, project_id, type, requeued_count
 		`);
 		const row = (res.rows ?? [])[0] as unknown as

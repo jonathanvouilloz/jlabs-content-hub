@@ -23,7 +23,9 @@
  * décide — replanification jittée, report pour quota (la tentative est rendue),
  * ou dead-letter immédiat quand rejouer ne peut rien changer.
  *
- * Hors périmètre : DAG de dépendances (JOB-004), console d'exploitation (JOB-007).
+ * JOB-004 ajoute la PASSE DE DÉPENDANCES : les jobs qu'aucun prérequis ne débloquera
+ * plus sont conclus (`skipped`) au lieu d'attendre pour toujours. Même forme que le
+ * reaper — bornée, non bloquante, jouée au démarrage et à chaque tour à vide.
  */
 import type { AppDb } from './db/types.js';
 import { log } from './log.js';
@@ -51,7 +53,8 @@ import {
 	renewLease,
 	startAttempt
 } from './jobs-lease.js';
-import { recordStep, recomputeRunStatus } from './monitoring.js';
+import { concludeJobStep } from './monitoring.js';
+import { settleBlockedJobs } from './jobs-graph.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
@@ -198,6 +201,8 @@ export interface WorkerOptions {
 	maxJobDurationMs?: number;
 	/** JOB-002 — nombre de baux morts repris par passe de reaper (0 = pas de reaper). */
 	reapLimit?: number;
+	/** JOB-004 — jobs à dépendances examinés par passe (0 = pas de résolution). */
+	settleLimit?: number;
 }
 
 export interface WorkerStats {
@@ -213,6 +218,8 @@ export interface WorkerStats {
 	abandonedByKind: Record<AbandonKind, number>;
 	/** JOB-003 — jobs REPORTÉS pour cause de quota (tentative rendue, pas un échec). */
 	deferred: number;
+	/** JOB-004 — jobs SAUTÉS faute d'un prérequis obligatoire (jamais tentés). */
+	skipped: number;
 	/** JOB-003 — répartition des échecs par nature (lisible sans requêter la DB). */
 	failedByClass: Record<ErrorClass, number>;
 }
@@ -227,6 +234,9 @@ export const DEFAULT_MAX_JOB_DURATION_MS = 30 * 60 * 1000; // 30 min
 /** Baux morts repris par passe (borné : un tour de boucle reste court). */
 export const DEFAULT_REAP_LIMIT = 20;
 
+/** Jobs à dépendances examinés par passe. La file réelle en compte quelques dizaines. */
+export const DEFAULT_SETTLE_LIMIT = 50;
+
 /**
  * Boucle principale. Renvoie ses compteurs, ce qui rend le worker testable et
  * observable sans lire les logs.
@@ -239,6 +249,7 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 
 	const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
 	const reapLimit = options.reapLimit ?? DEFAULT_REAP_LIMIT;
+	const settleLimit = options.settleLimit ?? DEFAULT_SETTLE_LIMIT;
 
 	const stats: WorkerStats = {
 		claimed: 0,
@@ -251,6 +262,7 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		reclaimed: 0,
 		abandonedByKind: { worker_death: 0, lease_stall: 0 },
 		deferred: 0,
+		skipped: 0,
 		failedByClass: emptyClassCounters()
 	};
 
@@ -260,6 +272,10 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	// redémarrage après crash — les jobs que ce worker (ou son prédécesseur) a
 	// laissés « running » doivent repartir tout de suite, pas au premier tour à vide.
 	await reapOnce(options.db, reapLimit, leaseMs, stats);
+	// Puis les dépendances : un prérequis mort pendant que ce worker était arrêté doit
+	// libérer (ou conclure) ses dépendants avant la première réclamation, sans quoi le
+	// tour sera à vide alors que la file a du travail à trancher.
+	await settleOnce(options.db, settleLimit, stats);
 
 	for (;;) {
 		// Point d'arrêt : on ne réclame JAMAIS un job après l'ordre d'arrêt —
@@ -282,6 +298,10 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 			// Tour à vide = le bon moment pour réparer la file : rien d'autre à faire,
 			// et un bail mort remis en queue redevient réclamable au tour suivant.
 			await reapOnce(options.db, reapLimit, leaseMs, stats);
+			// Le tour à vide est SOUVENT dû à une dépendance : le prérequis vient de
+			// finir dans ce même tour de drain. La passe est donc jouée AVANT le `break`
+			// de `once`, pour qu'un tick conclue le run du créneau qu'il a planifié.
+			await settleOnce(options.db, settleLimit, stats);
 			if (options.once) break;
 			const stopped = await sleep(pollIntervalMs, options.signal);
 			if (stopped) {
@@ -333,12 +353,36 @@ async function reapOnce(
 }
 
 /**
- * JOB-005 — Conclut, côté RUN, le job qui vient de finir son histoire.
+ * JOB-004 — Une passe de résolution des dépendances, bornée et non bloquante.
  *
- * Un job planifié porte le `run_id` du créneau qui l'a produit. Sans cette ligne, le
- * run resterait `queued` à vie : `classifyRunOutcome` dérive le statut d'un run de
- * ses STEPS, et personne n'en écrivait pour un job de queue. La supervision aurait
- * alors montré des runs éternellement en attente au-dessus de jobs réussis.
+ * Jumelle de `reapOnce`, et pour la même raison : c'est une COMMODITÉ du worker, pas
+ * sa mission. Si elle échoue, on la journalise et la boucle continue — un job sauté
+ * plus tard vaut mieux qu'un worker qui ne traiterait plus rien.
+ *
+ * Ce qu'elle ferme : un dépendant dont le prérequis obligatoire est mort n'est pas
+ * réclamable (la garde SQL le retient) et ne le sera jamais. Sans cette passe il
+ * resterait `queued` à vie, et son run inachevé avec lui.
+ */
+async function settleOnce(db: AppDb, limit: number, stats: WorkerStats): Promise<void> {
+	if (limit <= 0) return;
+	try {
+		const res = await settleBlockedJobs({ db, limit });
+		if (res.skipped.length === 0) return;
+		stats.skipped += res.skipped.length;
+		logger.warn('jobs sautés faute de prérequis', {
+			skipped: res.skipped.length,
+			waiting: res.waiting,
+			types: res.skipped.map((s) => s.type)
+		});
+	} catch (err) {
+		logger.error('passe de dépendances échouée (la boucle continue)', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
+/**
+ * JOB-005 — Conclut, côté RUN, le job qui vient de finir son histoire.
  *
  * N'est appelée qu'aux issues TERMINALES (réussi, ou mort après épuisement) : un job
  * qui va être rejoué n'a rien conclu, et lui écrire un step `failed` ferait basculer
@@ -346,6 +390,10 @@ async function reapOnce(
  *
  * Non bloquante, comme la passe de reaper : l'exécution du job fait foi, sa
  * comptabilité de run ne doit jamais pouvoir la faire échouer après coup.
+ *
+ * La mécanique elle-même vit dans `monitoring.ts` (`concludeJobStep`) depuis JOB-004 :
+ * la passe de dépendances écrit les mêmes steps, et les deux modules ne peuvent pas
+ * s'importer l'un l'autre. Ici ne reste que l'adaptation au `ClaimedJob` et la garde.
  */
 async function concludeRunStep(input: {
 	db: AppDb;
@@ -357,23 +405,16 @@ async function concludeRunStep(input: {
 }): Promise<void> {
 	if (!input.job.runId) return;
 	try {
-		await recordStep(
-			{
-				runId: input.job.runId,
-				stepType: input.job.type,
-				status: input.status,
-				// L'`attempt` du job : deux tentatives d'un même job écrivent deux steps
-				// distincts, et l'unique (run, step_type, attempt) rend l'écriture
-				// idempotente si le même verdict était rejoué.
-				attempt: Math.max(1, input.job.attempts),
-				durationMs: input.durationMs,
-				errorCode: input.errorCode ?? null,
-				errorMessage: input.errorMessage ?? null,
-				finishedAt: toDbTimestamp()
-			},
-			input.db
-		);
-		await recomputeRunStatus(input.job.runId, input.db);
+		await concludeJobStep({
+			db: input.db,
+			runId: input.job.runId,
+			stepType: input.job.type,
+			attempt: input.job.attempts,
+			status: input.status,
+			durationMs: input.durationMs,
+			errorCode: input.errorCode ?? null,
+			errorMessage: input.errorMessage ?? null
+		});
 	} catch (err) {
 		logger.warn('conclusion du run échouée (le job, lui, est conclu)', {
 			jobId: input.job.id,

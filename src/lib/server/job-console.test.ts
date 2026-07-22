@@ -5,11 +5,13 @@ import {
 	REQUEUABLE_STATUSES,
 	canCancelJob,
 	canRequeueJob,
+	describeDependencies,
 	explainFailure,
 	normalizeJobFilters
 } from './job-console.js';
 import { ERROR_CLASSES } from './job-retry.js';
 import { JOB_STATUSES } from './monitoring-state.js';
+import type { JobDependency } from './job-graph.js';
 
 // ── Filtres ─────────────────────────────────────────────────────────
 
@@ -70,9 +72,11 @@ describe('légalité des actions d’exploitation', () => {
 	});
 
 	it('reprise = dead-letter seulement — miroir exact de la garde SQL de requeueDeadJob', () => {
-		expect(REQUEUABLE_STATUSES).toEqual(['dead', 'failed']);
+		expect(REQUEUABLE_STATUSES).toEqual(['dead', 'failed', 'skipped']);
 		expect(canRequeueJob('dead')).toBe(true);
 		expect(canRequeueJob('failed')).toBe(true);
+		// JOB-004 — sinon un job sauté ne repartirait jamais, même prérequis réparé.
+		expect(canRequeueJob('skipped')).toBe(true);
 		expect(canRequeueJob('queued')).toBe(false);
 		expect(canRequeueJob('running')).toBe(false);
 		expect(canRequeueJob('succeeded')).toBe(false);
@@ -172,5 +176,113 @@ describe('explainFailure — l’opérateur comprend sans lire la DB', () => {
 		for (const c of ERROR_CLASSES) {
 			expect(explainFailure({ ...base, errorClass: c })).not.toBeNull();
 		}
+	});
+});
+
+// ── JOB-004 — dépendances ───────────────────────────────────────────
+
+describe('explainFailure — un job sauté n’a jamais tourné', () => {
+	const skipped = {
+		...base,
+		status: 'skipped',
+		errorClass: null,
+		errorCode: 'DependencySkipped',
+		errorMessage: 'Prérequis obligatoire non abouti : detect:keyword_opportunity (dead).'
+	};
+
+	it('rend la cause du prérequis, pas une erreur d’exécution', () => {
+		const e = explainFailure(skipped)!;
+		expect(e.verdict).toContain('detect:keyword_opportunity');
+	});
+
+	it('envoie l’opérateur relancer le PRÉREQUIS, pas ce job', () => {
+		const e = explainFailure(skipped)!;
+		expect(e.action).toMatch(/prérequis/i);
+		expect(e.willRepeat).toBe(true);
+	});
+
+	it('sans message, dit quand même que le job n’a pas été exécuté', () => {
+		const e = explainFailure({ ...skipped, errorMessage: null })!;
+		expect(e.verdict).toMatch(/jamais été exécuté/i);
+	});
+
+	it('n’est pas confondu avec une annulation humaine', () => {
+		const annule = explainFailure({ ...base, status: 'cancelled', errorClass: null })!;
+		expect(explainFailure(skipped)!.verdict).not.toEqual(annule.verdict);
+	});
+});
+
+describe('describeDependencies — un job retenu ne doit pas paraître coincé', () => {
+	const dep = (over: Partial<JobDependency> = {}): JobDependency => ({
+		jobId: 'j-detect',
+		jobType: 'detect:keyword_opportunity',
+		required: true,
+		...over
+	});
+
+	it('aucune arête → rien à afficher', () => {
+		const v = describeDependencies({ deps: [], statuses: {} });
+		expect(v.rows).toEqual([]);
+		expect(v.label).toBeNull();
+		expect(v.blocked).toBe(false);
+	});
+
+	it('prérequis en cours → badge « attend … »', () => {
+		const v = describeDependencies({
+			deps: [dep()],
+			statuses: { 'j-detect': 'running' },
+			status: 'queued'
+		});
+		expect(v.blocked).toBe(true);
+		expect(v.label).toBe('attend detect:keyword_opportunity');
+		expect(v.waitingOn).toEqual(['detect:keyword_opportunity']);
+	});
+
+	it('prérequis abouti → plus rien à signaler', () => {
+		const v = describeDependencies({
+			deps: [dep()],
+			statuses: { 'j-detect': 'succeeded' },
+			status: 'queued'
+		});
+		expect(v.blocked).toBe(false);
+		expect(v.label).toBeNull();
+		expect(v.rows[0].satisfied).toBe(true);
+	});
+
+	it('prérequis obligatoire mort → « prérequis manquant »', () => {
+		const v = describeDependencies({
+			deps: [dep()],
+			statuses: { 'j-detect': 'dead' },
+			status: 'queued'
+		});
+		expect(v.blocked).toBe(true);
+		expect(v.label).toBe('prérequis manquant');
+	});
+
+	it('un job DÉJÀ terminé n’attend plus rien — ses arêtes ne sont qu’une trace', () => {
+		const v = describeDependencies({
+			deps: [dep()],
+			statuses: { 'j-detect': 'dead' },
+			status: 'skipped'
+		});
+		expect(v.blocked).toBe(false);
+		expect(v.label).toBeNull();
+		// La ligne reste lisible : c'est elle qui explique le skip.
+		expect(v.rows[0].status).toBe('dead');
+	});
+
+	it('prérequis introuvable → statut null, non satisfait', () => {
+		const v = describeDependencies({ deps: [dep()], statuses: {}, status: 'queued' });
+		expect(v.rows[0].status).toBeNull();
+		expect(v.rows[0].satisfied).toBe(false);
+	});
+
+	it('prérequis optionnel mort → le job n’est pas retenu', () => {
+		const v = describeDependencies({
+			deps: [dep({ required: false })],
+			statuses: { 'j-detect': 'dead' },
+			status: 'queued'
+		});
+		expect(v.blocked).toBe(false);
 	});
 });

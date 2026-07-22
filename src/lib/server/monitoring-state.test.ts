@@ -3,13 +3,15 @@ import {
 	classifyRunOutcome,
 	computeBackoff,
 	deriveIdempotencyKey,
+	latestAttemptPerStep,
 	normalizeError,
 	shouldDeadLetter,
 	JOB_STATUSES,
 	RUN_STATUSES,
 	RUN_TYPES,
 	STEP_STATUSES,
-	TRIGGER_SOURCES
+	TRIGGER_SOURCES,
+	type StepAttempt
 } from './monitoring-state.js';
 
 describe('deriveIdempotencyKey', () => {
@@ -122,6 +124,86 @@ describe('constantes de statut', () => {
 			'failed',
 			'provider_unavailable'
 		]);
-		expect([...JOB_STATUSES]).toEqual(['queued', 'running', 'succeeded', 'failed', 'dead', 'cancelled']);
+		expect([...JOB_STATUSES]).toEqual([
+			'queued',
+			'running',
+			'succeeded',
+			'failed',
+			'dead',
+			'cancelled',
+			'skipped'
+		]);
+	});
+});
+
+describe('latestAttemptPerStep', () => {
+	it('aucun step → aucun statut', () => {
+		expect(latestAttemptPerStep([])).toEqual([]);
+	});
+
+	it('un step par type → inchangé', () => {
+		expect(
+			latestAttemptPerStep([
+				{ stepType: 'detect', attempt: 1, status: 'success', finishedAt: '2026-07-22 09:00:00' },
+				{ stepType: 'propose', attempt: 1, status: 'skipped', finishedAt: '2026-07-22 09:01:00' }
+			])
+		).toEqual(['success', 'skipped']);
+	});
+
+	it('le verdict le plus RÉCENT gagne, même avec un `attempt` plus petit', () => {
+		// `requeueDeadJob` remet attempts à 0 : la tentative qui réussit après une
+		// reprise porte un numéro PLUS PETIT que celle qui est morte.
+		expect(
+			latestAttemptPerStep([
+				{ stepType: 'detect', attempt: 5, status: 'failed', finishedAt: '2026-07-22 09:00:00' },
+				{ stepType: 'detect', attempt: 1, status: 'success', finishedAt: '2026-07-22 11:00:00' }
+			])
+		).toEqual(['success']);
+	});
+
+	it('un job mort puis repris et réussi ne laisse plus son run en `partial`', () => {
+		const steps: StepAttempt[] = [
+			{ stepType: 'detect', attempt: 5, status: 'failed', finishedAt: '2026-07-22 09:00:00' },
+			{ stepType: 'propose', attempt: 1, status: 'success', finishedAt: '2026-07-22 09:05:00' }
+		];
+		// Avant reprise : mélange OK/KO → `partial`, et c'est exact.
+		expect(classifyRunOutcome(latestAttemptPerStep(steps))).toBe('partial');
+		// La reprise écrit un nouveau verdict pour le MÊME step — attempt 1, plus tard.
+		steps.push({
+			stepType: 'detect',
+			attempt: 1,
+			status: 'success',
+			finishedAt: '2026-07-22 11:00:00'
+		});
+		expect(classifyRunOutcome(latestAttemptPerStep(steps))).toBe('success');
+	});
+
+	it('un step non conclu (`finishedAt` null) ne prime jamais sur un verdict daté', () => {
+		expect(
+			latestAttemptPerStep([
+				{ stepType: 'a', attempt: 2, status: 'queued', finishedAt: null },
+				{ stepType: 'a', attempt: 1, status: 'success', finishedAt: '2026-07-22 09:00:00' }
+			])
+		).toEqual(['success']);
+	});
+
+	it('un horodatage ISO égaré se compare quand même correctement', () => {
+		// `'T'` (0x54) > `' '` (0x20) : sans normalisation, l'ISO du matin passerait
+		// APRÈS le format DB du soir.
+		expect(
+			latestAttemptPerStep([
+				{ stepType: 'a', attempt: 1, status: 'failed', finishedAt: '2026-07-22T09:00:00.000Z' },
+				{ stepType: 'a', attempt: 2, status: 'success', finishedAt: '2026-07-22 23:00:00' }
+			])
+		).toEqual(['success']);
+	});
+
+	it('l’ordre de lecture n’importe pas', () => {
+		const rows: StepAttempt[] = [
+			{ stepType: 'a', attempt: 1, status: 'failed', finishedAt: '2026-07-22 09:00:00' },
+			{ stepType: 'a', attempt: 2, status: 'success', finishedAt: '2026-07-22 10:00:00' }
+		];
+		expect(latestAttemptPerStep(rows)).toEqual(['success']);
+		expect(latestAttemptPerStep([...rows].reverse())).toEqual(['success']);
 	});
 });

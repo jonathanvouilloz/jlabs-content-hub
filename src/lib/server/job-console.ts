@@ -23,6 +23,12 @@
  */
 import { ERROR_CLASSES, type ErrorClass } from './job-retry.js';
 import { JOB_STATUSES, type JobStatus } from './monitoring-state.js';
+import {
+	DEPENDENCY_SATISFIED,
+	classifyDependencyGate,
+	type DependencyStatuses,
+	type JobDependency
+} from './job-graph.js';
 
 // ── Filtres ─────────────────────────────────────────────────────────
 
@@ -104,8 +110,18 @@ export function normalizeJobFilters(raw: RawJobFilters): JobFilters {
  */
 export const CANCELLABLE_STATUSES: readonly JobStatus[] = ['queued', 'running', 'dead', 'failed'];
 
-/** Statuts depuis lesquels une REPRISE est légale — miroir exact de la garde SQL de `requeueDeadJob`. */
-export const REQUEUABLE_STATUSES: readonly JobStatus[] = ['dead', 'failed'];
+/**
+ * Statuts depuis lesquels une REPRISE est légale — miroir exact de la garde SQL de
+ * `requeueDeadJob`.
+ *
+ * `skipped` en fait partie (JOB-004), et c'est nécessaire : un job sauté faute de
+ * prérequis ne repart JAMAIS tout seul, même une fois son prérequis relancé et réussi
+ * — rien ne ressuscite un statut terminal, et c'est voulu. Sans cette reprise, le skip
+ * serait un cul-de-sac, exactement ce que JOB-003 avait ouvert pour la dead-letter.
+ * L'ordre à respecter est dans `explainFailure` : le prérequis d'abord, le dépendant
+ * ensuite (relancé avant, la garde de réclamation le retiendrait de toute façon).
+ */
+export const REQUEUABLE_STATUSES: readonly JobStatus[] = ['dead', 'failed', 'skipped'];
 
 export function canCancelJob(status: string): boolean {
 	return (CANCELLABLE_STATUSES as readonly string[]).includes(status);
@@ -113,6 +129,75 @@ export function canCancelJob(status: string): boolean {
 
 export function canRequeueJob(status: string): boolean {
 	return (REQUEUABLE_STATUSES as readonly string[]).includes(status);
+}
+
+// ── Dépendances, telles que l'écran doit les montrer ────────────────
+
+export interface DependencyRow {
+	jobId: string;
+	jobType: string;
+	required: boolean;
+	/** Statut du prérequis, ou `null` si sa ligne n'existe plus. */
+	status: string | null;
+	satisfied: boolean;
+}
+
+export interface DependencyView {
+	rows: DependencyRow[];
+	/** Types encore en cours — ce que ce job attend, ici et maintenant. */
+	waitingOn: string[];
+	/** Le job est retenu par la garde de réclamation (il n'est donc pas « coincé »). */
+	blocked: boolean;
+	/** Badge court, ou `null` s'il n'y a rien à signaler. */
+	label: string | null;
+}
+
+/**
+ * Traduit les arêtes d'un job en ce qu'un écran doit en dire.
+ *
+ * DÉRIVÉE, jamais lue dans un état persisté : la file n'a pas de statut `blocked` et
+ * n'en aura pas. Deux états qui peuvent diverger valent moins qu'un seul qui se
+ * recalcule (même raison qu'au « zéro table de planification » de JOB-005).
+ *
+ * Ce qu'elle existe pour éviter : un job `queued` que la garde retient ressemble
+ * EXACTEMENT à un job coincé. Sans cette ligne, l'opérateur relancerait le mauvais.
+ */
+export function describeDependencies(input: {
+	deps: JobDependency[];
+	statuses: DependencyStatuses;
+	/** Statut du job lui-même : seul un `queued` peut être « en attente ». */
+	status?: string;
+}): DependencyView {
+	const rows: DependencyRow[] = input.deps.map((d) => {
+		const status = input.statuses[d.jobId] ?? null;
+		return {
+			jobId: d.jobId,
+			jobType: d.jobType,
+			required: d.required,
+			status,
+			satisfied: (DEPENDENCY_SATISFIED as readonly string[]).includes(status ?? '')
+		};
+	});
+
+	if (rows.length === 0) {
+		return { rows, waitingOn: [], blocked: false, label: null };
+	}
+
+	const gate = classifyDependencyGate({ deps: input.deps, statuses: input.statuses });
+	// Un job qui a déjà tourné n'attend plus rien : ses arêtes ne sont plus qu'une trace.
+	const pending = input.status === undefined || input.status === 'queued';
+	const blocked = pending && gate.action !== 'ready';
+
+	return {
+		rows,
+		waitingOn: gate.waitingOn,
+		blocked,
+		label: blocked
+			? gate.action === 'wait'
+				? `attend ${gate.waitingOn.join(', ')}`
+				: 'prérequis manquant'
+			: null
+	};
 }
 
 // ── Verdict lisible d'un échec ──────────────────────────────────────
@@ -134,6 +219,8 @@ export interface ExplainFailureInput {
 	maxAttempts: number;
 	deferrals: number;
 	requeuedCount: number;
+	/** JOB-004 — porte la raison d'un `skipped` (quel prérequis a manqué). */
+	errorMessage?: string | null;
 }
 
 /**
@@ -150,6 +237,20 @@ export function explainFailure(input: ExplainFailureInput): FailureExplanation |
 			verdict: 'Job annulé par un opérateur.',
 			action: 'Aucune reprise automatique — le journal dit qui a décidé, et pourquoi.',
 			willRepeat: false
+		};
+	}
+	// JOB-004 — ce job n'a JAMAIS tourné. Le dire explicitement : sans ça, un opérateur
+	// lirait `last_error_message` comme une erreur d'exécution et chercherait la panne
+	// du mauvais côté. La cause est ailleurs, dans le prérequis.
+	if (input.status === 'skipped') {
+		return {
+			verdict:
+				input.errorMessage?.trim() ||
+				'Job sauté : un prérequis obligatoire n’a pas abouti. Il n’a jamais été exécuté.',
+			action:
+				'Corriger puis relancer le PRÉREQUIS — c’est lui qui a échoué. ' +
+				'Relancer ce job-ci ne servirait à rien tant que sa dépendance n’a pas abouti.',
+			willRepeat: true
 		};
 	}
 	if (!input.errorClass && !input.errorCode) return null;

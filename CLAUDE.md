@@ -113,7 +113,7 @@ Variables d'env requises (voir `.env.example`) :
 - `CRON_SECRET` — bearer attendu par les routes `/api/cron/*`
 
 Crons (vercel.json) :
-- `/api/cron/tick` — **horaire** (JOB-005) — planifie les cadences dues en heure métier `Europe/Zurich` (DST comprise) **puis draine la file de jobs** (worker borné + reaper). C'est le seul chemin par lequel la queue avance en production : sans lui, un job relancé depuis `/jobs` ne repartirait jamais. Idempotent par créneau local — rejouer un tick, redémarrer, ou rattraper un créneau manqué sont la même opération.
+- `/api/cron/tick` — **horaire** (JOB-005) — planifie les cadences dues en heure métier `Europe/Zurich` (DST comprise) **puis draine la file de jobs** (worker borné + reaper + **passe de dépendances**, JOB-004). C'est le seul chemin par lequel la queue avance en production : sans lui, un job relancé depuis `/jobs` ne repartirait jamais. Idempotent par créneau local — rejouer un tick, redémarrer, ou rattraper un créneau manqué sont la même opération.
 - `/api/cron/gmb-publish` — quotidien 9h00 — publie les posts GMB dus + envoie le digest admin (idempotent via `gmb_settings.last_daily_digest_date`)
 - `/api/cron/gmb-weekly-digest` — lundi 8h00 — récap hebdo aux clients opt-in (`projects.weekly_digest_enabled = true` + `client_email` renseigné)
 - `/api/cron/linkedin-publish` — quotidien 9h00
@@ -158,8 +158,9 @@ Pour les images GMB, le skill `/publish-hub` doit :
 **Socle livré :** epics 1-22 DONE, epic 23 (positions GSC) en prod. Refactor in-place, DataForSEO = fournisseur SEO externe.
 **Admin :** contact@jonlabs.ch
 **Prochaine étape :** Phase 6 (roter password Neon + décommissionner Turso) → puis reconstruction agentique, premier lot `docs/BACKLOG.md` §9. Détail : `docs/HANDOFF.md`.
+**File de jobs (E00) :** réclamation atomique, bail + reaper, erreurs classées, console `/jobs`, scheduler horaire, producteur de propositions — et depuis **JOB-004** les **dépendances entre jobs** : un prérequis obligatoire mort fait passer son dépendant en **`skipped`** (jamais tenté) et le run en `partial` ; un prérequis **optionnel** mort ne bloque personne. Le lien `detect:keyword_opportunity` → `propose:actions` du hebdo est **obligatoire**.
 
-> ⚠️ **Avant le prochain déploiement** : le cron `/api/cron/tick` (JOB-005) planifiera le run hebdo des 6 projets — dont **barberconcept**, jamais détecté, qui écrira **50 findings d'un coup** (plafond `maxCandidates`). Décision de Jonathan : laisser partir, ou désactiver `weekly` pour ce projet via `project_projections.payload.schedules`.
+> ⚠️ **Avant le prochain déploiement** : le cron `/api/cron/tick` (JOB-005) planifiera le run hebdo des 6 projets — dont **barberconcept**, jamais détecté, qui écrira **50 findings d'un coup** (plafond `maxCandidates`). Décision de Jonathan : laisser partir, ou désactiver `weekly` pour ce projet via `project_projections.payload.schedules`. Depuis JOB-004, son `propose:actions` **attend** la fin de cette détection au lieu de partir en parallèle.
 
 ## Carte des skills — domaine SEO (partition `noyau/seo-stats`)
 

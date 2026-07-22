@@ -118,6 +118,9 @@ export const GET: RequestHandler = async ({ request }) => {
 					succeeded: stats.succeeded,
 					failed: stats.failed,
 					deferred: stats.deferred,
+					// JOB-004 — jobs conclus sans avoir tourné, faute d'un prérequis
+					// obligatoire. Ni des échecs, ni des réussites : leur propre colonne.
+					skipped: stats.skipped,
 					deadLettered: stats.deadLettered,
 					released: stats.released,
 					reclaimed: stats.reclaimed,

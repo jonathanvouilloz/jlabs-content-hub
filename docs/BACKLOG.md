@@ -443,7 +443,7 @@ Acceptation :
 
 ## JOB-004 — Dépendances entre steps et état `partial`
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** JOB-001
+**Priorité :** P0 · **Taille :** L · **État :** **DONE** (2026-07-22 — `job-graph.ts` : garde de dépendance DANS `claimJob`, arêtes obligatoires/optionnelles, statut `skipped`, passe `settleBlockedJobs` jumelle du reaper, `latestAttemptPerStep` pour le statut final du run. 38 tests vitest + preuve Neon 45/45, zéro DDL) · **Dépendances :** JOB-001
 
 Travail :
 
@@ -629,7 +629,7 @@ Acceptation :
 
 ## IDX-001 — Inventaire sitemap et canonical
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** DATA-004, JOB-004
+**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par JOB-004, 2026-07-22) · **Dépendances :** DATA-004, JOB-004
 
 Travail :
 
@@ -968,7 +968,7 @@ Acceptation :
 
 ## DASH-002 — Accueil cross-projet
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-005, JOB-004
+**Priorité :** P0 · **Taille :** L · **État :** READY (débloqué par JOB-004, 2026-07-22) · **Dépendances :** DATA-005, JOB-004
 
 Travail :
 
@@ -1079,7 +1079,7 @@ Acceptation :
 
 ## REP-001 — Modèle de rapport hebdomadaire déterministe
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-003, JOB-004
+**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par JOB-004, 2026-07-22) · **Dépendances :** FIND-003, JOB-004
 
 Travail :
 

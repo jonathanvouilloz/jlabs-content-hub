@@ -21,6 +21,7 @@ import { projectProjections, projects } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createRun, enqueueJob } from './monitoring.js';
 import { deriveIdempotencyKey } from './monitoring-state.js';
+import { resolveDependencies, validateCatalogGraph } from './job-graph.js';
 import { toDbTimestamp } from './timestamps.js';
 import {
 	BUSINESS_TIMEZONE,
@@ -199,6 +200,13 @@ export async function planDueJobs(input: PlanDueJobsInput = {}): Promise<PlanRes
 	const dryRun = input.dryRun === true;
 	const catalog = input.catalog ?? catalogFor;
 
+	// JOB-004 — le graphe est validé UNE fois, avant toute écriture, et pour toutes les
+	// cadences. Une arête incohérente (type inconnu, cycle, prérequis déclaré après son
+	// dépendant) est un bug de programmation, pas une donnée douteuse : elle doit tomber
+	// bruyamment ici, et non se traduire en six « échecs projet » qui la banaliseraient.
+	// Le tick, lui, continue de drainer (`planDueJobs` est appelée sous try/catch).
+	for (const cadence of SCHEDULE_CADENCES) validateCatalogGraph(catalog(cadence));
+
 	const all = await listSchedulableProjects(db);
 	const targets = input.onlyProjectSlug
 		? all.filter((p) => p.slug === input.onlyProjectSlug)
@@ -315,6 +323,13 @@ async function planOne(input: {
 		db
 	);
 
+	// JOB-004 — les arêtes du catalogue sont déclarées par TYPE ; les ids n'existent
+	// qu'une fois les jobs en file. On les collecte au fil de la boucle, ce qui exige
+	// qu'un prérequis soit déclaré avant son dépendant — `validateCatalogGraph`, appelée
+	// en amont par `planDueJobs`, le garantit.
+	// Une replanification renvoie l'id EXISTANT du prérequis : la clé d'idempotence
+	// étant stable, l'arête l'est aussi.
+	const idsByType = new Map<string, string>();
 	const jobs: PlannedJob[] = [];
 	for (const entry of entries) {
 		const enqueued = await enqueueJob(
@@ -324,6 +339,7 @@ async function planOne(input: {
 				runId: run.id,
 				priority: entry.priority,
 				payloadJson: entry.payload ? JSON.stringify(entry.payload) : null,
+				dependsOn: resolveDependencies(entry.dependsOn, idsByType),
 				idempotencyKey: deriveIdempotencyKey({
 					runType: occurrence.cadence,
 					projectSlug: project.slug,
@@ -334,6 +350,7 @@ async function planOne(input: {
 			},
 			db
 		);
+		idsByType.set(entry.jobType, enqueued.id);
 		jobs.push({ jobType: entry.jobType, jobId: enqueued.id, created: enqueued.created });
 	}
 

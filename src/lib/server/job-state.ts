@@ -299,6 +299,10 @@ export const ATTEMPT_OUTCOMES = [
 	'deferred',
 	'requeued',
 	'cancelled',
+	// JOB-004 — le job n'a JAMAIS tourné : un prérequis obligatoire a échoué pour de
+	// bon. Ce n'est donc pas une tentative, c'est le FAIT qu'on journalise, parce que
+	// l'audit de ce lot est porté par `job_attempts` comme celui de JOB-003/JOB-007.
+	'skipped',
 	'dead'
 ] as const;
 export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];
