@@ -266,6 +266,14 @@ export interface OpportunityCandidate extends AggregatedPair {
 export interface OpportunitySelection {
 	/** Les candidats retenus, triés, éventuellement tronqués à `maxCandidates`. */
 	candidates: OpportunityCandidate[];
+	/**
+	 * TOUS les couples franchissant les seuils, triés, AVANT troncature. C'est la
+	 * base de la « closure » du run (FIND-003) : un finding absent d'ici a vraiment
+	 * cessé de matcher, alors qu'un finding absent de `candidates` peut n'avoir été
+	 * que tronqué. Auto-résoudre depuis `candidates` fermerait à tort des findings
+	 * bien vivants (barberconcept : 1310 matched pour 50 écrits).
+	 */
+	matched: OpportunityCandidate[];
 	/** Nombre de couples franchissant les seuils AVANT troncature. */
 	totalMatched: number;
 	/** Couples écartés parce qu'ils tombent dans le bruit configuré. */
@@ -312,6 +320,7 @@ export function selectOpportunities(
 	const cap = Math.max(0, Math.floor(thresholds.maxCandidates));
 	return {
 		candidates: matched.slice(0, cap),
+		matched, // liste COMPLÈTE : la troncature ne concerne que ce qu'on écrit
 		totalMatched: matched.length,
 		excludedByNoise,
 		truncated: matched.length > cap

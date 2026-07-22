@@ -807,7 +807,7 @@ Acceptation :
 
 ## FIND-003 — Cycle de vie, déduplication et snooze
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-22 — 5 colonnes additives sur `findings` ; purs `canTransition`/`decideOnRedetection`/`decideOnAbsence`/`isSnoozeExpired` ; IO `snoozeFinding`/`dismissFinding`/`reopenFinding`/`expireSnoozes`/`reconcileDetectionRun` ; closure = `matched` COMPLET (jamais la liste tronquée) + run autoritaire + N absences consécutives ; job `findings:lifecycle` ; preuve Neon 37/37. Décisions : le snooze tient jusqu'à échéance, le dismiss vaut à vie) · **Dépendances :** FIND-001
 
 Travail :
 
@@ -926,7 +926,7 @@ Acceptation :
 
 ## FIND-010 — Boucle de qualité et réduction du bruit
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-003
+**Priorité :** P1 · **Taille :** M · **État :** READY · **Dépendances :** FIND-003
 
 Travail :
 
@@ -1002,7 +1002,7 @@ Acceptation :
 
 ## DASH-004 — Vue finding avec preuves
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-003
+**Priorité :** P0 · **Taille :** M · **État :** READY · **Dépendances :** FIND-003
 
 Travail :
 

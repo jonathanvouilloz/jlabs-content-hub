@@ -1,5 +1,6 @@
 /**
- * DATA-005 — Écriture de findings (upsert idempotent + journal append-only).
+ * DATA-005 / FIND-003 — Écriture de findings (upsert idempotent, journal
+ * append-only, cycle de vie).
  *
  * - `upsertFinding` vise l'unique `(project_id, fingerprint)` : le même problème
  *   redétecté ne crée JAMAIS un doublon, il incrémente `occurrence_count` et
@@ -8,11 +9,15 @@
  * - `recordFindingEvent` insère une ligne de journal (append-only, jamais d'update).
  * - `transitionFinding` change le statut ET journalise la transition dans une même
  *   transaction → « toute transition possède un événement, une cause et un auteur ».
+ *   Toute transition est vérifiée contre le graphe §10.1 (`canTransition`).
+ * - FIND-003 : `snoozeFinding` / `dismissFinding` / `reopenFinding` (entrées
+ *   humaines), `expireSnoozes` (la veille expire seule) et `reconcileDetectionRun`
+ *   (auto-résolution des findings qui cessent de matcher, réouverture des récidives).
  *
  * Garde commune : `evidence_json` / `impact_estimate_json` / `payload_json` BORNÉS
  * (assertBoundedPayload) et sans secret (assertNoInlineSecret) avant persistance.
  */
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { findings, findingEvents } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
@@ -20,11 +25,21 @@ import { toDbTimestamp } from './timestamps.js';
 import { assertNoInlineSecret } from './projection-state.js';
 import { assertBoundedPayload } from './observation-state.js';
 import {
+	AUTO_RESOLUTION_REASON,
+	RECURRENCE_REASON,
+	SNOOZE_EXPIRED_REASON,
+	canTransition,
+	computeSnoozeUntil,
+	decideOnAbsence,
+	decideOnRedetection,
 	deriveFindingFingerprint,
 	deriveStatusEventType,
+	isSnoozeExpired,
 	isTerminalStatus,
+	resolveLifecycleConfig,
 	type FindingActor,
-	type FindingEventType
+	type FindingEventType,
+	type LifecycleConfig
 } from './finding-state.js';
 
 // Format DB canonique (cf. timestamps.ts) : ces colonnes ont un DEFAULT
@@ -117,6 +132,10 @@ export async function upsertFinding(
 		recommendedSkill: input.recommendedSkill ?? null,
 		runId: input.runId ?? null,
 		lastSeenAt: now,
+		// FIND-003 : le problème se manifeste → la série d'absences repart de zéro.
+		// (Le STATUT, lui, n'est jamais touché ici : réouverture et auto-résolution
+		// passent par `reconcileDetectionRun`, qui journalise.)
+		consecutiveMisses: 0,
 		updatedAt: now
 	};
 
@@ -196,13 +215,27 @@ export interface TransitionFindingInput {
 	/** Auteur de la transition (acceptation : « un auteur »). */
 	actor: FindingActor | string;
 	payloadJson?: string | null;
+	/** FIND-003 — échéance de veille (obligatoire de fait vers `snoozed`). */
+	snoozedUntil?: string | null;
+	/** FIND-003 — nature du « non » humain (false_positive, wont_fix…). */
+	dismissalCategory?: string | null;
 }
 
 /**
  * Change le statut d'un finding ET journalise la transition, atomiquement. Un
  * passage vers `resolved` pose `resolved_at` + `resolution_reason` ; une
  * réouverture les efface. La transition est refusée (throw) si le finding
- * n'existe pas ou si le statut est inchangé.
+ * n'existe pas, si le statut est inchangé, ou si le passage est ILLÉGAL au regard
+ * du graphe §10.1 (`canTransition`) — un statut incohérent ne s'installe jamais
+ * en silence.
+ *
+ * Effets de bord du cycle de vie (FIND-003), tous portés ici pour qu'aucun
+ * appelant ne puisse les oublier :
+ *   - entrée en veille  → pose `snoozed_until` + `snooze_reason` ;
+ *   - sortie de veille  → les efface ;
+ *   - retour à l'actif  → remet `consecutive_misses` à 0 (la série d'absences ne
+ *     survit pas à une réouverture) ;
+ *   - réouverture       → incrémente `reopen_count` (signal de qualité FIND-010).
  */
 export async function transitionFinding(
 	input: TransitionFindingInput,
@@ -227,15 +260,35 @@ export async function transitionFinding(
 				`transitionFinding : statut inchangé (${fromStatus}) pour ${input.findingId}.`
 			);
 		}
+		if (!canTransition(fromStatus, input.toStatus)) {
+			throw new Error(
+				`transitionFinding : transition illégale ${fromStatus} → ${input.toStatus} ` +
+					`pour ${input.findingId} (graphe SPEC §10.1).`
+			);
+		}
 
 		const now = nowDb();
 		const resolving = input.toStatus === 'resolved';
+		const snoozing = input.toStatus === 'snoozed';
+		const leavingSnooze = fromStatus === 'snoozed';
+		const reopening = eventType === 'reopened';
+		const backToActive = reopening || leavingSnooze;
+
 		await tx
 			.update(findings)
 			.set({
 				status: input.toStatus,
 				resolvedAt: resolving ? now : null,
 				resolutionReason: resolving ? input.reason : null,
+				...(snoozing
+					? { snoozedUntil: input.snoozedUntil ?? computeSnoozeUntil({}), snoozeReason: input.reason }
+					: {}),
+				...(leavingSnooze ? { snoozedUntil: null, snoozeReason: null } : {}),
+				...(input.toStatus === 'dismissed'
+					? { dismissalCategory: input.dismissalCategory ?? 'false_positive' }
+					: {}),
+				...(backToActive ? { consecutiveMisses: 0 } : {}),
+				...(reopening ? { reopenCount: sql`${findings.reopenCount} + 1` } : {}),
 				updatedAt: now
 			})
 			.where(eq(findings.id, input.findingId));
@@ -259,3 +312,298 @@ export async function transitionFinding(
 // Ré-export pour les appelants qui journalisent une transition terminale sans
 // passer par transitionFinding (ex. dédup côté détecteur).
 export { isTerminalStatus };
+
+// ── FIND-003 — Entrées humaines du cycle de vie ─────────────────────
+
+/**
+ * Met un finding en veille jusqu'à une échéance. Le snooze est une PROMESSE de
+ * silence : ni une re-détection ni une aggravation ne le rompent (l'aggravation
+ * reste journalisée) — seule l'échéance, ou une décision explicite, le lève.
+ */
+export async function snoozeFinding(
+	input: {
+		findingId: string;
+		projectId: string;
+		reason: string;
+		/** Durée en jours (défaut `LIFECYCLE_DEFAULTS.defaultSnoozeDays`). */
+		days?: number;
+		/** Échéance explicite (prime sur `days`), déjà au format DB. */
+		until?: string;
+		actor?: FindingActor | string;
+	},
+	client?: AppDb
+): Promise<{ eventId: string; snoozedUntil: string }> {
+	const snoozedUntil = input.until ?? computeSnoozeUntil({ days: input.days });
+	const { eventId } = await transitionFinding(
+		{
+			findingId: input.findingId,
+			projectId: input.projectId,
+			toStatus: 'snoozed',
+			reason: input.reason,
+			actor: input.actor ?? 'user',
+			snoozedUntil,
+			payloadJson: JSON.stringify({ snoozedUntil })
+		},
+		client
+	);
+	return { eventId, snoozedUntil };
+}
+
+/**
+ * Enregistre un « non » humain (faux positif, wont_fix…). Le dismiss vaut À VIE
+ * pour ce fingerprint : le détecteur continuera d'incrémenter `occurrence_count`
+ * (matière première de la mesure de faux positifs, FIND-010) mais le finding ne
+ * remontera jamais seul dans l'inbox — il faut `reopenFinding`.
+ */
+export async function dismissFinding(
+	input: {
+		findingId: string;
+		projectId: string;
+		reason: string;
+		/** false_positive | wont_fix | by_design | duplicate … */
+		category?: string;
+		actor?: FindingActor | string;
+	},
+	client?: AppDb
+): Promise<{ eventId: string }> {
+	const { eventId } = await transitionFinding(
+		{
+			findingId: input.findingId,
+			projectId: input.projectId,
+			toStatus: 'dismissed',
+			reason: input.reason,
+			actor: input.actor ?? 'user',
+			dismissalCategory: input.category ?? 'false_positive',
+			payloadJson: JSON.stringify({ category: input.category ?? 'false_positive' })
+		},
+		client
+	);
+	return { eventId };
+}
+
+/**
+ * Rouvre explicitement un finding terminal (résolu à tort, ou dismiss qu'on
+ * regrette). C'est la SEULE façon de défaire un dismiss — jamais la machine.
+ */
+export async function reopenFinding(
+	input: {
+		findingId: string;
+		projectId: string;
+		reason: string;
+		actor?: FindingActor | string;
+	},
+	client?: AppDb
+): Promise<{ eventId: string }> {
+	const { eventId } = await transitionFinding(
+		{
+			findingId: input.findingId,
+			projectId: input.projectId,
+			toStatus: 'reopened',
+			reason: input.reason,
+			actor: input.actor ?? 'user'
+		},
+		client
+	);
+	return { eventId };
+}
+
+// ── FIND-003 — La veille expire seule (acceptation 3) ───────────────
+
+export interface ExpireSnoozesResult {
+	/** Findings réveillés (ids). */
+	reopened: string[];
+	/** Findings encore en veille, échéance non atteinte. */
+	stillSnoozed: number;
+}
+
+/**
+ * Réveille les findings dont la veille est échue : `snoozed → open`, événement
+ * `unsnoozed`, `snoozed_until`/`snooze_reason` effacés. Idempotent (un second
+ * passage ne trouve plus rien).
+ *
+ * La lecture est bornée par l'index PARTIEL `idx_findings_snoozed_until` ; la
+ * décision d'expiration reste au module pur (`isSnoozeExpired`), donc testable
+ * sans DB et immunisée contre le piège lexical ISO / format DB.
+ */
+export async function expireSnoozes(
+	input: { projectId?: string; now?: Date | string } = {},
+	client?: AppDb
+): Promise<ExpireSnoozesResult> {
+	const db = await resolveDb(client);
+	const now = input.now ?? new Date();
+
+	const rows = await db
+		.select({
+			id: findings.id,
+			projectId: findings.projectId,
+			snoozedUntil: findings.snoozedUntil
+		})
+		.from(findings)
+		.where(
+			input.projectId
+				? and(eq(findings.status, 'snoozed'), eq(findings.projectId, input.projectId))
+				: eq(findings.status, 'snoozed')
+		);
+
+	const result: ExpireSnoozesResult = { reopened: [], stillSnoozed: 0 };
+	for (const row of rows) {
+		if (!isSnoozeExpired(row.snoozedUntil, now)) {
+			result.stillSnoozed += 1;
+			continue;
+		}
+		await transitionFinding(
+			{
+				findingId: row.id,
+				projectId: row.projectId,
+				toStatus: 'open',
+				reason: SNOOZE_EXPIRED_REASON,
+				actor: 'system',
+				payloadJson: JSON.stringify({ snoozedUntil: row.snoozedUntil })
+			},
+			db
+		);
+		result.reopened.push(row.id);
+	}
+	return result;
+}
+
+// ── FIND-003 — Réconciliation d'un run de détection ─────────────────
+
+export interface ReconcileDetectionInput {
+	projectId: string;
+	/** Type de finding couvert par la closure (un détecteur = un type). */
+	type: string;
+	/**
+	 * Fingerprints de TOUS les signaux franchissant les seuils sur cette fenêtre,
+	 * AVANT toute troncature d'écriture. Une closure tronquée ferait passer pour
+	 * « guéris » des findings simplement non réécrits — c'est l'invariant n°1.
+	 */
+	closure: Set<string>;
+	detectorVersion?: string | null;
+	runId?: string | null;
+	config?: Partial<LifecycleConfig> | null;
+}
+
+export interface ReconcileDetectionResult {
+	/** Récidives : findings résolus que le signal a fait revenir. */
+	reopened: number;
+	/** Auto-résolus : absents assez longtemps pour être considérés guéris. */
+	autoResolved: number;
+	/** Absents ce tour-ci, sous le seuil de confirmation (compteur incrémenté). */
+	missed: number;
+	/** Intouchés par décision : en veille, ou dismissés à vie. */
+	held: number;
+}
+
+/**
+ * Confronte l'état persisté à ce que le détecteur voit MAINTENANT.
+ *
+ * Deux directions, une seule lecture :
+ *   - fingerprint PRÉSENT dans la closure → `decideOnRedetection` : un finding
+ *     résolu récidive donc rouvre (acceptation 2) ; un dismiss et une veille
+ *     tiennent ; un actif est laissé tel quel (l'upsert l'a déjà rafraîchi) ;
+ *   - fingerprint ABSENT → `decideOnAbsence` : on compte l'absence, et on résout
+ *     seulement après N fenêtres consécutives (jamais sur une seule).
+ *
+ * ⚠ L'appelant ne doit invoquer cette fonction que pour un run AUTORITAIRE
+ * (fenêtre valide, observations lues) : sans données, l'absence ne prouve rien.
+ */
+export async function reconcileDetectionRun(
+	input: ReconcileDetectionInput,
+	client?: AppDb
+): Promise<ReconcileDetectionResult> {
+	const db = await resolveDb(client);
+	const config = resolveLifecycleConfig(input.config);
+	const result: ReconcileDetectionResult = { reopened: 0, autoResolved: 0, missed: 0, held: 0 };
+
+	const rows = await db
+		.select({
+			id: findings.id,
+			projectId: findings.projectId,
+			fingerprint: findings.fingerprint,
+			status: findings.status,
+			consecutiveMisses: findings.consecutiveMisses
+		})
+		.from(findings)
+		.where(and(eq(findings.projectId, input.projectId), eq(findings.type, input.type)));
+
+	/** Absences confirmées d'un tour : un seul UPDATE groupé plutôt que N. */
+	const toCount: string[] = [];
+
+	for (const row of rows) {
+		if (input.closure.has(row.fingerprint)) {
+			const decision = decideOnRedetection(row.status);
+			if (decision === 'reopen') {
+				await transitionFinding(
+					{
+						findingId: row.id,
+						projectId: row.projectId,
+						toStatus: 'reopened',
+						reason: RECURRENCE_REASON,
+						actor: 'detector',
+						payloadJson: JSON.stringify({
+							detector: input.detectorVersion ?? null,
+							runId: input.runId ?? null
+						})
+					},
+					db
+				);
+				result.reopened += 1;
+			} else if (decision === 'hold') {
+				result.held += 1;
+			}
+			continue;
+		}
+
+		const decision = decideOnAbsence({
+			status: row.status,
+			consecutiveMisses: row.consecutiveMisses,
+			config
+		});
+		if (decision.action === 'skip') {
+			// `held` ne compte que les décisions actives (veille / dismiss) ; un
+			// finding déjà résolu et toujours absent n'est pas un « maintien ».
+			if (row.status === 'snoozed' || row.status === 'dismissed') result.held += 1;
+			continue;
+		}
+		if (decision.action === 'count') {
+			toCount.push(row.id);
+			result.missed += 1;
+			continue;
+		}
+		await transitionFinding(
+			{
+				findingId: row.id,
+				projectId: row.projectId,
+				toStatus: 'resolved',
+				reason: AUTO_RESOLUTION_REASON,
+				actor: 'detector',
+				payloadJson: JSON.stringify({
+					detector: input.detectorVersion ?? null,
+					runId: input.runId ?? null,
+					consecutiveMisses: decision.nextMisses
+				})
+			},
+			db
+		);
+		// La transition ne connaît pas le compteur : on fige l'absence qui a conclu.
+		await db
+			.update(findings)
+			.set({ consecutiveMisses: decision.nextMisses })
+			.where(eq(findings.id, row.id));
+		result.autoResolved += 1;
+	}
+
+	if (toCount.length > 0) {
+		// Incrément atomique côté SQL, en un seul aller-retour.
+		await db
+			.update(findings)
+			.set({
+				consecutiveMisses: sql`${findings.consecutiveMisses} + 1`,
+				updatedAt: nowDb()
+			})
+			.where(inArray(findings.id, toCount));
+	}
+
+	return result;
+}

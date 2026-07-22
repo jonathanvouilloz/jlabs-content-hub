@@ -12,14 +12,26 @@
  * Le client drizzle est INJECTÉ : l'app passe son `db`, le runner `scripts/detect.ts`
  * passe son propre Pool (cf. `db/types.ts`).
  *
- * Hors périmètre (assumé) : aucune auto-résolution des findings qui cessent de
- * matcher — le cycle de vie complet (résolution, snooze, réouverture) est FIND-003.
+ * FIND-003 — le détecteur ferme aussi la boucle : la veille échue est réveillée
+ * avant la détection, et l'état persisté est réconcilié après (récidive →
+ * réouverture, absence confirmée → auto-résolution). La réconciliation se fonde
+ * sur la closure COMPLÈTE (`selection.matched`, avant troncature) et n'a lieu que
+ * si le run est AUTORITAIRE — sans observations, une absence ne prouve rien.
  */
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { findings, gscQueryPageObservations, projectProjections } from '../db/schema.js';
 import type { AppDb } from '../db/types.js';
-import { upsertFinding, recordFindingEvent } from '../findings.js';
-import { computePriorityScore, deriveSeverityEventType } from '../finding-state.js';
+import {
+	upsertFinding,
+	recordFindingEvent,
+	expireSnoozes,
+	reconcileDetectionRun
+} from '../findings.js';
+import {
+	computePriorityScore,
+	deriveSeverityEventType,
+	type LifecycleConfig
+} from '../finding-state.js';
 import {
 	DETECTOR_KEYWORD_OPPORTUNITY,
 	KEYWORD_OPPORTUNITY_TYPE,
@@ -52,6 +64,8 @@ export interface DetectorInput {
 	dryRun?: boolean;
 	/** Overrides de seuils explicites (priment sur ceux de la projection projet). */
 	thresholds?: Partial<OpportunityThresholds> | null;
+	/** Overrides du cycle de vie FIND-003 (fenêtres de confirmation, veille). */
+	lifecycle?: Partial<LifecycleConfig> | null;
 }
 
 /** Un finding produit (ou qui l'aurait été en dry-run). */
@@ -98,6 +112,29 @@ export interface DetectorResult {
 	dryRun: boolean;
 	/** Raison d'un run sans résultat (fenêtre absente…), sinon null. */
 	skippedReason: string | null;
+	/** FIND-003 — ce que le cycle de vie a bougé pendant ce run. */
+	lifecycle: LifecycleReport;
+}
+
+/**
+ * Bilan du cycle de vie d'un run. `reconciled = false` dit explicitement que
+ * l'auto-résolution n'a PAS tourné (run non autoritaire ou dry-run) — le runner
+ * l'annonce, comme il annonce la troncature : jamais de silence.
+ */
+export interface LifecycleReport {
+	reconciled: boolean;
+	/** Veilles échues réveillées avant la détection. */
+	snoozeExpired: number;
+	/** Récidives : findings résolus rouverts par le signal. */
+	reopened: number;
+	/** Auto-résolus après N fenêtres consécutives sans match. */
+	autoResolved: number;
+	/** Absents ce tour, sous le seuil de confirmation. */
+	missed: number;
+	/** Intouchés par décision (veille en cours, dismiss à vie). */
+	held: number;
+	/** Taille de la closure : signaux franchissant les seuils, AVANT troncature. */
+	closureSize: number;
 }
 
 // ── Seuils par projet (projection `current`, tolérante à l'absence) ──
@@ -201,6 +238,23 @@ export async function runKeywordOpportunityDetector(
 	const thresholds = resolveThresholds({ ...projectOverrides, ...input.thresholds });
 	const weeks = Math.max(1, Math.floor(input.weeks ?? thresholds.expectedWeeks));
 
+	const lifecycle: LifecycleReport = {
+		reconciled: false,
+		snoozeExpired: 0,
+		reopened: 0,
+		autoResolved: 0,
+		missed: 0,
+		held: 0,
+		closureSize: 0
+	};
+
+	// La veille expire AVANT la détection : un finding réveillé est traité par ce
+	// run comme n'importe quel autre (rafraîchi s'il matche, compté absent sinon).
+	if (!dryRun) {
+		const expired = await expireSnoozes({ projectId }, db);
+		lifecycle.snoozeExpired = expired.reopened.length;
+	}
+
 	const base: DetectorResult = {
 		detectorVersion: DETECTOR_KEYWORD_OPPORTUNITY,
 		projectId,
@@ -214,7 +268,8 @@ export async function runKeywordOpportunityDetector(
 		opportunities: [],
 		counts: { created: 0, refreshed: 0, aggravated: 0, improved: 0 },
 		dryRun,
-		skippedReason: null
+		skippedReason: null,
+		lifecycle
 	};
 
 	const window = buildWindow(await loadAvailableWeeks(db, projectId, weeks), weeks);
@@ -341,6 +396,43 @@ export async function runKeywordOpportunityDetector(
 		opportunities.push({ ...detected, findingId: upserted.id, outcome });
 	}
 
+	// ── FIND-003 — réconciliation ────────────────────────────────────
+	// La closure couvre TOUS les couples franchissant les seuils (`matched`), pas
+	// seulement les 50 écrits : un finding absent d'ici a vraiment cessé de matcher.
+	// On la calcule TOUJOURS (y compris en dry-run, où elle s'annonce sans rien
+	// écrire) ; on ne réconcilie que hors dry-run. On n'arrive ici qu'avec une
+	// fenêtre valide et des observations lues → le run est autoritaire.
+	const closure = new Set(
+		selection.matched.map((c) =>
+			deriveFindingFingerprint({
+				type: KEYWORD_OPPORTUNITY_TYPE,
+				entityType: 'query',
+				entityKey: c.query,
+				discriminators: [c.page]
+			})
+		)
+	);
+	lifecycle.closureSize = closure.size;
+
+	if (!dryRun) {
+		const reconciled = await reconcileDetectionRun(
+			{
+				projectId,
+				type: KEYWORD_OPPORTUNITY_TYPE,
+				closure,
+				detectorVersion: DETECTOR_KEYWORD_OPPORTUNITY,
+				runId: input.runId ?? null,
+				config: input.lifecycle
+			},
+			db
+		);
+		lifecycle.reconciled = true;
+		lifecycle.reopened = reconciled.reopened;
+		lifecycle.autoResolved = reconciled.autoResolved;
+		lifecycle.missed = reconciled.missed;
+		lifecycle.held = reconciled.held;
+	}
+
 	return {
 		...base,
 		window,
@@ -350,7 +442,8 @@ export async function runKeywordOpportunityDetector(
 		excludedByNoise: selection.excludedByNoise,
 		truncated: selection.truncated,
 		opportunities,
-		counts
+		counts,
+		lifecycle
 	};
 }
 

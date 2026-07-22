@@ -1,13 +1,16 @@
 /**
- * DATA-005 — Helpers PURS pour les findings (SPEC §7.6/§7.7/§10).
+ * DATA-005 / FIND-003 — Helpers PURS pour les findings (SPEC §7.6/§7.7/§10).
  *
- * Zéro import (ni db, ni `$env`) → testables en isolation par vitest.
- * Portent les invariants d'acceptation DATA-005 :
- *   - le même problème sur deux semaines conserve le MÊME finding (fingerprint
- *     déterministe = clé d'upsert, en miroir de l'unique posé dans schema.ts) ;
- *   - la priorité est un score explicite et borné (barème §10.2) ;
- *   - une transition d'état/sévérité se traduit par un `event_type` dérivable.
+ * Aucune dépendance db ni `$env` (seul `timestamps.ts`, pur lui aussi) →
+ * testables en isolation par vitest. Portent les invariants d'acceptation :
+ *   - DATA-005 : le même problème sur deux semaines conserve le MÊME finding
+ *     (fingerprint déterministe = clé d'upsert, miroir de l'unique de schema.ts) ;
+ *     la priorité est un score explicite et borné (barème §10.2) ; une transition
+ *     d'état/sévérité se traduit par un `event_type` dérivable ;
+ *   - FIND-003 : le cycle de vie §10.1 (légalité des transitions), l'auto-résolution
+ *     confirmée sur plusieurs fenêtres, et l'expiration de la veille.
  */
+import { toDbTimestamp, toDbTimestampPlus } from './timestamps.js';
 
 // ── Vocabulaire (SPEC §7.6 / §10.4) ─────────────────────────────────
 
@@ -64,7 +67,11 @@ export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
 export const FINDING_ENTITY_TYPES = ['project', 'query', 'page', 'review', 'integration'] as const;
 export type FindingEntityType = (typeof FINDING_ENTITY_TYPES)[number];
 
-/** Types d'événement du journal append-only (SPEC §7.7). */
+/**
+ * Types d'événement du journal append-only (SPEC §7.7). `unsnoozed` (FIND-003)
+ * s'ajoute au catalogue : une veille qui expire n'est pas une « validation », et
+ * la distinguer rend le taux de snooze mesurable (FIND-010).
+ */
 export const FINDING_EVENT_TYPES = [
 	'created',
 	'aggravated',
@@ -73,6 +80,7 @@ export const FINDING_EVENT_TYPES = [
 	'validated',
 	'rejected',
 	'snoozed',
+	'unsnoozed',
 	'reopened',
 	'resolved'
 ] as const;
@@ -197,6 +205,11 @@ export function deriveStatusEventType(
 	toStatus: string
 ): FindingEventType | null {
 	if (fromStatus === toStatus) return null;
+	// Sortie de veille (expiration automatique ou réveil manuel) : événement propre,
+	// jamais confondu avec une validation humaine.
+	if (fromStatus === 'snoozed' && !isTerminalStatus(toStatus) && toStatus !== 'snoozed') {
+		return 'unsnoozed';
+	}
 	switch (toStatus) {
 		case 'resolved':
 			return 'resolved';
@@ -212,3 +225,199 @@ export function deriveStatusEventType(
 			return 'validated';
 	}
 }
+
+// ── FIND-003 — Cycle de vie : légalité, absence, veille ─────────────
+//
+// Trois invariants portés ici (donc testables sans DB) :
+//   1. un problème persistant n'apparaît qu'UNE fois dans l'inbox ;
+//   2. une résolution puis récidive produit une RÉOUVERTURE ;
+//   3. le snooze EXPIRE automatiquement.
+// Décisions produit câblées dans ces fonctions :
+//   - le snooze TIENT (aucune re-détection, aucune aggravation ne le rompt) ;
+//   - le dismiss vaut À VIE pour ce fingerprint (seul un humain rouvre).
+
+/**
+ * Graphe des transitions légales (SPEC §10.1) :
+ *   new → open → acknowledged → planned → in_progress → resolved
+ *                      └──────── dismissed / snoozed
+ *   resolved → reopened si le problème réapparaît
+ *
+ * `reopened` est un état actif à part entière : il se comporte comme `open`.
+ * Une transition absente de cette table est refusée à l'écriture — un statut
+ * incohérent ne doit jamais s'installer en silence.
+ */
+const LEGAL_TRANSITIONS: Record<FindingStatus, readonly FindingStatus[]> = {
+	open: ['acknowledged', 'planned', 'in_progress', 'snoozed', 'dismissed', 'resolved'],
+	reopened: ['acknowledged', 'planned', 'in_progress', 'snoozed', 'dismissed', 'resolved'],
+	acknowledged: ['planned', 'in_progress', 'snoozed', 'dismissed', 'resolved', 'open'],
+	planned: ['in_progress', 'snoozed', 'dismissed', 'resolved', 'acknowledged'],
+	in_progress: ['resolved', 'planned', 'snoozed', 'dismissed'],
+	// Sortie de veille : retour à l'état actif (expiration ou réveil manuel), ou
+	// décision terminale prise pendant la veille.
+	snoozed: ['open', 'acknowledged', 'planned', 'in_progress', 'dismissed', 'resolved'],
+	// Récidive d'un problème résolu → réouverture (acceptation 2).
+	resolved: ['reopened', 'open'],
+	// Le dismiss vaut à vie : SEULE une réouverture explicite (humaine) le défait.
+	dismissed: ['reopened', 'open']
+};
+
+/** Vrai si la transition `from → to` est légale (SPEC §10.1). */
+export function canTransition(from: string, to: string): boolean {
+	if (from === to) return false;
+	const allowed = LEGAL_TRANSITIONS[from as FindingStatus];
+	if (!allowed) return false;
+	return (allowed as readonly string[]).includes(to);
+}
+
+/** Statuts « actifs » : présents dans l'inbox, susceptibles d'être réconciliés. */
+export const ACTIVE_STATUSES = [
+	'open',
+	'reopened',
+	'acknowledged',
+	'planned',
+	'in_progress'
+] as const;
+
+/** Vrai si le finding occupe l'inbox (ni terminal, ni en veille). */
+export function isActiveStatus(status: string): boolean {
+	return (ACTIVE_STATUSES as readonly string[]).includes(status);
+}
+
+// ── Configuration du cycle de vie (par projet) ──────────────────────
+
+export interface LifecycleConfig {
+	/**
+	 * Fenêtres CONSÉCUTIVES sans match avant auto-résolution. ≥ 2 par défaut :
+	 * une seule absence peut venir d'une collecte partielle, pas d'une guérison
+	 * (SPEC §10.3 « persistance sur plusieurs fenêtres »).
+	 */
+	autoResolveAfterMisses: number;
+	/** Durée par défaut d'une mise en veille, en jours. */
+	defaultSnoozeDays: number;
+}
+
+export const LIFECYCLE_DEFAULTS: LifecycleConfig = {
+	autoResolveAfterMisses: 2,
+	defaultSnoozeDays: 14
+};
+
+/**
+ * Fusionne des overrides projet aux défauts. Même idiome tolérant que
+ * `resolveThresholds` (detector-state.ts) : une valeur non finie ou hors bornes
+ * retombe sur le défaut plutôt que de casser la réconciliation — un override
+ * corrompu ne doit jamais fermer l'inbox d'un coup (`autoResolveAfterMisses = 0`).
+ */
+export function resolveLifecycleConfig(
+	overrides?: Partial<LifecycleConfig> | null
+): LifecycleConfig {
+	const out = { ...LIFECYCLE_DEFAULTS };
+	if (!overrides) return out;
+	for (const key of Object.keys(LIFECYCLE_DEFAULTS) as (keyof LifecycleConfig)[]) {
+		const value = overrides[key];
+		if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+		const rounded = Math.floor(value);
+		if (rounded < 1) continue; // 0 ou négatif = absurde → défaut
+		out[key] = rounded;
+	}
+	return out;
+}
+
+// ── Décisions de réconciliation ─────────────────────────────────────
+
+/** Ce qu'on fait d'un finding REDÉTECTÉ (présent dans la closure du run). */
+export type RedetectionDecision = 'reopen' | 'refresh' | 'hold';
+
+/**
+ * Le problème est toujours là :
+ *   - `resolved` → **reopen** (acceptation 2 : récidive = réouverture) ;
+ *   - `dismissed` → **hold** — le dismiss vaut à vie ; `occurrence_count` monte
+ *     quand même (matière première de la mesure de faux positifs, FIND-010) mais
+ *     le finding ne remonte jamais seul dans l'inbox ;
+ *   - `snoozed` → **hold** — le snooze est une promesse de silence : rien ne le
+ *     rompt avant son échéance, pas même une aggravation (qui reste journalisée) ;
+ *   - actif → **refresh** (l'upsert a déjà rafraîchi scores et preuves).
+ */
+export function decideOnRedetection(status: string): RedetectionDecision {
+	if (status === 'resolved') return 'reopen';
+	if (status === 'dismissed' || status === 'snoozed') return 'hold';
+	return 'refresh';
+}
+
+/** Ce qu'on fait d'un finding ABSENT de la closure d'un run autoritaire. */
+export interface AbsenceDecision {
+	/** `resolve` = seuil atteint · `count` = une absence de plus · `skip` = intouchable. */
+	action: 'resolve' | 'count' | 'skip';
+	/** Valeur à persister dans `consecutive_misses` (inchangée si `skip`). */
+	nextMisses: number;
+}
+
+/**
+ * Le problème ne se manifeste plus. On ne résout qu'après
+ * `autoResolveAfterMisses` fenêtres consécutives — jamais sur une seule absence.
+ * Les findings en veille, dismissés ou déjà terminaux ne sont pas touchés : une
+ * absence n'est pas une raison de rompre une veille ni de réécrire une décision
+ * humaine.
+ */
+export function decideOnAbsence(input: {
+	status: string;
+	consecutiveMisses: number;
+	config?: Partial<LifecycleConfig> | null;
+}): AbsenceDecision {
+	const current = Number.isFinite(input.consecutiveMisses)
+		? Math.max(0, Math.floor(input.consecutiveMisses))
+		: 0;
+	if (!isActiveStatus(input.status)) return { action: 'skip', nextMisses: current };
+
+	const { autoResolveAfterMisses } = resolveLifecycleConfig(input.config);
+	const next = current + 1;
+	return next >= autoResolveAfterMisses
+		? { action: 'resolve', nextMisses: next }
+		: { action: 'count', nextMisses: next };
+}
+
+// ── Veille (snooze) ─────────────────────────────────────────────────
+
+/** Millisecondes d'un jour — unité des échéances de veille. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Échéance d'une veille de `days` jours, au format DB (comparable lexicalement
+ * aux colonnes `text`, cf. `timestamps.ts`). `from` est passé explicitement →
+ * déterministe et testable. Une durée absurde (0, négative, non finie) retombe
+ * sur le défaut : une veille mal saisie ne doit pas expirer immédiatement.
+ */
+export function computeSnoozeUntil(input: {
+	days?: number | null;
+	from?: Date | string;
+}): string {
+	const raw = input.days;
+	const days =
+		typeof raw === 'number' && Number.isFinite(raw) && raw >= 1
+			? Math.floor(raw)
+			: LIFECYCLE_DEFAULTS.defaultSnoozeDays;
+	return toDbTimestampPlus(days * DAY_MS, input.from ?? new Date());
+}
+
+/**
+ * Vrai si la veille est échue à `now`. Une échéance absente = veille sans terme →
+ * traitée comme expirée : un `snoozed` sans `snoozed_until` est une anomalie
+ * qu'on préfère réveiller plutôt que laisser dormir pour toujours.
+ * La comparaison porte sur deux chaînes AU MÊME FORMAT DB, donc lexicographiquement
+ * sûre — c'est toute la raison de la discipline `toDbTimestamp` à l'écriture.
+ */
+export function isSnoozeExpired(
+	snoozedUntil: string | null | undefined,
+	now: Date | string
+): boolean {
+	if (!snoozedUntil) return true;
+	return snoozedUntil <= toDbTimestamp(now);
+}
+
+// ── Causes canoniques des transitions automatiques ──────────────────
+// Toute transition porte une cause lisible (acceptation DATA-005) ; celles que la
+// machine décide seule ont une formulation figée, repérable dans le journal.
+
+export const AUTO_RESOLUTION_REASON =
+	'auto-résolu : le signal ne franchit plus les seuils du détecteur';
+export const SNOOZE_EXPIRED_REASON = 'veille expirée : le finding revient dans l’inbox';
+export const RECURRENCE_REASON = 'récidive : le signal franchit de nouveau les seuils du détecteur';

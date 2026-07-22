@@ -8,6 +8,7 @@
  * Lancer (un passage)  : npx tsx scripts/worker.ts --once
  * Lancer (en continu)  : npx tsx scripts/worker.ts
  * Mettre un job en file: npx tsx scripts/worker.ts --enqueue=<slug> [--weeks=4]
+ *                        npx tsx scripts/worker.ts --enqueue=<slug> --job=lifecycle
  * Options              : --types=a,b  --lease-ms=300000  --poll-ms=2000  --max-jobs=N
  *
  * Ctrl-C = arrêt gracieux : plus aucune réclamation, le job en cours est terminé
@@ -21,7 +22,11 @@ import { hostname } from 'node:os';
 import ws from 'ws';
 import * as schema from '../src/lib/server/db/schema.js';
 import type { AppDb } from '../src/lib/server/db/types.js';
-import { runWorker, JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY } from '../src/lib/server/job-runner.js';
+import {
+	runWorker,
+	JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
+	JOB_TYPE_FINDINGS_LIFECYCLE
+} from '../src/lib/server/job-runner.js';
 import { deriveWorkerId } from '../src/lib/server/job-state.js';
 import { enqueueJob } from '../src/lib/server/monitoring.js';
 import { deriveIdempotencyKey } from '../src/lib/server/monitoring-state.js';
@@ -37,6 +42,7 @@ const args = process.argv.slice(2);
 const arg = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
 const ONCE = args.includes('--once');
 const ENQUEUE = arg('enqueue');
+const JOB = arg('job'); // 'lifecycle' | défaut : détection
 const WEEKS = Number(arg('weeks') ?? 4);
 const TYPES = arg('types')?.split(',').filter(Boolean);
 const LEASE_MS = Number(arg('lease-ms') ?? 300_000);
@@ -46,8 +52,8 @@ const MAX_JOBS = Number(arg('max-jobs') ?? 0);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema }) as unknown as AppDb;
 
-/** Met en file une détection pour un projet (clé d'idempotence = pas de doublon). */
-async function enqueueDetection(slug: string): Promise<void> {
+/** Met un job en file pour un projet (clé d'idempotence = pas de doublon). */
+async function enqueueForProject(slug: string, jobType: string): Promise<void> {
 	const rows = await db
 		.select({ id: schema.projects.id, slug: schema.projects.slug })
 		.from(schema.projects)
@@ -58,12 +64,12 @@ async function enqueueDetection(slug: string): Promise<void> {
 	const res = await enqueueJob(
 		{
 			projectId: rows[0].id,
-			type: JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
+			type: jobType,
 			idempotencyKey: deriveIdempotencyKey({
 				runType: 'manual',
 				projectSlug: rows[0].slug,
 				periodEnd: today,
-				stepType: JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
+				stepType: jobType,
 				schemaVersion: 1
 			}),
 			payloadJson: JSON.stringify({ weeks: WEEKS }),
@@ -73,14 +79,18 @@ async function enqueueDetection(slug: string): Promise<void> {
 	);
 	console.log(
 		res.created
-			? `Job de détection mis en file pour "${slug}" (${res.id}).`
-			: `Job déjà en file pour "${slug}" (${res.id}) — clé d'idempotence identique.`
+			? `Job "${jobType}" mis en file pour "${slug}" (${res.id}).`
+			: `Job "${jobType}" déjà en file pour "${slug}" (${res.id}) — clé d'idempotence identique.`
 	);
 }
 
 async function main() {
 	if (ENQUEUE) {
-		await enqueueDetection(ENQUEUE);
+		// --job=lifecycle : expiration des veilles (FIND-003), sans détection.
+		await enqueueForProject(
+			ENQUEUE,
+			JOB === 'lifecycle' ? JOB_TYPE_FINDINGS_LIFECYCLE : JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY
+		);
 		await pool.end();
 		return;
 	}

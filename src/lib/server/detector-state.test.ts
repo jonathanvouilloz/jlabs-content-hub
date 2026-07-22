@@ -209,6 +209,27 @@ describe('selectOpportunities (signal §10.4)', () => {
 		expect(capped.truncated).toBe(true);
 		expect(capped.totalMatched).toBe(3);
 	});
+
+	// FIND-003 — invariant n°1 : la closure du run survit à la troncature.
+	it('`matched` reste COMPLET quand `candidates` est tronqué', () => {
+		const pairs = aggregateWindow([
+			obs({ id: 'a', query: 'petit', impressions: 100, clicks: 0, position: 7 }),
+			obs({ id: 'b', query: 'gros', impressions: 900, clicks: 0, position: 7 }),
+			obs({ id: 'c', query: 'moyen', impressions: 400, clicks: 0, position: 7 })
+		]);
+		const capped = selectOpportunities(pairs, { ...t, maxCandidates: 1 });
+		expect(capped.candidates.map((c) => c.query)).toEqual(['gros']);
+		// Auto-résoudre depuis `candidates` fermerait « petit » et « moyen » alors
+		// qu'ils franchissent toujours les seuils.
+		expect(capped.matched.map((c) => c.query)).toEqual(['gros', 'moyen', 'petit']);
+		expect(capped.matched).toHaveLength(capped.totalMatched);
+	});
+
+	it('sans troncature, `matched` et `candidates` coïncident', () => {
+		const pairs = aggregateWindow([obs({ id: 'a', impressions: 500, clicks: 5, position: 7 })]);
+		const res = selectOpportunities(pairs, t);
+		expect(res.matched).toEqual(res.candidates);
+	});
 });
 
 describe('scoreOpportunity + computePriorityScore (§10.2)', () => {

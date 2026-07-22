@@ -137,6 +137,7 @@ async function detectProject(project: { id: string; slug: string; name: string }
 					window: res.window,
 					observationsRead: res.observationsRead,
 					counts: res.counts,
+					lifecycle: res.lifecycle,
 					skippedReason: res.skippedReason
 				})
 			},
@@ -167,6 +168,7 @@ async function detectProject(project: { id: string; slug: string; name: string }
 function report(res: Awaited<ReturnType<typeof runKeywordOpportunityDetector>>): void {
 	if (res.skippedReason) {
 		console.log(`  ⏭  ${res.skippedReason}`);
+		reportLifecycle(res);
 		return;
 	}
 	const w = res.window!;
@@ -224,6 +226,32 @@ function report(res: Awaited<ReturnType<typeof runKeywordOpportunityDetector>>):
 				`${c.aggravated} aggravés · ${c.improved} améliorés`
 		);
 	}
+	reportLifecycle(res);
+}
+
+/**
+ * Cycle de vie (FIND-003). Comme la troncature, une réconciliation SAUTÉE se dit :
+ * sans elle, un finding qui a cessé de matcher reste ouvert, et l'inbox ment.
+ */
+function reportLifecycle(res: Awaited<ReturnType<typeof runKeywordOpportunityDetector>>): void {
+	const l = res.lifecycle;
+	if (l.snoozeExpired > 0) {
+		console.log(`  ⏰ ${l.snoozeExpired} veille(s) échue(s) → findings réveillés.`);
+	}
+	if (!l.reconciled) {
+		console.log(
+			`  ⚠ cycle de vie NON réconcilié (${res.dryRun ? 'dry-run' : 'run non autoritaire'}) : ` +
+				`aucune auto-résolution, aucune réouverture` +
+				(l.closureSize > 0 ? ` (closure qui aurait servi : ${l.closureSize} signaux)` : '') +
+				`.`
+		);
+		return;
+	}
+	console.log(
+		`  cycle de vie : ${l.autoResolved} auto-résolu(s) · ${l.reopened} rouvert(s) · ` +
+			`${l.missed} absent(s) sous le seuil · ${l.held} maintenu(s) (veille/dismiss) ` +
+			`· closure ${l.closureSize} signal(aux)`
+	);
 }
 
 async function main() {

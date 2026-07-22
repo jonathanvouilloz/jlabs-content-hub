@@ -1083,6 +1083,12 @@ export const findings = seostats.table(
 		lastSeenAt: text('last_seen_at').notNull().default(nowText),
 		resolutionReason: text('resolution_reason'),
 		resolvedAt: text('resolved_at'),
+		// ── FIND-003 — cycle de vie (auto-résolution, snooze, réouverture) ──
+		snoozedUntil: text('snoozed_until'), // échéance de la veille (format DB, cf. timestamps.ts)
+		snoozeReason: text('snooze_reason'), // cause de la mise en veille
+		consecutiveMisses: integer('consecutive_misses').notNull().default(0), // fenêtres consécutives sans match
+		reopenCount: integer('reopen_count').notNull().default(0), // récidives (signal qualité FIND-010)
+		dismissalCategory: text('dismissal_category'), // false_positive|wont_fix|by_design|duplicate
 		createdAt: text('created_at').notNull().default(nowText),
 		updatedAt: text('updated_at').notNull().default(nowText)
 	},
@@ -1090,7 +1096,11 @@ export const findings = seostats.table(
 		uniqueIndex('findings_fingerprint_unique').on(table.projectId, table.fingerprint), // dédup
 		index('idx_findings_project_status').on(table.projectId, table.status),
 		index('idx_findings_project_severity').on(table.projectId, table.severity),
-		index('idx_findings_status').on(table.status) // inbox cross-projet
+		index('idx_findings_status').on(table.status), // inbox cross-projet
+		// Expiration de veille : index PARTIEL — la passe ne scanne jamais toute la table.
+		index('idx_findings_snoozed_until')
+			.on(table.snoozedUntil)
+			.where(sql`status = 'snoozed'`)
 	]
 );
 

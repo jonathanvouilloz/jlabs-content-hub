@@ -4,6 +4,78 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (FIND-003 — cycle de vie : l'inbox se vide toute seule)
+
+**Fait :** l'inbox devient crédible. Jusqu'ici un finding naissait `open` et y restait **pour
+toujours** — rien ne le fermait quand le problème disparaissait, rien ne le rouvrait quand il
+récidivait, rien ne permettait de le mettre en veille ni de dire « faux positif ». **Aucune table
+créée** (55 tables, zéro dérive) : 5 colonnes additives sur `findings`.
+
+- **Contrainte de correction n°1 — la troncature.** `maxCandidates=50` mord déjà (barberconcept :
+  **1310** couples franchissent les seuils pour 50 écrits). Un finding absent des 50 **écrits** n'a
+  rien prouvé. → la **closure** d'un run se fonde sur `selection.matched` (liste **complète**, avant
+  troncature), jamais sur `candidates`. `selectOpportunities` expose désormais les deux ; un test
+  vitest dédié protège l'invariant. Vérifié en réel : jonlabs closure 10 = 10 écrits, barberconcept
+  closure **1310** pour 50 écrits (le dry-run l'annonce).
+- **Deux autres gardes** : (a) **run non autoritaire = aucune réconciliation** (fenêtre absente ou
+  zéro observation → un projet sans donnée ne vide pas son inbox), le runner le **dit** ; (b)
+  **confirmation multi-fenêtres** (SPEC §10.3) — une seule absence ne résout pas, il en faut
+  `autoResolveAfterMisses` **consécutives** (défaut 2, configurable par projet).
+- **Purs (`finding-state.ts`)** : `canTransition` (matrice de légalité du graphe §10.1, gardée à
+  l'écriture — un statut incohérent ne s'installe jamais en silence), `decideOnRedetection`,
+  `decideOnAbsence`, `isSnoozeExpired`/`computeSnoozeUntil`, `resolveLifecycleConfig` (idiome tolérant
+  de `resolveThresholds` : un override corrompu retombe sur le défaut plutôt que de fermer l'inbox
+  d'un coup), `ACTIVE_STATUSES`/`isActiveStatus`. Nouvel `event_type` **`unsnoozed`** : une veille qui
+  expire n'est pas une « validation » (assertion existante mise à jour).
+- **IO (`findings.ts`)**, tout construit sur le `transitionFinding` **existant** : `snoozeFinding`,
+  `dismissFinding`, `reopenFinding`, `expireSnoozes` (borné par l'index partiel) et
+  **`reconcileDetectionRun`** (deux directions, une seule lecture : récidive → réouverture ; absence
+  confirmée → auto-résolution ; veille et dismiss intouchés). `transitionFinding` porte désormais tous
+  les effets de bord du cycle de vie (pose/efface l'échéance de veille, remet `consecutive_misses` à
+  zéro au retour à l'actif, incrémente `reopen_count`) → aucun appelant ne peut les oublier.
+- **Câblage** : le détecteur réveille les veilles échues **avant** la détection et réconcilie
+  **après** ; `DetectorResult.lifecycle` est observable sans lire la DB et remonte dans le
+  `monitoring_step`. Nouveau type de job **`findings:lifecycle`** (expiration seule) : une veille doit
+  expirer même les semaines sans détection, sinon le snooze devient un enterrement.
+- Vérif : `npm run test` = **264/264** (+33) · `npm run check` = **0 err / 42 warn** (baseline) · DDL
+  appliqué sur Neon (**5/5 colonnes + index partiel**) · introspection = **55 tables, zéro dérive** ·
+  **`scripts/find-003-lifecycle-proof.ts` = 37/37 vertes sur Neon** (nettoie ses propres lignes) ·
+  détection réelle rejouée sur les 3 projets peuplés → **0 auto-résolution abusive**, les 13 findings
+  matchent toujours leur closure · chaîne `queue → worker → expireSnoozes` démontrée.
+
+**Décisions produit (validées avec Jonathan).** **Le snooze tient** : aucune aggravation ne le rompt
+(elle reste journalisée) — un snooze est une promesse de silence, seule l'échéance le lève. **Le
+dismiss vaut à vie** pour ce fingerprint : `occurrence_count` continue de monter (matière première de
+la mesure de faux positifs, FIND-010) mais le finding ne remonte **jamais** seul dans l'inbox — seul
+`reopenFinding` (humain) le défait.
+
+**Acceptations couvertes.** (1) « un problème persistant n'apparaît qu'une fois » : unique
+`(project_id, fingerprint)` + upsert, prouvé en base (2 détections → 1 ligne, `occurrence_count` 2) ;
+(2) « une résolution puis récidive produit une réouverture » : `resolved` → `reopened`, `reopen_count`
+incrémenté, `resolved_at`/cause effacés, journal `resolved` puis `reopened` ; (3) « le snooze expire
+automatiquement » : `expireSnoozes` → `open` + événement `unsnoozed`, échéance et cause effacées.
+Débloque **FIND-010**, **DASH-004**, **REP-001** et **AGT-005C**.
+
+**Prochain :** **JOB-002** (renouvellement de bail, détection de worker mort, remise en queue), puis
+l'**agent réel** qui lit ces findings et produit des `action_proposals` gouvernées par les policies
+DATA-007. L'inbox UI (E11) reste à faire : les findings vivent maintenant leur cycle, rien ne les
+affiche encore.
+
+**Pièges :**
+- **Ne jamais réconcilier depuis `candidates`** (tronqué) : c'est `matched` qui fait foi. Tout futur
+  détecteur qui plafonne ses écritures doit exposer sa liste complète, sinon il fermera des findings
+  bien vivants.
+- **`expireSnoozes` renvoie en `open`**, pas au statut d'avant la veille (un `acknowledged` mis en
+  veille revient `open`). Assumé : le journal garde l'historique, l'inbox reste simple.
+- Un finding **déjà `resolved` et toujours absent** n'est pas compté comme « maintenu » (`held` ne
+  compte que les décisions actives : veille et dismiss) — sinon le compteur enflerait sans fin.
+- `transitionFinding` **refuse** désormais une transition illégale (throw). Les appelants futurs
+  doivent passer par le graphe §10.1, pas écrire `status` à la main.
+- La cartographie compare les **tables**, pas les colonnes : `scripts/apply-find-003.ts` vérifie
+  lui-même les 5 colonnes + l'index.
+
+---
+
 ## Etat session 2026-07-22 (FIND-001/FIND-004 + JOB-001 — la chaîne agentique tourne)
 
 **Fait :** premier lot NON-données de E00 — la couche DATA produit enfin de la donnée de
@@ -540,6 +612,10 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/finding-state.ts` | Purs DATA-005 **+ FIND-003** : fingerprint, scoring §10.2, dérivation d'événements (dont `unsnoozed`), **`canTransition`** (graphe §10.1), `decideOnRedetection`/`decideOnAbsence`, `isSnoozeExpired`/`computeSnoozeUntil`, `resolveLifecycleConfig`, `ACTIVE_STATUSES`. |
+| `src/lib/server/findings.ts` | DATA-005 **+ FIND-003** : `upsertFinding`, `recordFindingEvent`, `transitionFinding` (légalité + effets de bord du cycle de vie), `snoozeFinding`/`dismissFinding`/`reopenFinding`, `expireSnoozes`, **`reconcileDetectionRun`**. |
+| `scripts/apply-find-003.ts` + `drizzle/manual-find-003.sql` | DDL additif FIND-003 (5 colonnes de cycle de vie sur `findings` + index partiel d'expiration de veille) ; vérifie colonnes ET index. |
+| `scripts/find-003-lifecycle-proof.ts` | Preuve du cycle de vie sur Neon (37 vérifs : persistance, auto-résolution confirmée, récidive, expiration de veille, snooze et dismiss qui tiennent, transition illégale refusée) ; nettoie ses propres lignes. |
 | `src/lib/server/detector-state.ts` | Purs FIND-001/004 : `buildWindow`/`areWindowsComparable` (fenêtres hebdo comparables), `aggregateWindow` (position pondérée), `selectOpportunities` (+ bruit configuré, troncature reportée), `scoreOpportunity` (composantes §10.2), `deriveOpportunitySeverity` (plafond faible volume), `buildOpportunityEvidence` (pointeurs). |
 | `src/lib/server/detector-state.test.ts` | Vitest FIND-001/004 — 35 tests (rejouabilité, pondération, seuils, confiance dégradée, plafond de sévérité, preuves). |
 | `src/lib/server/detectors/keyword-opportunity.ts` | IO du détecteur : lit les observations, écrit findings + événements, seuils par projet (projection), client db injecté. |
@@ -591,6 +667,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
+- **FIND-003** : la closure d'un run = **`selection.matched` complet**, jamais la liste tronquée
+  écrite — sinon la troncature ferme des findings vivants (1310 vs 50 chez barberconcept). Une
+  réconciliation n'a lieu que sur un run **autoritaire**, et une absence isolée ne résout jamais
+  (confirmation sur N fenêtres consécutives, §10.3). **Le snooze tient** jusqu'à son échéance
+  (aggravation journalisée mais sans effet) et **le dismiss vaut à vie** (seul un humain rouvre) :
+  la machine ne réécrit pas une décision humaine. Les effets de bord du cycle de vie vivent **dans
+  `transitionFinding`** (pas chez l'appelant) et la légalité du graphe §10.1 est **gardée à
+  l'écriture**. L'expiration de veille a son **propre type de job** : elle ne dépend pas d'un run de
+  détection.
 - **FIND-001/FIND-004** : le détecteur est **pur + IO**, jamais un script monolithique — la logique
   testée par vitest, l'IO réduit à lire/écrire. **Fenêtre = semaines complètes présentes** (les
   observations sont hebdo), et deux fenêtres de longueurs différentes ne se comparent jamais

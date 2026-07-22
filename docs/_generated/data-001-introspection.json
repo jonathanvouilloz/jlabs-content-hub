@@ -1,5 +1,5 @@
 {
-  "stamp": "post-find-001",
+  "stamp": "post-find-003",
   "schemas": [
     "seostats",
     "core"
@@ -1502,6 +1502,36 @@
           "type": "text",
           "nullable": false,
           "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "snoozed_until",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "snooze_reason",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "consecutive_misses",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "reopen_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "dismissal_category",
+          "type": "text",
+          "nullable": true,
+          "default": null
         }
       ],
       "primaryKey": [
@@ -1537,6 +1567,7 @@
         "findings_pkey",
         "idx_findings_project_severity",
         "idx_findings_project_status",
+        "idx_findings_snoozed_until",
         "idx_findings_status"
       ]
     },

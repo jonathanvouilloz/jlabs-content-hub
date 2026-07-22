@@ -19,6 +19,7 @@ import { log } from './log.js';
 import { claimJob, completeJob, failJob, releaseJob, type ClaimedJob } from './jobs-claim.js';
 import { DEFAULT_LEASE_MS, NO_HANDLER_ERROR_CODE, type WorkerTickOutcome } from './job-state.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
+import { expireSnoozes } from './findings.js';
 
 const logger = log('worker');
 
@@ -33,6 +34,13 @@ export type JobHandler = (ctx: JobContext) => Promise<void>;
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
+
+/**
+ * FIND-003 — expiration des veilles. Job À PART du détecteur : une veille doit
+ * expirer même les semaines où aucune détection ne tourne (sans quoi le snooze
+ * deviendrait un enterrement).
+ */
+export const JOB_TYPE_FINDINGS_LIFECYCLE = 'findings:lifecycle';
 
 /** Job sans effet, utilisé par le test de concurrence et les fumigations. */
 export const JOB_TYPE_NOOP = 'noop';
@@ -60,6 +68,22 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					created: res.counts.created,
 					refreshed: res.counts.refreshed,
 					truncated: res.truncated
+				});
+			}
+		],
+		[
+			JOB_TYPE_FINDINGS_LIFECYCLE,
+			async ({ db, job }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await expireSnoozes(
+					{ projectId: (payload.projectId as string) ?? job.projectId },
+					db
+				);
+				logger.info('veilles expirées', {
+					jobId: job.id,
+					projectId: job.projectId,
+					reopened: res.reopened.length,
+					stillSnoozed: res.stillSnoozed
 				});
 			}
 		],
