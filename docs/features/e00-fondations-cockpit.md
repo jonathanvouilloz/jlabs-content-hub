@@ -107,6 +107,8 @@ L'inbox UI (E11) reste à faire.
   **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` est **planifiable mais
   sans handler** (E03) : ne pas l'enfiler en production, il mourrait en `NoHandlerRegistered`.
 
+**Commit :** `2ea6974` [hub] add: JOB-005 scheduler timezone-aware + tick horaire qui draine la file
+
 ---
 
 ## Etat session 2026-07-22 (JOB-007 — la file cesse d'être invisible)
@@ -1031,6 +1033,12 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/schedule-state.ts`** | **Purs JOB-005** : cadences (`SCHEDULE_CADENCES`, `SCHEDULE_DEFAULTS` — hebdo lundi 09:00 §8.1), `zoneOffsetMs`/`utcToZonedFields`/**`zonedFieldsToUtc`** (les deux offsets testés → heure inexistante qui **glisse**, heure doublée résolue à la première), **`formatLocalSlot`** (la clé d'occurrence, LOCALE), `dueOccurrences`/`nextOccurrence`, `resolveScheduleConfig` (tolérant), **`SCHEDULE_CATALOG`** (cadence → jobs), `postPublishSlots`. `Intl` seul, aucune dépendance. |
+| **`src/lib/server/schedule-state.test.ts`** | **Vitest JOB-005 — 38 tests**, dont les **deux bascules DST** (2026-03-29 : 02:30 inexistant → 03:30, lundi 09:00 = 08:00 puis 07:00 UTC · 2026-10-25 : 02:30 doublé → une seule occurrence, journée de 25 h sans créneau sauté) et l'invariant « chaque occurrence est rattrapée par le tick horaire qui la suit ». |
+| **`src/lib/server/scheduler.ts`** | **IO JOB-005** : `planDueJobs` (occurrences dues sur une fenêtre de rattrapage, `createRun` + `enqueueJob` avec la clé du **créneau local**, isolation par projet, `catalog` substituable pour les preuves), `listNextOccurrences` (**calculée**, jamais persistée), `loadProjectScheduleConfig` (projection `payload.schedules`), `schedulePostPublish` (J+3/J+7/J+28 via `available_at`). **Aucune table.** |
+| **`src/routes/api/cron/tick/+server.ts`** | **Le battement** (`0 * * * *`, `maxDuration: 300`) : planifie **puis** draine (`runWorker({once})`, budget 240 s via `AbortController`, reaper inclus). Bearer `CRON_SECRET`. 500 si une moitié tombe — un cron toujours vert ne remonte dans aucune alerte. |
+| **`scripts/schedule.ts`** | Runner JOB-005 **dry-run par défaut** (`--execute`, `--now=<ISO>` pour rejouer une date DST, `--project`, `--lookback-hours`, `--next-only`) : occurrences dues + **prochaine exécution par projet** en heure métier ET en UTC. |
+| **`scripts/job-005-schedule-proof.ts`** | **Preuve JOB-005 sur Neon (33 vérifs)** : idempotence du créneau (restart et tick en retard), les deux régimes DST écrits en base, chaîne planifier→réclamer→`succeeded`, prochaine exécution par projet, post-publication. Catalogue **substitué** (`__test_schedule:<runId>`) pour ne pas déclencher de vraie détection ; nettoyage enfants d'abord, **`monitoring_steps` compris**. |
 | `src/lib/server/finding-state.ts` | Purs DATA-005 **+ FIND-003** : fingerprint, scoring §10.2, dérivation d'événements (dont `unsnoozed`), **`canTransition`** (graphe §10.1), `decideOnRedetection`/`decideOnAbsence`, `isSnoozeExpired`/`computeSnoozeUntil`, `resolveLifecycleConfig`, `ACTIVE_STATUSES`. |
 | `src/lib/server/findings.ts` | DATA-005 **+ FIND-003** : `upsertFinding`, `recordFindingEvent`, `transitionFinding` (légalité + effets de bord du cycle de vie), `snoozeFinding`/`dismissFinding`/`reopenFinding`, `expireSnoozes`, **`reconcileDetectionRun`**. |
 | `scripts/apply-find-003.ts` + `drizzle/manual-find-003.sql` | DDL additif FIND-003 (5 colonnes de cycle de vie sur `findings` + index partiel d'expiration de veille) ; vérifie colonnes ET index. |
@@ -1044,7 +1052,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | **`src/lib/server/job-retry.ts`** | **Purs JOB-003** : `classifyJobFailure` (**raison avant statut** — 403+quota Google, 400+`invalid_grant`), `parseRetryAfter`/`extractRetryAfterMs` (plafond 6 h), `applyJitter` (`random` **injecté**), `RETRY_DEFAULTS` par classe, `decideRetry` (retry / defer / dead + `deadReason`). |
 | **`src/lib/server/job-retry.test.ts`** | **Vitest JOB-003 — 55 tests** (table de classification, priorité raison>statut, Retry-After, bornes et déterminisme du jitter, les 4 classes, les deux plafonds). |
 | `src/lib/server/jobs-claim.ts` | JOB-001 + JOB-003 + **JOB-007** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, `deferJob` (quota : tentative rendue), `requeueDeadJob` (transactionnel, journalise la reprise), `listDeadJobs`, **`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`** (lecture de la console) et **`cancelJob`** (transactionnel : retire le bail, clôt la tentative ouverte, écrit la ligne d'audit). |
-| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` dans les compteurs. |
+| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** + **JOB-005** — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` ; **`concludeRunStep`** écrit le step et recalcule le run **aux seules issues terminales** (sans quoi un run planifié restait `queued` à vie), non bloquante. |
 | `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
 | `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; **type unique par exécution** + nettoyage enfants-d'abord (corrigé en JOB-003). |
 | **`scripts/job-003-retry-proof.ts`** | **Preuve JOB-003 sur Neon (44 vérifs)** : 5xx replanifié/jitté, 429 reporté (tentative rendue, Retry-After honoré), 403-quota Google ≠ 403 structurel, dead-letter immédiat, plafond de reports, reprise manuelle avec historique intact ; nettoie ses propres lignes. |
@@ -1052,8 +1060,8 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/jobs-inspect.ts` | Chronologie d'un job et vue dead-letter en CLI (`--job`, `--project`, `--status`, `--dead`, `--class`) ; **libellés importés de `utils/job-format.ts`** depuis JOB-007 — mêmes mots que la console. |
 | **`src/lib/server/job-console.ts`** | **Purs JOB-007 (serveur)** : `normalizeJobFilters` (l'URL réduite au vocabulaire connu **avant** toute requête), `canCancelJob`/`canRequeueJob` (légalité des actions, miroir des gardes SQL), **`explainFailure`** (classe d'erreur → verdict + action + `willRepeat`). |
 | **`src/lib/server/job-console.test.ts`** | **Vitest JOB-007 — 22 tests** (filtres hostiles écartés, pagination bornée, matrice d'annulation/reprise, les 4 classes expliquées, annulation ≠ échec). |
-| **`src/lib/utils/job-format.ts`** (+ `.test.ts`) | **Libellés et formats partagés CLI ↔ console** — `OUTCOME_LABEL`/`CLASS_LABEL`/`KIND_LABEL`/`STATUS_LABEL`, `formatDbTimestamp`/`formatDbTime`/`formatDuration`/`formatRelative` (`now` injecté), `parseDbTimestamp` (**UTC explicite**). Dans `utils/` parce qu'une page Svelte ne peut pas importer `$lib/server`. 9 tests. |
-| **`src/routes/(app)/jobs/+page.server.ts` + `+page.svelte`** | **La file** : filtres normalisés côté serveur, `listJobs`/`countJobs`/`countJobsByStatus`, compteurs cliquables par statut, table dense, pagination ; `now` serveur passé à la page (jamais l'horloge du navigateur). |
+| **`src/lib/utils/job-format.ts`** (+ `.test.ts`) | **Libellés et formats partagés CLI ↔ console** — `OUTCOME_LABEL`/`CLASS_LABEL`/`KIND_LABEL`/`STATUS_LABEL`, **`CADENCE_LABEL`** (JOB-005), `formatDbTimestamp`/`formatDbTime`/`formatDuration`/`formatRelative` (`now` injecté), `parseDbTimestamp` (**UTC explicite**), **`formatScheduleSlot`** (créneau LOCAL, jamais reconverti). Dans `utils/` parce qu'une page Svelte ne peut pas importer `$lib/server`. 11 tests. |
+| **`src/routes/(app)/jobs/+page.server.ts` + `+page.svelte`** | **La file** : filtres normalisés côté serveur, `listJobs`/`countJobs`/`countJobsByStatus`, compteurs cliquables par statut, table dense, pagination ; `now` serveur passé à la page (jamais l'horloge du navigateur). **+ JOB-005** : panneau **Planification** (`listNextOccurrences`, heure métier **et** UTC, cadences non câblées nommées une fois), soumis au même filtre projet que la file. |
 | **`src/routes/(app)/jobs/[id]/+page.server.ts` + `+page.svelte`** | **Un job** : verdict `explainFailure`, chronologie `job_attempts` (jamais `jobs.attempts`), payload **en lecture seule**, Relancer/Annuler avec raison obligatoire. |
 | **`src/routes/api/ops/jobs/[id]/{cancel,requeue}/+server.ts`** | Actions d'exploitation. Namespace `ops` parce que `/api/jobs` sert les `ai_jobs` legacy. POST seul, session exigée, acteur pris **dans la session**, raison obligatoire ; **aucun champ de payload accepté**. |
 | **`scripts/job-007-console-proof.ts`** | **Preuve JOB-007 sur Neon (46 vérifs)** : annulation en file et en cours (le worker ne peut plus ni renouveler, ni conclure, ni échouer), refus sur `succeeded`, reprise + annulation enchaînées, journal append-only, payload inchangé, filtres hostiles ; nettoie ses lignes enfants d'abord. |
@@ -1100,6 +1108,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
+- **JOB-005** : **un créneau se nomme par son heure LOCALE, jamais par son instant.** Toute la
+  garantie anti-doublon en découle : le lundi 09:00 métier garde la même clé alors qu'il s'écrit
+  08:00 UTC en hiver et 07:00 en été, et le retour à l'heure d'hiver ne peut pas dédoubler un
+  créneau qui n'existe qu'une fois au calendrier. Corollaire : **aucune table de planification** —
+  rejouer un tick, redémarrer à 09:00 et rattraper un créneau manqué sont la **même opération**,
+  gardée par l'unique `(project_id, idempotency_key)` déjà en base ; et la « prochaine exécution »
+  est **calculée**, donc structurellement incapable de contredire ce que le tick fera. Le cron
+  (`0 * * * *`) perd sa sémantique métier : il bat, et le code sait l'heure qu'il est à Zurich —
+  il **planifie ET draine**, sinon on remplirait une file que personne ne vide.
 - **JOB-007** : **un job en cours s'annule en lui retirant son bail**, jamais en tuant son worker —
   `renewLease` cesse de matcher, le runner interrompt son handler, et ses écritures finales
   (gardées par `lease_owner` + `status='running'`) ne réécrivent rien. C'est le mécanisme de
