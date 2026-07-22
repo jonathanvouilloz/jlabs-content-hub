@@ -283,6 +283,12 @@ export const NO_HANDLER_ERROR_CODE = 'NoHandlerRegistered';
  *     (le numéro se répètera) et le job attend son tour ;
  *   - `requeued` : un humain a relancé le job depuis la dead-letter — c'est la
  *     ligne qui conserve « qui, quand, pourquoi » sans effacer l'historique.
+ *
+ * JOB-007 en ajoute une, du même ordre : `cancelled` — un opérateur a mis fin au
+ * job depuis la console. Elle sert deux fois pour un job EN COURS : une ligne pour
+ * la tentative interrompue (l'auteur est le worker), une pour la décision (l'auteur
+ * est l'humain, la raison est en `metadata_json`). Ce sont deux faits distincts, et
+ * le journal étant append-only, aucun des deux n'en écrase l'autre.
  */
 export const ATTEMPT_OUTCOMES = [
 	'running',
@@ -292,6 +298,7 @@ export const ATTEMPT_OUTCOMES = [
 	'released',
 	'deferred',
 	'requeued',
+	'cancelled',
 	'dead'
 ] as const;
 export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];

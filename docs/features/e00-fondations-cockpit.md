@@ -4,6 +4,119 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (JOB-007 — la file cesse d'être invisible)
+
+**Fait :** JOB-001/002/003 avaient tout écrit — bail, journal append-only, classe d'erreur,
+dead-letter reprenable — et **rien de tout ça n'avait d'interface** : seuls `jobs-inspect.ts` et
+`jobs-requeue.ts`, donc seul quelqu'un avec un `.env` et un terminal, pouvait le lire. La console
+`/jobs` rend ces mêmes données et appelle ces mêmes fonctions. **Aucun DDL** (57 tables, zéro
+dérive) : `status='cancelled'` était déjà dans le vocabulaire depuis DATA-003, `job_attempts.outcome`
+est du texte libre.
+
+- **Purge préalable (décision de Jonathan, exécutée).** Les **22 lignes `__test_claim`** (7 en
+  dead-letter) héritées d'avant le correctif JOB-003 ont été supprimées — la console est
+  précisément l'écran qui les aurait exposées. `scripts/jobs-purge-test.ts`, **rejouable** et
+  **dry-run par défaut** : un Ctrl-C au milieu d'une preuve saute son `cleanup()`, l'accident se
+  reproduira. Deux points de méthode : le ciblage passe par **`starts_with(type, '__test_')`** et
+  non `LIKE` (où `_` est un **joker** — `'__test_%'` matcherait un type métier), et le dry-run
+  **liste les types trouvés avant de compter**, pour que le ciblage soit vérifié par un humain et
+  non par une regex. Suppression **enfants d'abord** en une transaction (`job_attempts` →
+  `job_effects` → `jobs`) : c'est exactement l'ordre qui manquait au bug d'origine. Résultat :
+  22 jobs + 2 tentatives supprimés, `--dead` **vide**, file réelle = **6 jobs**, tous `succeeded`.
+- **Deux modules, pour une raison précise.** `job-console.ts` reste **serveur** (il dépend de
+  `JOB_STATUSES`/`ERROR_CLASSES`, qui vivent avec la file) ; `utils/job-format.ts` porte
+  **libellés et formats**, parce qu'**une page Svelte ne peut pas importer `$lib/server`** — et
+  surtout parce que `jobs-inspect.ts` **consomme désormais les mêmes libellés** (ses trois tables
+  locales sont supprimées). Deux traductions d'un même vocabulaire auraient fini par diverger, et
+  un `deferred` rendu « reporté » en CLI mais « échoué » à l'écran fait diagnostiquer à côté.
+- **`explainFailure` porte l'acceptation n°1** (« comprendre un échec sans lire la DB »). Sans
+  elle, la console afficherait `auth` ou `permanent` — ce qui suppose de connaître JOB-003. Elle
+  rend un **verdict** et une **action** : `auth` → renouveler le jeton **puis** relancer ;
+  `permanent` → corriger la cause, rejouer redonnerait la même erreur ; `quota` → « le job n'a rien
+  fait de mal, sa tentative lui a été rendue » ; classe absente → traité comme rejouable, **jamais
+  condamné**. Le drapeau `willRepeat` distingue les deux premiers : eux seuls re-tomberont à
+  l'identique.
+- **`normalizeJobFilters` réduit l'URL au vocabulaire connu** avant toute requête. Un statut
+  inventé est **écarté** (pas refusé : un lien périmé doit afficher la file, pas une erreur), donc
+  rien d'inconnu ne descend jusqu'au SQL. Prouvé en base avec un `status` hostile : liste vide de
+  filtres, requête qui tourne quand même.
+- **`cancelJob` — annuler un job EN COURS sans tuer personne.** On lui **retire son bail** : au
+  prochain battement (≤ `leaseMs/3`), `renewLease` — gardé par `lease_owner` **et**
+  `status='running'` — ne matche plus, le runner l'apprend et interrompt son handler. Ses écritures
+  finales portent les mêmes gardes, elles ne réécrivent rien. **C'est le mécanisme de JOB-002, pas
+  une voie parallèle** (le commentaire de `renewLease` anticipait déjà « job annulé »). Vérifié en
+  réel : après annulation, `renewLease` → `null`, `completeJob` → `false`, `failJob` → `null`.
+- **L'audit est porté par le journal, pas par un champ.** Une annulation écrit **deux** lignes
+  quand le job tournait : celle de la **tentative** (close en `cancelled`, auteur = le worker) et
+  celle de la **décision** (auteur = l'humain, raison en `metadata_json`) — deux faits distincts,
+  et le journal étant append-only aucun n'écrase l'autre. Même idiome que la ligne `requeued` de
+  JOB-003. L'état d'avant est lu **sous `FOR UPDATE`** et non par un sous-`SELECT` dans le
+  `RETURNING` (qui verrait le snapshot d'avant la commande — subtil, donc fragile). Un refus
+  **n'écrit rien du tout** : prouvé, 0 ligne après une tentative d'annuler un `succeeded`.
+- **API `/api/ops/jobs/[id]/{cancel,requeue}`** — namespace `ops` **délibéré** : `/api/jobs/[id]`
+  sert les `ai_jobs` legacy et la décision « `ai_jobs → jobs` écarté » tient. POST uniquement
+  (GET → 405), session admin exigée (→ 401), acteur pris **dans la session** (`user:{email}`,
+  jamais fourni par le client), **raison obligatoire** (→ 400), statut illégal ou course perdue
+  → 409. **Aucune route n'accepte `payload_json`, `type`, `priority` ou `max_attempts`** :
+  l'acceptation n°3 tient par **absence de chemin**, pas par une validation.
+- **Pages** : `/jobs` (compteurs cliquables par statut, filtres projet/type/cause, table dense,
+  pagination) et `/jobs/[id]` (verdict, chronologie `job_attempts`, payload en lecture seule,
+  Relancer/Annuler avec raison). Entrée « Jobs » en sidebar. Deux choix assumés : les horodatages
+  sont affichés en **UTC** — tels qu'ils sont stockés, comme la CLI — et l'interface **le dit**
+  (convertir ici ferait exister deux lectures d'un même instant selon l'outil) ; et les pages
+  **rappellent qu'aucun worker ne tourne en continu**, sinon « Relancer » paraît sans effet.
+- **Bug trouvé en vérifiant (hors périmètre, corrigé)** : `job-003-retry-proof.ts` mesurait le
+  délai **RESTANT** (`available_at - Date.now()`), donc **latence réseau comprise**. Un
+  `Retry-After` de 120 s honoré à **130 s** s'y lisait « +119 s » et la vérification passait au
+  **rouge sans qu'aucun code n'ait changé**. La mesure porte désormais sur le délai **ÉCRIT**
+  (`available_at - updated_at`, deux colonnes calculées depuis le même `now`) — la fourchette de
+  jitter a pu être resserrée à 24–36 s, sans marge pour le réseau.
+- Vérif : `npm run test` = **374/374** (+32) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **57 tables, zéro dérive** · **`scripts/job-007-console-proof.ts`
+  = 46/46 vertes sur Neon** (nettoie ses propres lignes) · non-régression : `job-003-retry-proof`
+  **44/44** (après correction de la mesure), `job-002-recovery-proof` **27/27**,
+  `job-claim-concurrency` **vert** · **13 findings intacts** (jonlabs 10 / bisrepetita 2 /
+  physiopommier 1) · **0 horodatage ISO** dans `jobs` et `job_attempts` · routes sondées en dev :
+  `/jobs` → 303 `/login`, POST sans session → 401, GET sur une action → 405.
+
+**Acceptations couvertes.** (1) « un opérateur comprend un échec sans lire directement la DB » :
+`getJobDetail` rend la cause classée, `explainFailure` la traduit en verdict + action, et la
+chronologie `job_attempts` montre chaque tentative ; (2) « retry et annulation sont audités » :
+chaque action écrit une ligne nominative (acteur + raison), le journal reste append-only — prouvé
+`1 → 2` lignes après une annulation qui suit une reprise ; (3) « aucune opération ne permet de
+modifier arbitrairement le payload » : `payload_json` vérifié **bit à bit inchangé** après
+annulation ET après reprise, et aucune route n'expose de chemin d'écriture.
+
+**Prochain :** l'**agent réel** qui lit les findings et produit des `action_proposals` gouvernées
+par les policies DATA-007 · **JOB-005** (scheduler timezone-aware — c'est lui qui donnera un worker
+récurrent, aujourd'hui tout dépend d'un lancement manuel) · **JOB-006** (prévenir le 429 au lieu
+d'y réagir, débloqué par JOB-003). L'inbox UI (E11) reste à faire.
+
+**Pièges :**
+- **Reste à vérifier de visu** : le rendu des deux pages n'a pas pu être constaté (session admin
+  requise). Le serveur de dev tourne sur `localhost:5173`. `npm run build` échoue par ailleurs sur
+  un **symlink de l'adaptateur Vercel** (EPERM Windows) — environnement, pas code : la compilation
+  et le bundle passent.
+- **`_` est un joker dans `LIKE`** : tout ciblage de la famille de test doit passer par
+  `starts_with(type, '__test_')`. `LIKE '__test_%'` matcherait un type métier de 7 caractères.
+- **Ne jamais lire `jobs.attempts` comme un historique** (rappel JOB-003, la console en dépend) :
+  `requeueDeadJob` le remet à zéro. La chronologie vient de `job_attempts`.
+- **Un job annulé pendant qu'il tourne met jusqu'à ~100 s à s'arrêter** (un tiers de bail). L'écran
+  le dit ; ce n'est pas un bouton d'arrêt immédiat, et un handler qui n'écoute pas son `signal`
+  finira quand même son travail en cours.
+- **Une preuve qui mesure un délai doit mesurer ce qui a été ÉCRIT**, jamais ce qu'il en reste :
+  `Date.now()` face à une DB distante introduit une latence qui devient une fausse régression.
+- Le **namespace `/api/jobs/`** reste celui des `ai_jobs` legacy. Toute nouvelle action
+  d'exploitation va sous `/api/ops/`.
+- Les libellés sont dans **`$lib/utils/job-format.ts`**, consommés par la CLI ET par les pages : en
+  ajouter un côté page seulement recrée la divergence qu'on vient de fermer.
+- Toujours en suspens hors JOB-007 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · **barberconcept** sans finding (50 d'un coup
+  si détection lancée, cf. plafond `maxCandidates`) · **sur Vercel aucun worker permanent** : un job
+  relancé ou reporté ne repart qu'au prochain lancement (cron dédié = JOB-005).
+
+---
+
 ## Etat session 2026-07-22 (JOB-003 — l'échec est jugé, plus seulement compté)
 
 **Fait :** JOB-001/002 savaient réclamer, tenir un bail et survivre à un worker mort — mais **toute

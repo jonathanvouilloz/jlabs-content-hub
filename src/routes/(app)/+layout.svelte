@@ -19,7 +19,8 @@
 		TrendingUp,
 		Building2,
 		LineChart,
-		Search
+		Search,
+		ListChecks
 	} from 'lucide-svelte';
 	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
 	import SyncToast from '$lib/components/SyncToast.svelte';
@@ -139,6 +140,17 @@
 			>
 				<Search size={16} class="flex-shrink-0" />
 				{#if !collapsed}<span>SEO</span>{/if}
+			</a>
+
+			<!-- Jobs (console d'exploitation, cross-projet) -->
+			<a
+				href="/jobs"
+				class="mb-0.5 flex items-center gap-2.5 rounded-md {collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-1.5'} text-sm font-medium transition-colors
+					{isActive('/jobs') ? 'bg-surface-100 text-surface-900' : 'text-surface-500 hover:bg-surface-50 hover:text-surface-900'}"
+				title={collapsed ? 'Jobs' : undefined}
+			>
+				<ListChecks size={16} class="flex-shrink-0" />
+				{#if !collapsed}<span>Jobs</span>{/if}
 			</a>
 
 			<!-- Separator -->

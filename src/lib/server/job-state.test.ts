@@ -291,4 +291,9 @@ describe('vocabulaires JOB-002', () => {
 		expect(ATTEMPT_OUTCOMES).toContain('succeeded');
 		expect(new Set(ATTEMPT_OUTCOMES).size).toBe(ATTEMPT_OUTCOMES.length);
 	});
+
+	it('une décision humaine est une issue à part entière (JOB-003/JOB-007)', () => {
+		expect(ATTEMPT_OUTCOMES).toContain('requeued');
+		expect(ATTEMPT_OUTCOMES).toContain('cancelled');
+	});
 });

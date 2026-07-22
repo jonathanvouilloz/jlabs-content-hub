@@ -19,6 +19,12 @@
  * la classification de l'erreur rend possibles : `deferJob` (quota : la tentative
  * est rendue), la dead-letter (statut `dead`) et sa reprise `requeueDeadJob`.
  *
+ * JOB-007 y ajoute ce dont la console d'exploitation a besoin : la LECTURE de la
+ * file (`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`) et la seule
+ * action qui manquait, `cancelJob`. Aucune de ces fonctions ne touche au payload
+ * d'un job — l'acceptation « aucune opération ne permet de modifier arbitrairement
+ * le payload » tient parce qu'aucun chemin ne l'écrit, pas parce qu'on l'a validé.
+ *
  * Comparaison temporelle : les colonnes sont des `text` de formats potentiellement
  * mixtes (cf. `timestamps.ts`) → tout prédicat CAST en `timestamp`, jamais de
  * comparaison lexicale sur `available_at`.
@@ -384,6 +390,349 @@ export async function listDeadJobs(input: {
 		errorMessage: r.last_error_message,
 		finishedAt: r.finished_at
 	}));
+}
+
+// ── Console d'exploitation (JOB-007) ────────────────────────────────
+
+/** Une ligne de la file, telle que la console la rend. */
+export interface QueueJob {
+	id: string;
+	projectId: string;
+	projectSlug: string;
+	projectName: string;
+	projectColor: string | null;
+	type: string;
+	status: string;
+	priority: number;
+	attempts: number;
+	maxAttempts: number;
+	deferrals: number;
+	requeuedCount: number;
+	errorClass: string | null;
+	errorCode: string | null;
+	errorMessage: string | null;
+	availableAt: string;
+	leaseOwner: string | null;
+	leaseUntil: string | null;
+	createdAt: string;
+	updatedAt: string;
+	finishedAt: string | null;
+}
+
+export interface JobQuery {
+	db: AppDb;
+	/** Statuts déjà VALIDÉS contre `JOB_STATUSES` (cf. `normalizeJobFilters`). */
+	statuses?: string[];
+	errorClasses?: string[];
+	projectSlug?: string | null;
+	type?: string | null;
+	limit?: number;
+	offset?: number;
+}
+
+interface RawQueueRow {
+	id: string;
+	project_id: string;
+	slug: string;
+	name: string;
+	color: string | null;
+	type: string;
+	status: string;
+	priority: number;
+	attempts: number;
+	max_attempts: number;
+	deferrals: number | null;
+	requeued_count: number | null;
+	last_error_class: string | null;
+	last_error_code: string | null;
+	last_error_message: string | null;
+	available_at: string;
+	lease_owner: string | null;
+	lease_until: string | null;
+	created_at: string;
+	updated_at: string;
+	finished_at: string | null;
+}
+
+function toQueueJob(r: RawQueueRow): QueueJob {
+	return {
+		id: r.id,
+		projectId: r.project_id,
+		projectSlug: r.slug,
+		projectName: r.name,
+		projectColor: r.color,
+		type: r.type,
+		status: r.status,
+		priority: Number(r.priority),
+		attempts: Number(r.attempts),
+		maxAttempts: Number(r.max_attempts),
+		deferrals: Number(r.deferrals ?? 0),
+		requeuedCount: Number(r.requeued_count ?? 0),
+		errorClass: r.last_error_class,
+		errorCode: r.last_error_code,
+		errorMessage: r.last_error_message,
+		availableAt: r.available_at,
+		leaseOwner: r.lease_owner,
+		leaseUntil: r.lease_until,
+		createdAt: r.created_at,
+		updatedAt: r.updated_at,
+		finishedAt: r.finished_at
+	};
+}
+
+/**
+ * Les filtres, construits UNE fois : `listJobs` et `countJobs` doivent voir
+ * exactement la même chose, sinon la pagination annonce un total qui ne
+ * correspond pas aux lignes affichées.
+ *
+ * Filtres PARAMÉTRÉS en `IN (…)`, jamais `= ANY($n)` : le driver Neon sérialise
+ * un tableau lié élément par élément (`malformed array literal`).
+ */
+function jobFilterSql(q: Omit<JobQuery, 'db' | 'limit' | 'offset'>) {
+	const statusFilter =
+		q.statuses && q.statuses.length > 0
+			? sql`AND j.status IN (${sql.join(
+					q.statuses.map((s) => sql`${s}`),
+					sql`, `
+				)})`
+			: sql``;
+	const classFilter =
+		q.errorClasses && q.errorClasses.length > 0
+			? sql`AND j.last_error_class IN (${sql.join(
+					q.errorClasses.map((c) => sql`${c}`),
+					sql`, `
+				)})`
+			: sql``;
+	const projectFilter = q.projectSlug ? sql`AND p.slug = ${q.projectSlug}` : sql``;
+	const typeFilter = q.type ? sql`AND j.type = ${q.type}` : sql``;
+	return sql`${statusFilter} ${classFilter} ${projectFilter} ${typeFilter}`;
+}
+
+/**
+ * La file, filtrée et paginée — ce que la console rend en liste.
+ *
+ * Tri par `updated_at DESC` : l'exploitation regarde ce qui vient de bouger. Sur
+ * un filtre de statut, l'index `idx_jobs_project_status` (ou `idx_jobs_dead` pour
+ * la dead-letter seule) évite le scan complet.
+ */
+export async function listJobs(input: JobQuery): Promise<QueueJob[]> {
+	const limit = Math.max(1, Math.floor(input.limit ?? 50));
+	const offset = Math.max(0, Math.floor(input.offset ?? 0));
+	const res = await input.db.execute(sql`
+		SELECT j.id, j.project_id, p.slug, p.name, p.color, j.type, j.status, j.priority,
+		       j.attempts, j.max_attempts, j.deferrals, j.requeued_count,
+		       j.last_error_class, j.last_error_code, j.last_error_message,
+		       j.available_at, j.lease_owner, j.lease_until,
+		       j.created_at, j.updated_at, j.finished_at
+		  FROM "seostats"."jobs" AS j
+		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
+		 WHERE 1 = 1 ${jobFilterSql(input)}
+		 ORDER BY j.updated_at DESC
+		 LIMIT ${limit} OFFSET ${offset}
+	`);
+	return ((res.rows ?? []) as unknown as RawQueueRow[]).map(toQueueJob);
+}
+
+/** Total correspondant aux MÊMES filtres que `listJobs` (pagination honnête). */
+export async function countJobs(input: JobQuery): Promise<number> {
+	const res = await input.db.execute(sql`
+		SELECT count(*)::int AS n
+		  FROM "seostats"."jobs" AS j
+		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
+		 WHERE 1 = 1 ${jobFilterSql(input)}
+	`);
+	const row = (res.rows ?? [])[0] as unknown as { n: number } | undefined;
+	return Number(row?.n ?? 0);
+}
+
+/**
+ * Compteurs d'en-tête, en UNE requête. Les statuts absents de la file valent 0 :
+ * une case vide et une case à zéro ne doivent pas se confondre (SPEC DASH-001,
+ * « l'état des données n'est jamais confondu avec une valeur zéro »).
+ */
+export async function countJobsByStatus(input: {
+	db: AppDb;
+	projectSlug?: string | null;
+}): Promise<Record<string, number>> {
+	const projectFilter = input.projectSlug ? sql`AND p.slug = ${input.projectSlug}` : sql``;
+	const res = await input.db.execute(sql`
+		SELECT j.status, count(*)::int AS n
+		  FROM "seostats"."jobs" AS j
+		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
+		 WHERE 1 = 1 ${projectFilter}
+		 GROUP BY j.status
+	`);
+	const counts: Record<string, number> = {};
+	for (const row of (res.rows ?? []) as unknown as { status: string; n: number }[]) {
+		counts[row.status] = Number(row.n);
+	}
+	return counts;
+}
+
+/** Le job complet — `payload_json` inclus, en LECTURE SEULE (aucun chemin ne le réécrit). */
+export interface JobDetail extends QueueJob {
+	runId: string | null;
+	idempotencyKey: string;
+	payloadJson: string | null;
+	dependsOn: string | null;
+	heartbeatAt: string | null;
+}
+
+export async function getJobDetail(input: { db: AppDb; jobId: string }): Promise<JobDetail | null> {
+	const res = await input.db.execute(sql`
+		SELECT j.id, j.project_id, p.slug, p.name, p.color, j.type, j.status, j.priority,
+		       j.attempts, j.max_attempts, j.deferrals, j.requeued_count,
+		       j.last_error_class, j.last_error_code, j.last_error_message,
+		       j.available_at, j.lease_owner, j.lease_until,
+		       j.created_at, j.updated_at, j.finished_at,
+		       j.run_id, j.idempotency_key, j.payload_json, j.depends_on, j.heartbeat_at
+		  FROM "seostats"."jobs" AS j
+		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
+		 WHERE j.id = ${input.jobId}
+	`);
+	const row = (res.rows ?? [])[0] as unknown as
+		| (RawQueueRow & {
+				run_id: string | null;
+				idempotency_key: string;
+				payload_json: string | null;
+				depends_on: string | null;
+				heartbeat_at: string | null;
+			})
+		| undefined;
+	if (!row) return null;
+	return {
+		...toQueueJob(row),
+		runId: row.run_id,
+		idempotencyKey: row.idempotency_key,
+		payloadJson: row.payload_json,
+		dependsOn: row.depends_on,
+		heartbeatAt: row.heartbeat_at
+	};
+}
+
+export interface CancelResult {
+	jobId: string;
+	type: string;
+	previousStatus: string;
+	/** `true` si le job tournait : un worker le découvrira à son prochain battement. */
+	wasRunning: boolean;
+	/** `true` si une tentative ouverte a été close par l'annulation. */
+	closedOpenAttempt: boolean;
+	attemptId: string;
+}
+
+/**
+ * Annule un job depuis la console (JOB-007) — la seule action d'exploitation que
+ * JOB-003 n'avait pas laissée derrière lui.
+ *
+ * **Un job EN COURS s'annule sans tuer personne.** On lui retire son bail : au
+ * prochain battement (≤ `leaseMs/3`), `renewLease` — gardé par `lease_owner` ET
+ * `status='running'` — ne matche plus, le runner l'apprend et interrompt son
+ * handler. Ses écritures finales (`completeJob`, `failJob`, `finishAttempt`)
+ * portent les mêmes gardes : elles ne réécriront rien. C'est le mécanisme posé
+ * par JOB-002, pas une voie parallèle.
+ *
+ * Transactionnel, comme `requeueDeadJob` : soit le job s'arrête ET la décision
+ * est tracée, soit rien. Une annulation sans trace serait un trou dans l'audit —
+ * exactement ce que l'acceptation « retry et annulation sont audités » interdit.
+ */
+export async function cancelJob(input: {
+	db: AppDb;
+	jobId: string;
+	/** Qui annule (`user:contact@jonlabs.ch`) — jamais anonyme. */
+	actor: string;
+	reason?: string;
+	now?: Date | string;
+}): Promise<CancelResult | null> {
+	const now = input.now ?? new Date();
+	const nowDb = toDbTimestamp(now);
+	let result: CancelResult | null = null;
+
+	await input.db.transaction(async (tx) => {
+		// L'état d'AVANT est lu sous verrou : `FOR UPDATE` interdit qu'un worker
+		// réclame ou conclue ce job entre la lecture et l'écriture. On le lit
+		// vraiment (plutôt qu'un sous-SELECT dans le RETURNING, qui verrait le
+		// snapshot d'avant la commande — subtil, donc fragile) parce que le statut
+		// de départ fait partie de la TRACE : « annulé alors qu'il tournait » et
+		// « annulé alors qu'il était mort » ne disent pas la même chose.
+		const before = await tx.execute(sql`
+			SELECT id, project_id, type, status, attempts
+			  FROM "seostats"."jobs"
+			 WHERE id = ${input.jobId}
+			 FOR UPDATE
+		`);
+		const row = (before.rows ?? [])[0] as unknown as
+			| { id: string; project_id: string; type: string; status: string; attempts: number }
+			| undefined;
+		if (!row) return; // job inexistant : rien fait, rien tracé.
+
+		// Garde : un job RÉUSSI ne s'annule pas (son effet a eu lieu), un job déjà
+		// annulé non plus. Miroir de `canCancelJob` (`job-console.ts`).
+		const res = await tx.execute(sql`
+			UPDATE "seostats"."jobs"
+			   SET status = 'cancelled',
+			       lease_owner = NULL,
+			       lease_until = NULL,
+			       finished_at = ${nowDb},
+			       updated_at = ${nowDb}
+			 WHERE id = ${input.jobId}
+			   AND status IN ('queued', 'running', 'dead', 'failed')
+			 RETURNING id
+		`);
+		if ((res.rows?.length ?? 0) === 0) return; // pas annulable : rien fait, rien tracé.
+
+		const wasRunning = row.status === 'running';
+
+		// La tentative EN COURS est close ici : sans ça le journal garderait une
+		// tentative ouverte pour toujours (le worker, qui a perdu son bail, ne
+		// pourra plus la clore — `finishAttempt` exige `outcome='running'`, mais
+		// c'est nous qui l'aurons refermée, et c'est le bon ordre).
+		const closed = await tx.execute(sql`
+			UPDATE "seostats"."job_attempts"
+			   SET outcome = 'cancelled',
+			       error_code = 'JobCancelled',
+			       error_message = ${`Annulé par ${input.actor}.`},
+			       finished_at = ${nowDb},
+			       duration_ms = GREATEST(
+			           (EXTRACT(EPOCH FROM (${nowDb}::timestamp - started_at::timestamp)) * 1000)::integer,
+			           0
+			       )
+			 WHERE job_id = ${input.jobId} AND outcome = 'running'
+			 RETURNING id
+		`);
+		const closedOpenAttempt = (closed.rows?.length ?? 0) > 0;
+
+		// Ligne de DÉCISION, distincte de celle de la tentative : l'une dit ce qui
+		// est arrivé au travail, l'autre qui l'a arrêté et pourquoi. Même idiome que
+		// la ligne `requeued` de `requeueDeadJob`.
+		const attemptId = createId();
+		await tx.insert(jobAttempts).values({
+			id: attemptId,
+			jobId: input.jobId,
+			projectId: row.project_id,
+			attemptNo: Number(row.attempts),
+			workerId: input.actor,
+			outcome: 'cancelled',
+			metadataJson: JSON.stringify({
+				reason: input.reason ?? null,
+				cancelledFrom: row.status
+			}),
+			startedAt: nowDb,
+			finishedAt: nowDb,
+			durationMs: 0
+		});
+
+		result = {
+			jobId: row.id,
+			type: row.type,
+			previousStatus: row.status,
+			wasRunning,
+			closedOpenAttempt,
+			attemptId
+		};
+	});
+
+	return result;
 }
 
 export interface RequeueResult {

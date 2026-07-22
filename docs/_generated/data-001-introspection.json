@@ -1,5 +1,5 @@
 {
-  "stamp": "post-job-003",
+  "stamp": "post-job-007",
   "schemas": [
     "seostats",
     "core"
@@ -3243,7 +3243,7 @@
     {
       "schema": "seostats",
       "table": "job_attempts",
-      "rowCount": 1,
+      "rowCount": 2,
       "columns": [
         {
           "column": "id",
@@ -3473,7 +3473,7 @@
     {
       "schema": "seostats",
       "table": "jobs",
-      "rowCount": 4,
+      "rowCount": 6,
       "columns": [
         {
           "column": "id",

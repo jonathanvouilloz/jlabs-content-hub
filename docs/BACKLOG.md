@@ -494,7 +494,7 @@ Acceptation :
 
 ## JOB-007 — Console d'exploitation des jobs
 
-**Priorité :** P1 · **Taille :** M · **État :** TODO — **débloqué** (JOB-002 + JOB-003 livrés : la console lira `jobs` + `job_attempts` + `last_error_class`, et appellera `listDeadJobs`/`requeueDeadJob` ; `scripts/jobs-inspect.ts` et `scripts/jobs-requeue.ts` en rendent déjà l'équivalent en CLI) · **Dépendances :** JOB-002, JOB-003
+**Priorité :** P1 · **Taille :** M · **État :** **DONE** (2026-07-22 — pages `/jobs` et `/jobs/[id]`, actions `/api/ops/jobs/[id]/{cancel,requeue}`, `cancelJob` ajoutée à `jobs-claim.ts` ; aucun DDL. Détail : `docs/features/e00-fondations-cockpit.md`) · **Dépendances :** JOB-002, JOB-003
 
 Travail :
 

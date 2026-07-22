@@ -95,6 +95,7 @@ interface JobSnapshot {
 	last_error_class: string | null;
 	last_error_code: string | null;
 	available_at: string;
+	updated_at: string;
 	lease_owner: string | null;
 	finished_at: string | null;
 }
@@ -102,16 +103,27 @@ interface JobSnapshot {
 async function jobRow(jobId: string): Promise<JobSnapshot> {
 	const res = await db.execute(sql`
 		SELECT status, attempts, deferrals, requeued_count, last_error_class, last_error_code,
-		       available_at, lease_owner, finished_at
+		       available_at, updated_at, lease_owner, finished_at
 		  FROM "seostats"."jobs" WHERE id = ${jobId}
 	`);
 	return (res.rows ?? [])[0] as never;
 }
 
-/** Écart en secondes entre `available_at` et maintenant (mesure du backoff réel). */
-function delaySeconds(availableAt: string): number {
-	const target = Date.parse(`${availableAt.replace(' ', 'T')}Z`);
-	return Math.round((target - Date.now()) / 1000);
+/**
+ * Le délai tel qu'il a été ÉCRIT : `available_at - updated_at`, deux colonnes que
+ * `deferJob`/`failJob` calculent depuis le MÊME `now`.
+ *
+ * La version précédente mesurait le délai RESTANT (`available_at - Date.now()`),
+ * ce qui intègre les allers-retours réseau jusqu'à Neon : un `Retry-After` de
+ * 120 s honoré à la lettre s'y lisait « +119 s » dès que la lecture arrivait une
+ * seconde après l'écriture, et la vérification passait au rouge sans qu'aucun code
+ * n'ait changé. Pour un invariant qui porte sur ce que le code a DÉCIDÉ, l'horloge
+ * locale est la mauvaise référence.
+ */
+function writtenDelaySeconds(row: { available_at: string; updated_at: string }): number {
+	const at = Date.parse(`${row.available_at.replace(' ', 'T')}Z`);
+	const at0 = Date.parse(`${row.updated_at.replace(' ', 'T')}Z`);
+	return Math.round((at - at0) / 1000);
 }
 
 /** Un handler qui jette l'erreur fournie : c'est le provider qu'on simule, pas le worker. */
@@ -178,10 +190,12 @@ async function main() {
 		check('il est REPLANIFIÉ, pas mort', serverRow.status === 'queued', serverRow.status);
 		check('sa classe est persistée', serverRow.last_error_class === 'retryable', serverRow.last_error_class ?? '∅');
 		check('la tentative est consommée', Number(serverRow.attempts) === 1, `${serverRow.attempts}`);
-		const serverDelay = delaySeconds(serverRow.available_at);
+		// Mesuré sur ce qui a été ÉCRIT, pas sur ce qu'il reste : la fourchette peut
+		// alors être celle du jitter (24–36 s), sans marge pour la latence réseau.
+		const serverDelay = writtenDelaySeconds(serverRow);
 		check(
 			'le délai tombe dans la fourchette de jitter (30 s ±20 %)',
-			serverDelay >= 23 && serverDelay <= 37,
+			serverDelay >= 24 && serverDelay <= 36,
 			`+${serverDelay} s`
 		);
 		check('aucun bail orphelin', serverRow.lease_owner === null);
@@ -209,7 +223,7 @@ async function main() {
 			`attempts=${quotaRow.attempts}`
 		);
 		check('le report est compté à part', Number(quotaRow.deferrals) === 1, `deferrals=${quotaRow.deferrals}`);
-		const quotaDelay = delaySeconds(quotaRow.available_at);
+		const quotaDelay = writtenDelaySeconds(quotaRow);
 		check(
 			'le Retry-After du provider est honoré (jamais raboté par le jitter)',
 			quotaDelay >= 120,

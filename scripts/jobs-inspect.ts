@@ -24,6 +24,10 @@ import * as schema from '../src/lib/server/db/schema.js';
 import type { AppDb } from '../src/lib/server/db/types.js';
 import { listDeadJobs } from '../src/lib/server/jobs-claim.js';
 import { listJobAttempts } from '../src/lib/server/jobs-lease.js';
+// Libellés PARTAGÉS avec la console `/jobs` (JOB-007) : deux tables de traduction
+// finiraient par diverger, et un `deferred` rendu « reporté » ici mais « échoué »
+// là ferait diagnostiquer à côté.
+import { CLASS_LABEL, KIND_LABEL, OUTCOME_LABEL } from '../src/lib/utils/job-format.js';
 
 neonConfig.webSocketConstructor = ws;
 
@@ -63,30 +67,6 @@ interface JobRow {
 	deferrals: number | null;
 	requeued_count: number | null;
 }
-
-const OUTCOME_LABEL: Record<string, string> = {
-	running: 'EN COURS',
-	succeeded: 'succeeded',
-	failed: 'échouée',
-	abandoned: 'ABANDONNÉE',
-	released: 'relâchée',
-	deferred: 'REPORTÉE (quota)',
-	requeued: 'RELANCÉE (manuel)',
-	dead: 'DEAD-LETTER'
-};
-
-/** Ce que la classe dit du sort réservé au job (JOB-003). */
-const CLASS_LABEL: Record<string, string> = {
-	retryable: 'rejouable',
-	quota: 'quota provider',
-	auth: 'authentification',
-	permanent: 'structurel'
-};
-
-const KIND_LABEL: Record<string, string> = {
-	worker_death: 'worker mort',
-	lease_stall: 'worker bloqué'
-};
 
 /** `2026-07-22 09:02:11` → `09:02:11` (la date est déjà dans l'en-tête du job). */
 const hhmmss = (ts: string | null) => (ts ? ts.slice(11, 19) : '…');

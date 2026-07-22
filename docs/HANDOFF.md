@@ -9,17 +9,18 @@
 Cadre produit : [SPEC.md](SPEC.md) · [BACKLOG.md](BACKLOG.md) · [DECISIONS.md](DECISIONS.md).
 
 ## Reprendre ici
-E00 sur `feat/cockpit` — **JOB-007** : console d'exploitation des jobs (lister queued/running/failed/
-dead, retry ciblé, annulation, inspection). Toute la donnée existe déjà : `jobs` + `job_attempts`
-(chronologie append-only) + `last_error_class`/`deferrals`/`requeued_count`, et les fonctions
-`listDeadJobs`/`requeueDeadJob` que la page n'aura qu'à appeler — voir `scripts/jobs-inspect.ts` et
-`scripts/jobs-requeue.ts`, qui rendent déjà la même chose en CLI. Alternative : l'**agent réel** qui
-lit les findings et produit des `action_proposals` gouvernées par les policies DATA-007.
-Contexte, pièges et carte du code → le fichier feature. JOB-003 vient de fermer le trou « toute
-erreur traitée pareil » et débloque JOB-006, JOB-007, IDX-007 et GMB-006.
+E00 sur `feat/cockpit` — **JOB-007 livré** : la file a enfin une interface (`/jobs` + `/jobs/[id]`),
+qui lit `jobs` + `job_attempts` et appelle les mêmes fonctions que la CLI (`requeueDeadJob`, et la
+nouvelle `cancelJob`). Les 22 lignes de test `__test_claim` ont été **purgées** (script rejouable
+`scripts/jobs-purge-test.ts`) : la file réelle ne contient plus que 6 jobs, tous `succeeded`.
 
-Commit : `e7a3a44` [hub] add: JOB-003 retry classé, backoff jitté et dead-letter reprenable.
+**Prochain, au choix :** l'**agent réel** qui lit les findings et produit des `action_proposals`
+gouvernées par les policies DATA-007 · **JOB-005** (scheduler timezone-aware — aujourd'hui aucun
+worker ne tourne seul, tout dépend d'un lancement manuel, ce qui limite l'effet du bouton
+« Relancer ») · **JOB-006** (prévenir le 429 au lieu d'y réagir). L'inbox UI (E11) reste à faire.
 
-**À trancher avant JOB-007 :** 22 lignes de test `__test_claim` (dont **7 en dead-letter**) traînent
-dans la vraie file, héritées d'exécutions dont le nettoyage échouait en silence (corrigé). Elles
-pollueront la console. Purge proposée, non exécutée.
+Commit : `[hub] add: JOB-007 console d'exploitation des jobs (liste, chronologie, retry, annulation)`.
+
+**À faire au prochain passage devant l'écran :** le rendu des deux pages n'a pas pu être constaté
+(session admin requise) — ouvrir `/jobs` une fois connecté. `npm run build` échoue par ailleurs sur
+un symlink de l'adaptateur Vercel (EPERM Windows) : environnement, pas code.
