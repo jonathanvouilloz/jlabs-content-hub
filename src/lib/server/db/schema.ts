@@ -1347,3 +1347,100 @@ export const policyPromotions = seostats.table(
 		index('idx_policy_promotions_project_scope').on(table.projectId, table.scopeKey)
 	]
 );
+
+// ── DATA-008 — Rétention, agrégation & purge (SPEC §7.11) ───────────
+//
+// Politique validée (§7.11) : observations détaillées = 24 mois ; agrégats,
+// findings, décisions, approbations, audit et rapports = sans limite ; payloads
+// techniques volumineux & logs de debug = 90 jours. La rétention est CONFIGURABLE
+// par type de donnée (table dédiée). La purge est un job versionné, observable
+// (dry-run) et reprenable. Invariants portés par le module pur retention-state.ts :
+//   - une donnée protégée / à rétention infinie n'est JAMAIS purgée (isPurgeable) ;
+//   - une suppression d'audit exige L4 (assertPurgeAuthorized) ;
+//   - on agrège semaine/mois/année AVANT de purger le détail (derivePeriod).
+
+// Politique de rétention par type de donnée (SPEC §7.11). `retention_days` NULL =
+// sans limite (protégée). `protected` = jamais purgeable quel que soit l'âge.
+// `requires_l4` = la purge exige une validation L4 (audit).
+export const retentionPolicies = seostats.table(
+	'retention_policies',
+	{
+		id: text('id').primaryKey(),
+		dataType: text('data_type').notNull(), // ex. gsc_query_page_observation, debug_payload, audit_action…
+		category: text('category').notNull(), // detail|aggregate|audit|report|debug
+		retentionDays: integer('retention_days'), // NULL = sans limite
+		aggregateBeforePurge: boolean('aggregate_before_purge').notNull().default(false),
+		requiresL4: boolean('requires_l4').notNull().default(false),
+		protected: boolean('protected').notNull().default(false), // jamais purgeable
+		sourceTable: text('source_table'), // table physique concernée (pour le runner)
+		timestampColumn: text('timestamp_column'), // colonne d'âge (fetched_at, period_end…)
+		description: text('description'),
+		active: boolean('active').notNull().default(true),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('retention_policies_data_type_unique').on(table.dataType),
+		index('idx_retention_policies_category').on(table.category)
+	]
+);
+
+// Agrégat d'observations roulé au grain semaine/mois/année AVANT purge du détail
+// (SPEC §7.11 : « agréger semaine/mois/année avant purge », agrégats conservés sans
+// limite). Générique par `source` + `dimensions_hash` (le tuple de dimensions varie
+// par source : query+page, métrique, keyword+device). Idempotent : re-agréger une
+// même période ne duplique pas (unique projet+source+grain+période+dimensions).
+export const observationAggregates = seostats.table(
+	'observation_aggregates',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		source: text('source').notNull(), // gsc_query_page|gsc_page|gmb_insight|keyword_rank…
+		grain: text('grain').notNull(), // week|month|year
+		periodStart: text('period_start').notNull(),
+		periodEnd: text('period_end').notNull(),
+		dimensionsHash: text('dimensions_hash').notNull(), // hash du tuple de dimensions (dédup)
+		dimensionsJson: text('dimensions_json'), // valeurs des dimensions (borné)
+		metricsJson: text('metrics_json'), // métriques agrégées (borné) — flexible par source
+		sampleCount: integer('sample_count').notNull().default(0), // nb d'observations agrégées
+		computedAt: text('computed_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('observation_aggregates_unique').on(
+			table.projectId,
+			table.source,
+			table.grain,
+			table.periodStart,
+			table.dimensionsHash
+		),
+		index('idx_observation_aggregates_source_grain').on(table.projectId, table.source, table.grain)
+	]
+);
+
+// Run de purge (SPEC §7.11 : job versionné, observable, reprenable). `dry_run` =
+// annonce sans supprimer (acceptation : « le dry-run annonce exactement lignes et
+// périodes touchées »). `plan_json`/`metrics_json` = observabilité. `checkpoint_json`
+// = dernier (data_type, période) traité → reprise sans double effet (les agrégats
+// s'upsert et les deletes par cutoff sont idempotents ; le checkpoint évite le
+// re-scan). `approval_ref` → l'approbation L4 quand un audit est purgé.
+export const purgeRuns = seostats.table(
+	'purge_runs',
+	{
+		id: text('id').primaryKey(),
+		status: text('status').notNull().default('planned'), // planned|running|completed|failed|aborted
+		dryRun: boolean('dry_run').notNull().default(true),
+		triggeredBy: text('triggered_by'), // user|schedule|agent
+		approvalRef: text('approval_ref').references(() => proposalApprovals.id), // L4 pour purge d'audit
+		policyVersion: integer('policy_version'), // version du set de politiques appliqué
+		planJson: text('plan_json'), // lignes/périodes par data_type (dry-run)
+		metricsJson: text('metrics_json'), // rows_aggregated/rows_deleted par data_type
+		checkpointJson: text('checkpoint_json'), // reprise : dernier (data_type, période) traité
+		errorMessage: text('error_message'),
+		startedAt: text('started_at'),
+		finishedAt: text('finished_at'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [index('idx_purge_runs_status').on(table.status)]
+);
