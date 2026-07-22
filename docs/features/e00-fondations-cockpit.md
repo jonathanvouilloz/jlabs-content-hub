@@ -73,6 +73,13 @@ affiche encore.
   doivent passer par le graphe §10.1, pas écrire `status` à la main.
 - La cartographie compare les **tables**, pas les colonnes : `scripts/apply-find-003.ts` vérifie
   lui-même les 5 colonnes + l'index.
+- **barberconcept n'a encore aucun finding** (jamais détecté en réel). Lancer
+  `detect.ts --project=barberconcept` y écrirait **50 findings d'un coup** — décision de Jonathan, à
+  prendre après avoir tranché le plafond `maxCandidates`. Les 13 findings existants restent
+  jonlabs 10 / bisrepetita 2 / physiopommier 1.
+- Toujours en suspens hors FIND-003 : activation destructive de la purge (DATA-008 `--execute`) =
+  session dédiée · **CONTRACT différé** (l'app lit encore `gsc_query_page_data` + `gmb_insights_daily`)
+  · `ai_jobs → jobs` reste **écarté** (voir § Décisions).
 
 ---
 
@@ -743,6 +750,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 - Nouvelles tables appliquées par **SQL additif idempotent** (pas `db:push`) ; `schema.ts` reste source de vérité, vérif par re-run de l'introspection (zéro dérive).
 - Renommage `jlabs-content-hub` limité à l'interne ; le client-facing est une décision de marque séparée.
 - Branche `feat/cockpit` depuis `feat/neon` (isole la phase agentique ; `feat/neon` figée pour le cutover Vercel P5A).
+
+## Trace des commits (E00, branche `feat/cockpit`)
+`3d9be7d` fondations (logger/config/flags) · `4bbe9ef` docs HANDOFF · `256c1a2` IDX-008 · `d7484a9`
+DATA-001 · `b6df05e` DATA-002 · `1ab115f` DATA-003 · `7d3ae9c` DATA-004 · `4696919` migrate/backfill ·
+`7cb94c1` fix chunk · `f9432ce` DATA-005 · `4c24bc9` docs DATA-005 · `16fa000` DATA-006 · `43fe9d7`
+docs DATA-006 · `15a92cb` DATA-007 · `a8bdd2f` docs DATA-007 · `0f78d89` DATA-008 · `c6ccc70` docs
+DATA-008 · `f9b7801` wrap DATA-007/008 · `9e25e5d` fix timestamps + injection db · `717bb71`
+FIND-001/004 détecteur · `7321f5a` JOB-001 claim atomique · `cc6a92f` docs FIND/JOB · **`5428ec7`
+FIND-003 cycle de vie** · `9d6976d` docs FIND-003.
 
 ## Reste du premier lot §9 (non fait)
 - [ ] **GOV-001 (reste)** — marquer `Desktop/apps/jlabs-content-hub` legacy read-only (garder comme backup
