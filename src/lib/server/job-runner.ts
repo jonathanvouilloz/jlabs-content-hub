@@ -1,5 +1,6 @@
 /**
- * JOB-001 — Boucle worker : réclamer → exécuter → conclure, arrêtable proprement.
+ * JOB-001/JOB-002 — Boucle worker : réclamer → exécuter → conclure, arrêtable
+ * proprement, avec bail vivant et récupération des workers morts.
  *
  * Le worker ne connaît pas les métiers : il résout un HANDLER par type de job.
  * Premier handler réel = le détecteur `keyword_opportunity` (FIND-004), ce qui
@@ -10,14 +11,35 @@
  * commencé) avant de sortir → aucun job « running » orphelin, aucune tentative
  * consommée pour rien.
  *
- * Hors périmètre : renouvellement de bail pendant l'exécution et récupération des
- * workers morts (JOB-002), classification fine des erreurs (JOB-003), DAG de
- * dépendances (JOB-004).
+ * JOB-002 ajoute trois choses au tour de boucle :
+ *   - un HEARTBEAT qui prolonge le bail pendant l'exécution (un job long ne se
+ *     fait plus voler), et qui INTERROMPT le handler s'il perd son bail ;
+ *   - un BUDGET DE DURÉE qui distingue un provider qui ne répond pas d'un crash
+ *     local — le premier se constate de l'intérieur, vivant ;
+ *   - une passe de REAPER sur les tours à vide : la file se répare elle-même,
+ *     sans infra nouvelle (le cron reste l'affaire de JOB-005).
+ *
+ * Hors périmètre : classification fine des erreurs (JOB-003), DAG de
+ * dépendances (JOB-004), console d'exploitation (JOB-007).
  */
 import type { AppDb } from './db/types.js';
 import { log } from './log.js';
 import { claimJob, completeJob, failJob, releaseJob, type ClaimedJob } from './jobs-claim.js';
-import { DEFAULT_LEASE_MS, NO_HANDLER_ERROR_CODE, type WorkerTickOutcome } from './job-state.js';
+import {
+	DEFAULT_LEASE_MS,
+	NO_HANDLER_ERROR_CODE,
+	classifyExecutionError,
+	computeRenewInterval,
+	providerTimeoutError,
+	type AbandonKind,
+	type WorkerTickOutcome
+} from './job-state.js';
+import {
+	finishAttempt,
+	reclaimExpiredLeases,
+	renewLease,
+	startAttempt
+} from './jobs-lease.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { expireSnoozes } from './findings.js';
 
@@ -28,6 +50,12 @@ const logger = log('worker');
 export interface JobContext {
 	db: AppDb;
 	job: ClaimedJob;
+	/**
+	 * Interrompu si le worker perd son bail, si le budget de durée est dépassé, ou
+	 * si l'arrêt gracieux tombe. Un handler long DOIT le surveiller : au-delà, il
+	 * travaille pour rien — un autre worker a déjà repris le job.
+	 */
+	signal: AbortSignal;
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<void>;
@@ -118,6 +146,14 @@ export interface WorkerOptions {
 	maxJobs?: number;
 	/** Arrêt gracieux (SIGINT/SIGTERM, timeout de cron…). */
 	signal?: AbortSignal;
+	/**
+	 * JOB-002 — budget de durée d'un job. Au-delà, l'exécution est interrompue et
+	 * l'échec est classé `ProviderTimeout` (rejouable selon la politique de retry).
+	 * 0 = aucun budget.
+	 */
+	maxJobDurationMs?: number;
+	/** JOB-002 — nombre de baux morts repris par passe de reaper (0 = pas de reaper). */
+	reapLimit?: number;
 }
 
 export interface WorkerStats {
@@ -128,7 +164,16 @@ export interface WorkerStats {
 	released: number;
 	idleTicks: number;
 	stoppedGracefully: boolean;
+	/** JOB-002 — jobs repris à un worker mort par ce worker-ci. */
+	reclaimed: number;
+	abandonedByKind: Record<AbandonKind, number>;
 }
+
+/** Budget de durée par défaut : au-delà, on considère que le provider ne répondra pas. */
+export const DEFAULT_MAX_JOB_DURATION_MS = 30 * 60 * 1000; // 30 min
+
+/** Baux morts repris par passe (borné : un tour de boucle reste court). */
+export const DEFAULT_REAP_LIMIT = 20;
 
 /**
  * Boucle principale. Renvoie ses compteurs, ce qui rend le worker testable et
@@ -140,6 +185,9 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	const pollIntervalMs = options.pollIntervalMs ?? 2000;
 	const maxJobs = options.maxJobs ?? 0;
 
+	const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+	const reapLimit = options.reapLimit ?? DEFAULT_REAP_LIMIT;
+
 	const stats: WorkerStats = {
 		claimed: 0,
 		succeeded: 0,
@@ -147,10 +195,17 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		deadLettered: 0,
 		released: 0,
 		idleTicks: 0,
-		stoppedGracefully: false
+		stoppedGracefully: false,
+		reclaimed: 0,
+		abandonedByKind: { worker_death: 0, lease_stall: 0 }
 	};
 
 	logger.info('worker démarré', { workerId: options.workerId, types });
+
+	// Une passe de reaper AU DÉMARRAGE : le cas le plus fréquent est justement le
+	// redémarrage après crash — les jobs que ce worker (ou son prédécesseur) a
+	// laissés « running » doivent repartir tout de suite, pas au premier tour à vide.
+	await reapOnce(options.db, reapLimit, leaseMs, stats);
 
 	for (;;) {
 		// Point d'arrêt : on ne réclame JAMAIS un job après l'ordre d'arrêt —
@@ -165,11 +220,14 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 			db: options.db,
 			types,
 			workerId: options.workerId,
-			leaseMs: options.leaseMs ?? DEFAULT_LEASE_MS
+			leaseMs
 		});
 
 		if (!job) {
 			stats.idleTicks += 1;
+			// Tour à vide = le bon moment pour réparer la file : rien d'autre à faire,
+			// et un bail mort remis en queue redevient réclamable au tour suivant.
+			await reapOnce(options.db, reapLimit, leaseMs, stats);
 			if (options.once) break;
 			const stopped = await sleep(pollIntervalMs, options.signal);
 			if (stopped) {
@@ -187,6 +245,39 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	return stats;
 }
 
+/**
+ * Une passe de reaper, bornée et non bloquante : le reaper est une COMMODITÉ du
+ * worker, pas sa mission. S'il échoue (réseau, verrou), on le journalise et la
+ * boucle continue — un job perdu de plus se rattrapera à la passe suivante,
+ * alors qu'un worker qui meurt sur son reaper n'en traiterait plus aucun.
+ */
+async function reapOnce(
+	db: AppDb,
+	limit: number,
+	leaseMs: number,
+	stats: WorkerStats
+): Promise<void> {
+	if (limit <= 0) return;
+	try {
+		const res = await reclaimExpiredLeases({ db, limit, leaseMs });
+		if (res.reclaimed.length === 0) return;
+		stats.reclaimed += res.reclaimed.length;
+		stats.abandonedByKind.worker_death += res.byKind.worker_death;
+		stats.abandonedByKind.lease_stall += res.byKind.lease_stall;
+		logger.warn('baux morts repris', {
+			reclaimed: res.reclaimed.length,
+			requeued: res.requeued,
+			deadLettered: res.deadLettered,
+			workerDeath: res.byKind.worker_death,
+			leaseStall: res.byKind.lease_stall
+		});
+	} catch (err) {
+		logger.error('passe de reaper échouée (la boucle continue)', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
 async function handleClaimedJob(
 	job: ClaimedJob,
 	options: WorkerOptions & { handlers: Map<string, JobHandler> },
@@ -200,11 +291,35 @@ async function handleClaimedJob(
 			jobId: job.id,
 			workerId: options.workerId
 		});
-		if (released) stats.released += 1;
+		if (released) {
+			stats.released += 1;
+			// Journalisé quand même : le compteur `attempts` du job REDESCEND (la
+			// tentative est rendue). Sans cette ligne, l'historique aurait un trou
+			// inexplicable — c'est précisément ce que le journal existe pour éviter.
+			const rel = await startAttempt({
+				db: options.db,
+				jobId: job.id,
+				projectId: job.projectId,
+				attemptNo: job.attempts,
+				workerId: options.workerId
+			});
+			await finishAttempt({ db: options.db, attemptId: rel.id, outcome: 'released' });
+		}
 		stats.stoppedGracefully = true;
 		logger.info('job relâché (arrêt gracieux)', { jobId: job.id, type: job.type });
 		return;
 	}
+
+	// Le journal s'ouvre AVANT toute exécution : si ce worker meurt à l'instant
+	// suivant, le reaper trouvera une tentative ouverte à clore en `abandoned` —
+	// c'est ce qui rend l'abandon visible plutôt que déduit d'un compteur.
+	const attempt = await startAttempt({
+		db: options.db,
+		jobId: job.id,
+		projectId: job.projectId,
+		attemptNo: job.attempts,
+		workerId: options.workerId
+	});
 
 	const handler = options.handlers.get(job.type);
 	if (!handler) {
@@ -217,13 +332,73 @@ async function handleClaimedJob(
 			error: { code: NO_HANDLER_ERROR_CODE, message: `Aucun handler pour le type "${job.type}".` }
 		});
 		countFailure(outcome, stats);
+		await finishAttempt({
+			db: options.db,
+			attemptId: attempt.id,
+			outcome: outcome?.status === 'dead' ? 'dead' : 'failed',
+			errorCode: NO_HANDLER_ERROR_CODE,
+			errorMessage: `Aucun handler pour le type "${job.type}".`
+		});
 		logger.error('aucun handler enregistré', { jobId: job.id, type: job.type });
 		return;
 	}
 
+	const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+	const maxDurationMs = options.maxJobDurationMs ?? DEFAULT_MAX_JOB_DURATION_MS;
+
+	// Signal propre au job : il s'interrompt si le bail est PERDU ou si le budget
+	// de durée est dépassé. Volontairement PAS relié au signal d'arrêt gracieux :
+	// l'acceptation JOB-001 exige qu'un job commencé avant l'ordre d'arrêt soit
+	// mené à son terme (l'arrêt coupe la RÉCLAMATION, pas l'exécution en cours).
+	const jobAbort = new AbortController();
+
+	let heartbeats = 0;
+	let leaseLost = false;
+	let timedOut = false;
+
+	// Heartbeat : trois battements par bail (computeRenewInterval). Un job long
+	// prolonge ainsi son bail indéfiniment ; s'il perd son bail, il l'apprend ici
+	// et cesse de travailler pour un job qui ne lui appartient plus.
+	const beat = setInterval(() => {
+		void (async () => {
+			const renewed = await renewLease({
+				db: options.db,
+				jobId: job.id,
+				workerId: options.workerId,
+				leaseMs
+			}).catch(() => null);
+			if (renewed) {
+				heartbeats += 1;
+			} else {
+				leaseLost = true;
+				jobAbort.abort();
+			}
+		})();
+	}, computeRenewInterval({ leaseMs }));
+
+	const budget =
+		maxDurationMs > 0
+			? setTimeout(() => {
+					timedOut = true;
+					jobAbort.abort();
+				}, maxDurationMs)
+			: null;
+
 	const t0 = Date.now();
+	// La garde rejette dès que le signal tombe. `Promise.race` en consomme le
+	// rejet ; le `.catch` vide couvre le cas où il tombe APRÈS la course (bail
+	// perdu pendant `completeJob`) — sans lui, ce serait un unhandled rejection.
+	const guard = abortRace(jobAbort.signal, () =>
+		timedOut ? providerTimeoutError(maxDurationMs) : null
+	);
+	guard.catch(() => {});
+
 	try {
-		await handler({ db: options.db, job });
+		// Course entre le handler et sa garde : un handler qui n'écoute pas son
+		// signal ne doit pas pouvoir retenir le worker au-delà de son budget.
+		await Promise.race([handler({ db: options.db, job, signal: jobAbort.signal }), guard]);
+		if (timedOut) throw providerTimeoutError(maxDurationMs);
+
 		const done = await completeJob({
 			db: options.db,
 			jobId: job.id,
@@ -231,32 +406,73 @@ async function handleClaimedJob(
 		});
 		if (done) {
 			stats.succeeded += 1;
+			await finishAttempt({
+				db: options.db,
+				attemptId: attempt.id,
+				outcome: 'succeeded',
+				heartbeatCount: heartbeats
+			});
 			logger.info('job réussi', { jobId: job.id, type: job.type, durationMs: Date.now() - t0 });
 		} else {
 			// Bail perdu (expiré et repris ailleurs) : on ne réécrit pas l'état
-			// d'un job qu'on ne possède plus.
+			// d'un job qu'on ne possède plus — ni le sien, ni celui de sa tentative,
+			// que le reaper a déjà close en `abandoned`.
 			logger.warn('job terminé mais bail perdu — état non réécrit', {
 				jobId: job.id,
-				type: job.type
+				type: job.type,
+				leaseLost
 			});
 		}
 	} catch (err) {
+		const { code, isProviderTimeout } = classifyExecutionError(err);
 		const outcome = await failJob({
 			db: options.db,
 			job,
 			workerId: options.workerId,
-			error: err
+			error: isProviderTimeout ? providerTimeoutError(maxDurationMs) : err
 		});
 		countFailure(outcome, stats);
+		await finishAttempt({
+			db: options.db,
+			attemptId: attempt.id,
+			outcome: outcome === null ? 'abandoned' : outcome.status === 'dead' ? 'dead' : 'failed',
+			errorCode: code,
+			errorMessage: err instanceof Error ? err.message : String(err),
+			heartbeatCount: heartbeats
+		});
 		logger.error('job échoué', {
 			jobId: job.id,
 			type: job.type,
 			attempts: job.attempts,
 			maxAttempts: job.maxAttempts,
+			errorCode: code,
+			providerTimeout: isProviderTimeout,
 			outcome: outcome?.status ?? 'bail perdu',
 			retryInMs: outcome?.backoffMs
 		});
+	} finally {
+		// Un intervalle survivant garderait le process en vie après la boucle.
+		clearInterval(beat);
+		if (budget) clearTimeout(budget);
 	}
+}
+
+/**
+ * Promesse qui ne se résout JAMAIS tant que le signal n'est pas déclenché, et
+ * qui rejette dès qu'il l'est. Sert à borner un handler qui ignorerait son
+ * signal : sans elle, le budget de durée ne serait qu'une suggestion.
+ * `reason()` fournit l'erreur (timeout provider) ou `null` (bail perdu / arrêt).
+ */
+function abortRace(
+	signal: AbortSignal,
+	reason: () => { code: string; message: string } | null
+): Promise<never> {
+	return new Promise((_, reject) => {
+		const fire = () =>
+			reject(reason() ?? { code: 'LeaseLost', message: 'Bail perdu ou arrêt demandé.' });
+		if (signal.aborted) return fire();
+		signal.addEventListener('abort', fire, { once: true });
+	});
 }
 
 function countFailure(

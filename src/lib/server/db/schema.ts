@@ -1454,3 +1454,81 @@ export const purgeRuns = seostats.table(
 	},
 	(table) => [index('idx_purge_runs_status').on(table.status)]
 );
+
+// ── JOB-002 — Bail, tentatives et effets externes (SPEC §6.2) ────────
+//
+// JOB-001 avait posé la réclamation atomique ; il y manquait la mémoire de ce
+// qui a été TENTÉ et la garantie qu'une reprise ne rejoue pas un effet externe.
+// Deux tables additives, aucune colonne ajoutée à `jobs` (heartbeat_at,
+// lease_owner, lease_until et attempts y existent depuis DATA-003).
+
+// Journal APPEND-ONLY des tentatives : 1 ligne par réclamation. `jobs` ne porte
+// qu'un compteur `attempts` et un `last_error_*` ÉCRASÉ à chaque reprise — donc
+// rien qui permette de dire « la tentative #1 a été abandonnée à 09:07 parce que
+// son worker est mort, la #2 a réussi ». C'est cette table qui le dit, et c'est
+// elle que JOB-003 (reprise manuelle conservant l'historique) et JOB-007
+// (console d'exploitation) liront.
+//
+// PAS d'unique sur (job_id, attempt_no) : `releaseJob` REND la tentative
+// (attempts - 1, JOB-001), donc un numéro se répète légitimement — et écraser la
+// ligne `released` effacerait justement l'historique qu'on cherche à garder.
+// Même idiome append-only que `finding_events` / `policy_promotions`.
+export const jobAttempts = seostats.table(
+	'job_attempts',
+	{
+		id: text('id').primaryKey(),
+		jobId: text('job_id')
+			.notNull()
+			.references(() => jobs.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id), // filtrage cross-projet (JOB-007)
+		attemptNo: integer('attempt_no').notNull(), // = jobs.attempts après incrément au claim
+		workerId: text('worker_id').notNull(),
+		outcome: text('outcome').notNull().default('running'), // running|succeeded|failed|abandoned|released|dead
+		abandonKind: text('abandon_kind'), // worker_death|lease_stall (null hors abandon)
+		errorCode: text('error_code'),
+		errorMessage: text('error_message'),
+		heartbeatCount: integer('heartbeat_count').notNull().default(0),
+		metadataJson: text('metadata_json'),
+		startedAt: text('started_at').notNull().default(nowText),
+		finishedAt: text('finished_at'),
+		durationMs: integer('duration_ms')
+	},
+	(table) => [
+		index('idx_job_attempts_job').on(table.jobId),
+		index('idx_job_attempts_outcome').on(table.outcome)
+	]
+);
+
+// Registre des EFFETS EXTERNES (outbox « claim-then-apply »). Après reprise d'un
+// job mort, le handler re-tourne : cette table garantit qu'un effet déjà appliqué
+// n'est jamais rejoué (« deux exécutions ne produisent pas deux effets externes »).
+// L'ordre compte — on RÉSERVE la clé d'abord (`pending`), on applique ensuite :
+// appliquer avant de réserver laisserait une fenêtre de double effet.
+// `status='failed'` reste REPRENABLE (l'effet n'a pas abouti, il doit pouvoir l'être).
+// Brique dont IDX-007 (outbox IndexNow) et la publication GMB auront besoin.
+export const jobEffects = seostats.table(
+	'job_effects',
+	{
+		id: text('id').primaryKey(),
+		jobId: text('job_id')
+			.notNull()
+			.references(() => jobs.id),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		attemptNo: integer('attempt_no'), // quelle tentative a appliqué l'effet
+		effectKey: text('effect_key').notNull(), // identité métier de l'effet (déterministe)
+		status: text('status').notNull().default('pending'), // pending|applied|failed
+		resultHash: text('result_hash'),
+		errorMessage: text('error_message'),
+		claimedAt: text('claimed_at').notNull().default(nowText),
+		appliedAt: text('applied_at')
+	},
+	(table) => [
+		// Miroir de `jobs_idempotency_unique` : une clé d'effet est unique PAR PROJET.
+		uniqueIndex('job_effects_key_unique').on(table.projectId, table.effectKey),
+		index('idx_job_effects_job').on(table.jobId)
+	]
+);

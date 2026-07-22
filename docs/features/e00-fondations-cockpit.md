@@ -4,6 +4,90 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (JOB-002 — un worker qui meurt ne perd plus son job)
+
+**Fait :** JOB-001 savait réclamer un job ; il ne savait pas ce qu'il devient quand son worker
+**meurt**. Un crash (OOM, machine éteinte, process tué) laissait le job en `status='running'`, bail
+périmé, `lease_owner` renseigné — **pour toujours** : `claimJob` ne regarde que les `queued`, le job
+était perdu en silence. L'index `idx_jobs_lease`, posé en DATA-003 pour ce reaper, n'avait jamais
+servi. Symétriquement, un job **long** voyait son bail de 5 min expirer pendant qu'il travaillait.
+**2 tables additives** (57 tables, zéro dérive), aucun `ALTER` sur `jobs`.
+
+- **Bail vivant (`jobs-lease.ts`)** — `renewLease` prolonge le bail et enregistre le battement,
+  toujours gardé par `lease_owner` (un autre worker ne peut pas prolonger le bail d'autrui). Le
+  runner bat **trois fois par bail** (`computeRenewInterval` = `leaseMs/3`) : une requête perdue ne
+  suffit pas à se faire voler son job. Si un renouvellement échoue, le worker **l'apprend** et
+  interrompt son handler — il ne travaille plus pour un job qui ne lui appartient plus.
+- **Reaper (`reclaimExpiredLeases`)** — en UNE transaction :
+  `SELECT … FOR UPDATE SKIP LOCKED` sur les baux expirés (consomme enfin `idx_jobs_lease`) →
+  `classifyAbandonedLease` → `decideAfterAbandon` → `UPDATE` **gardé par `lease_owner` ET
+  `lease_until` observés**. Cette double garde est le point sensible : si le vrai propriétaire a
+  renouvelé entre la lecture et l'écriture, le `WHERE` ne matche pas et **on ne lui vole rien**
+  (compté en `skipped`). `SKIP LOCKED` rend deux reapers concurrents inoffensifs — prouvé (A:1 B:0).
+- **Timeout provider vs crash local**, la distinction de l'acceptation, tranchée par **où** le fait
+  se constate : le crash se voit **de l'extérieur** (bail mort → `classifyAbandonedLease`, qui lit
+  le rythme des battements : plus de battement bien avant l'échéance = `worker_death` ; battement
+  jusqu'au bout puis silence = `lease_stall`) ; le timeout se voit **de l'intérieur**, worker vivant,
+  via le **budget de durée** du runner (défaut 30 min) → `ProviderTimeout`, rejouable. La politique
+  de retry n'est **pas réinventée** : `decideAfterAbandon` délègue à `decideAfterFailure` (DATA-003).
+- **`job_attempts`** (journal append-only, 1 ligne par réclamation) — `jobs` ne portait qu'un
+  compteur et un `last_error_*` **écrasé à chaque reprise** : impossible de montrer « la #1 a été
+  abandonnée, la #2 a réussi ». **Pas d'unique `(job_id, attempt_no)`** : `releaseJob` **rend** la
+  tentative, un numéro se répète légitimement, et écraser la ligne `released` effacerait justement
+  l'historique qu'on crée. `scripts/jobs-inspect.ts` en fait une chronologie lisible.
+- **`job_effects` + `guardExternalEffect`** — après reprise, le handler re-tourne. Le registre
+  garantit l'exactly-once par **claim-then-apply** : on **réserve** la clé (`pending`, unique
+  `(project_id, effect_key)`), **puis** on applique. Appliquer avant de réserver laisserait une
+  fenêtre de double effet. Un effet `failed` reste **reprenable** (il n'a jamais abouti) ; un
+  `applied` ne se rejoue jamais. Brique dont IDX-007 (outbox IndexNow) et la publication GMB auront
+  besoin.
+- **Reaper intégré au worker** : une passe au **démarrage** (le cas fréquent est justement le
+  redémarrage après crash) puis à chaque **tour à vide** → la file se répare seule, sans infra
+  nouvelle. La passe est **non bloquante** : si elle échoue, on la journalise et la boucle continue —
+  un worker qui mourrait sur son reaper ne traiterait plus aucun job.
+- Vérif : `npm run test` = **287/287** (+23) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL appliqué sur Neon (**2 tables + 4 index**) · introspection = **57 tables, zéro dérive** ·
+  **`scripts/job-002-recovery-proof.ts` = 27/27 vertes sur Neon** (nettoie ses propres lignes) ·
+  `reap.ts --dry-run` sur la vraie file = **0 bail mort** · chaîne réelle rejouée
+  (`bisrepetita findings:lifecycle`) → tentative journalisée · **13 findings intacts**, 0 job
+  `running` orphelin, **0 horodatage ISO** dans `job_attempts`.
+
+**Acceptations couvertes.** (1) « tuer un worker pendant un run entraîne une reprise automatique » :
+bail forcé dans le passé + battement arrêté → reaper → `worker_death`, remise en file, puis un
+`runWorker` réel reprend et mène le job à `succeeded` ; (2) « deux exécutions ne produisent pas deux
+effets externes » : même `effect_key` sur deux tentatives → **1 seul appel**, une seule ligne
+`applied` ; (3) « l'interface montre la tentative abandonnée et la reprise » : chronologie
+`#1 abandoned (worker mort) → #2 succeeded`, workers distincts — la **page** reste JOB-007, qui lira
+ces mêmes lignes. Débloque **JOB-003** et **JOB-007**.
+
+**Prochain :** **JOB-003** (classification fine des erreurs — retryable / auth / quota / permanent —,
+backoff avec jitter, action de reprise depuis la dead-letter), puis l'**agent réel** qui lit les
+findings et produit des `action_proposals` gouvernées par les policies DATA-007. L'inbox UI (E11)
+reste à faire.
+
+**Pièges :**
+- Le signal du job n'est **PAS** relié au signal d'arrêt gracieux : l'acceptation JOB-001 exige qu'un
+  job commencé avant l'ordre d'arrêt soit **mené à son terme** (l'arrêt coupe la *réclamation*, pas
+  l'exécution). Les relier casse silencieusement cette acceptation.
+- **La file sert par priorité puis ancienneté** : un test qui seede un job puis appelle `claimJob`
+  peut recevoir le job d'un **bloc précédent** resté en file. La preuve cloisonne chaque bloc par un
+  **type dédié** (`__test_lease:<label>`) — sans quoi elle mesure autre chose que ce qu'elle annonce.
+  (Deux vérifications vertes à tort avant correction.)
+- `guardExternalEffect` **réserve avant d'appliquer**. Inverser l'ordre annule toute la garantie.
+- Le reaper garde son `UPDATE` par `lease_owner` **et** `lease_until` : sans le second, une course
+  avec un renouvellement volerait un job vivant.
+- `classifyExecutionError` est **idempotente** (`ProviderTimeout` est lui-même dans la table des
+  codes de timeout) : sans ça, code et drapeau se contredisent dans les logs.
+- L'intervalle de heartbeat et le timer de budget sont nettoyés dans un `finally` — un timer
+  survivant garderait le process en vie après la boucle.
+- **Sur Vercel, aucun worker ne tourne en continu** : la reprise n'a lieu qu'au prochain lancement
+  d'un worker (ou de `reap.ts`). Le cron dédié reste l'affaire de **JOB-005**.
+- Toujours en suspens hors JOB-002 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · **barberconcept** sans finding (50 d'un coup
+  si détection lancée, cf. plafond `maxCandidates`).
+
+---
+
 ## Etat session 2026-07-22 (FIND-003 — cycle de vie : l'inbox se vide toute seule)
 
 **Fait :** l'inbox devient crédible. Jusqu'ici un finding naissait `open` et y restait **pour

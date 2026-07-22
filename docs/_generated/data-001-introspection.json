@@ -1,15 +1,15 @@
 {
-  "stamp": "post-find-003",
+  "stamp": "post-job-002",
   "schemas": [
     "seostats",
     "core"
   ],
   "summary": {
-    "liveCount": 55,
-    "modelCount": 55,
+    "liveCount": 57,
+    "modelCount": 57,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 55
+    "inBothCount": 57
   },
   "tables": [
     {
@@ -3242,8 +3242,232 @@
     },
     {
       "schema": "seostats",
+      "table": "job_attempts",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "job_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "attempt_no",
+          "type": "integer",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "worker_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "outcome",
+          "type": "text",
+          "nullable": false,
+          "default": "'running'::text"
+        },
+        {
+          "column": "abandon_kind",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_code",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "heartbeat_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "metadata_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "started_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "duration_ms",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "job_attempts_job_id_fkey",
+          "columns": [
+            "job_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "jobs",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "job_attempts_project_id_fkey",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_job_attempts_job",
+        "idx_job_attempts_outcome",
+        "job_attempts_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "job_effects",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "job_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "attempt_no",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "effect_key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'pending'::text"
+        },
+        {
+          "column": "result_hash",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "claimed_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "applied_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "job_effects_job_id_fkey",
+          "columns": [
+            "job_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "jobs",
+          "refColumns": [
+            "id"
+          ]
+        },
+        {
+          "constraint": "job_effects_project_id_fkey",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_job_effects_job",
+        "job_effects_key_unique",
+        "job_effects_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "jobs",
-      "rowCount": 2,
+      "rowCount": 3,
       "columns": [
         {
           "column": "id",
@@ -3563,7 +3787,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_runs",
-      "rowCount": 1,
+      "rowCount": 3,
       "columns": [
         {
           "column": "id",
@@ -3677,7 +3901,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_steps",
-      "rowCount": 1,
+      "rowCount": 3,
       "columns": [
         {
           "column": "id",

@@ -409,7 +409,7 @@ Acceptation :
 
 ## JOB-002 — Lease, heartbeat et récupération après crash
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-001
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-22 — `renewLease` + heartbeat 3×/bail dans `runWorker` ; reaper `reclaimExpiredLeases` en transaction `FOR UPDATE SKIP LOCKED` sur `idx_jobs_lease`, `UPDATE` gardé par `lease_owner` **et** `lease_until` ; `classifyAbandonedLease` sépare `worker_death` de `lease_stall`, budget de durée du runner → `ProviderTimeout` ; journal append-only `job_attempts` + `scripts/jobs-inspect.ts` ; exactly-once via `job_effects` + `guardExternalEffect` (claim-then-apply) ; passe de reaper au démarrage et sur les tours à vide + `scripts/reap.ts`. Preuve sur Neon : `scripts/job-002-recovery-proof.ts` 27/27. UI = JOB-007 ; cron dédié = JOB-005) · **Dépendances :** JOB-001
 
 Travail :
 
@@ -426,7 +426,7 @@ Acceptation :
 
 ## JOB-003 — Retry, backoff et dead-letter
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-001
+**Priorité :** P0 · **Taille :** M · **État :** TODO (débloqué par JOB-002 : `job_attempts` conserve l'historique des tentatives, `classifyExecutionError` pose la base à affiner) · **Dépendances :** JOB-001
 
 Travail :
 
@@ -494,7 +494,7 @@ Acceptation :
 
 ## JOB-007 — Console d'exploitation des jobs
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-002, JOB-003
+**Priorité :** P1 · **Taille :** M · **État :** BLOCKED (par JOB-003 ; JOB-002 livré — la console lira `job_attempts` et `jobs`) · **Dépendances :** JOB-002, JOB-003
 
 Travail :
 

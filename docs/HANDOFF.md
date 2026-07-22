@@ -9,8 +9,9 @@
 Cadre produit : [SPEC.md](SPEC.md) · [BACKLOG.md](BACKLOG.md) · [DECISIONS.md](DECISIONS.md).
 
 ## Reprendre ici
-E00 sur `feat/cockpit` — **JOB-002** : renouvellement de bail, détection de worker mort, remise en
-queue selon la politique de retry, timeout provider vs crash local. Contexte, pièges et carte du code
-→ le fichier feature. FIND-003 vient de fermer le cycle de vie des findings (débloque FIND-010,
-DASH-004, REP-001, AGT-005C).
-Commit : `5428ec7` [hub] add: FIND-003 cycle de vie des findings.
+E00 sur `feat/cockpit` — **JOB-003** : classification fine des erreurs (retryable / auth / quota /
+permanent), backoff avec jitter, bornage des tentatives, et action de reprise depuis la dead-letter
+en conservant l'historique des tentatives (`job_attempts` existe désormais pour ça). Contexte,
+pièges et carte du code → le fichier feature. JOB-002 vient de fermer le trou « worker mort » et
+débloque JOB-003 + JOB-007.
+Commit : `<à venir>` [hub] add: JOB-002 bail, heartbeat et récupération après crash.
