@@ -14,4 +14,4 @@ le laisser `queued` à vie, et le run le dit (`partial`, donnée manquante nomm�
 (E11/DASH-005) qui affiche findings ET propositions — tout est en base, rien ne le montre encore.
 ⚠️ Avant de déployer : `barberconcept` écrira ses 50 findings au 1er tick (décidé : on laisse aller) ;
 son `propose:actions` attendra désormais la fin de cette détection.
-Commit : `PENDING` [hub] add: JOB-004 dépendances entre jobs.
+Commit : `c0d3dd4` [hub] add: JOB-004 dépendances entre jobs.

@@ -117,7 +117,7 @@ qui donneront enfin des arêtes profondes au graphe §8.2.
   Jonathan : on les laisse partir) — et son `propose:actions` **attendra** désormais la fin de cette
   détection au lieu de partir en parallèle.
 
-**Commit :** `PENDING` [hub] add: JOB-004 dépendances entre jobs, skip propagé, statut de run exact
+**Commit :** `c0d3dd4` [hub] add: JOB-004 dépendances entre jobs, skip propagé, statut de run exact
 
 ---
 
