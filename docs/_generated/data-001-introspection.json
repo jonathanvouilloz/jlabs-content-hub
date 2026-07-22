@@ -5,11 +5,11 @@
     "core"
   ],
   "summary": {
-    "liveCount": 52,
-    "modelCount": 52,
+    "liveCount": 55,
+    "modelCount": 55,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 52
+    "inBothCount": 55
   },
   "tables": [
     {
@@ -3771,6 +3771,101 @@
     },
     {
       "schema": "seostats",
+      "table": "observation_aggregates",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "project_id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "source",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "grain",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_start",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "period_end",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "dimensions_hash",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "dimensions_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "metrics_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "sample_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "computed_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "observation_aggregates_project_id_projects_id_fk",
+          "columns": [
+            "project_id"
+          ],
+          "refSchema": "seostats",
+          "refTable": "projects",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_observation_aggregates_source_grain",
+        "observation_aggregates_pkey",
+        "observation_aggregates_unique"
+      ]
+    },
+    {
+      "schema": "seostats",
       "table": "plausible_page_observations",
       "rowCount": 0,
       "columns": [
@@ -4693,6 +4788,207 @@
         "idx_publish_logs_content",
         "idx_publish_logs_project_date",
         "publish_logs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "purge_runs",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "status",
+          "type": "text",
+          "nullable": false,
+          "default": "'planned'::text"
+        },
+        {
+          "column": "dry_run",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "column": "triggered_by",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "approval_ref",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "policy_version",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "plan_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "metrics_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "checkpoint_json",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_message",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "started_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "finished_at",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [
+        {
+          "constraint": "purge_runs_approval_ref_proposal_approvals_id_fk",
+          "columns": [
+            "approval_ref"
+          ],
+          "refSchema": "seostats",
+          "refTable": "proposal_approvals",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ],
+      "indexes": [
+        "idx_purge_runs_status",
+        "purge_runs_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "retention_policies",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "id",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "data_type",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "category",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "retention_days",
+          "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "aggregate_before_purge",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "requires_l4",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "protected",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        },
+        {
+          "column": "source_table",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "timestamp_column",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "description",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "active",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "column": "created_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "idx_retention_policies_category",
+        "retention_policies_data_type_unique",
+        "retention_policies_pkey"
       ]
     },
     {

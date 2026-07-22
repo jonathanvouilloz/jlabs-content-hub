@@ -358,7 +358,15 @@ Acceptation :
 
 ## DATA-008 — Implémenter rétention, agrégation et purge
 
-**Priorité :** P1 · **Taille :** L · **État :** READY (dépendances DATA-004+DATA-005 levées le 2026-07-22) · **Dépendances :** DATA-004, DATA-005
+**Priorité :** P1 · **Taille :** L · **État :** DONE — expand + dry-run (2026-07-22) · **Dépendances :** DATA-004, DATA-005
+
+> Livré (périmètre **expand + dry-run, aucune suppression réelle**) : `retention_policies` (configurable
+> par type, seedée §7.11), `observation_aggregates` (rollups week/month/year, idempotents),
+> `purge_runs` (observable + reprenable). Invariants purs (`retention-state.ts`) : protégé/infini jamais
+> purgé, audit = L4, buckets de période déterministes. Runner `scripts/purge.ts` DRY-RUN annonce lignes +
+> périodes exactes (vérifié Neon : 76 446 lignes ciblées à réf. 2030) ; `--execute` refusé. 55 tables,
+> zéro dérive · test 172/172. **Reste (tâche séparée)** : activer l'exécution destructive (agrégation →
+> delete par lots, reprise via checkpoint, L4 pour audit) + purge column-level `debug_payload`.
 
 Travail :
 

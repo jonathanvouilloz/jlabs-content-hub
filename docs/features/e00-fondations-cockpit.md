@@ -4,6 +4,58 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (DATA-008 — rétention, agrégation & purge)
+
+**Fait :** (périmètre validé = **expand + dry-run, aucune suppression réelle**)
+- **DATA-008** phase **expand** : 3 tables de la rétention/purge (SPEC §7.11) dans `schema.ts`.
+  - `retention_policies` — politique **configurable par type** (unique `data_type`). `retention_days`
+    NULL = sans limite ; `protected` = jamais purgeable ; `requires_l4` = suppression exige L4 ;
+    `aggregate_before_purge` ; `source_table`/`timestamp_column` (câblage runner). **Seedée** avec la
+    politique §7.11 : détail obs = 24 mois (agrégé avant purge), debug/payload = 90 j, agrégats/findings/
+    décisions/audit/rapports = sans limite.
+  - `observation_aggregates` — rollups **semaine/mois/année** produits **avant** purge (agrégats conservés
+    sans limite). Générique par `source` + `dimensions_hash` (dims variables : query+page / métrique /
+    keyword). Idempotent (unique projet+source+grain+période+dims → reprise sans double-compte).
+  - `purge_runs` — run **observable + reprenable** : `dry_run`, `plan_json`, `metrics_json`,
+    `checkpoint_json` (reprise), `approval_ref`→`proposal_approvals` (L4 pour purge d'audit).
+  - Helpers : `retention-state.ts` (**pur**, testé : `computeCutoff`/`isExpired` [null = sans limite],
+    `isPurgeable` [protégé/infini/inactif jamais purgé], `requiresL4ForPurge`+`assertPurgeAuthorized`
+    [audit = L4 sinon throw], `derivePeriod` [buckets week/month/year déterministes UTC],
+    `canonicalDimensions`, `RETENTION_DEFAULTS` [config §7.11 pure], tuples) · `retention.ts`
+    (`seedRetentionPolicies` idempotent, `upsertObservationAggregate` idempotent +`computeDimensionsHash`,
+    `createPurgeRun`/`checkpointPurgeRun`/`updatePurgeRun` ; garde `assertBoundedPayload`/
+    `assertNoInlineSecret` sur les blobs).
+  - Runner `scripts/purge.ts` — **DRY-RUN par défaut** : seed policies + plan (lignes + périodes exactes
+    par type, agrégats à produire). `--execute` **REFUSE** (destructif différé). `--now=YYYY-MM-DD` fige
+    la réf. Application DDL : `drizzle/manual-data-008.sql` via `scripts/apply-data-008.ts`.
+- Vérif : `npm run test` = **172/172** (28 nouveaux) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL **appliqué sur Neon** (3/3) · introspection = **55 tables, zéro dérive** · **dry-run exécuté sur Neon** :
+  réf. réelle → 0 ligne (données < 24 mois) ; réf. `2030-01-01` → **76 446 lignes** (73009+3300+137) +
+  périodes 2026-03→07 comptées exactement, protégés listés « conservés », audit marqué L4.
+- **4 acceptations couvertes** : (1) dry-run annonce lignes+périodes exactes ; (2) `isPurgeable` +
+  `protected` → aucun agrégat/findings/rapport supprimé ; (3) `assertPurgeAuthorized` → suppression audit
+  exige L4 ; (4) agrégats upsert + delete par cutoff = idempotents → reprise sans double effet
+  (`checkpoint_json`).
+- **Pas de suppression réelle, pas de cron/UI** : la branche destructive (`--execute`) est écrite mais
+  **gardée** ; l'agrégation+purge réelle sera activée en session dédiée (accès + validation explicites).
+
+**Prochain :** premier lot §9 quasi clos côté DATA. Suite = la **chaîne agentique aval** (1er détecteur
+déterministe qui produit de vrais findings depuis les observations DATA-004, + agent réel → proposals
+gouvernés par les policies DATA-007), et/ou **JOB-001** (réclamation atomique `FOR UPDATE SKIP LOCKED`).
+Activation destructive de la purge = tâche séparée. **CONTRACT** (retrait legacy) toujours différé.
+
+**Pièges :**
+- Colonne d'âge des observations = **`period_end`** (l'âge de la DONNÉE) sauf `keyword_rank_observations`
+  = **`observed_date`** (pas de period_end) ; `fetched_at` vaut ~now après backfill → **inutilisable**
+  comme âge. Toute nouvelle source à purger doit déclarer la bonne `timestamp_column`.
+- `isPurgeable` : `active` **absent = actif** (les `RETENTION_DEFAULTS` n'ont pas le champ ; seedés
+  `active=true`). Seul `active === false` désactive.
+- `debug_payload` = policy **logique** (payload_json est column-level, pas une table) → `source_table`
+  null, le runner l'ignore (« runner non câblé ») jusqu'à ce que la purge column-level soit écrite.
+- Le dry-run **seede** les 9 policies (config, non destructif) : c'est voulu (sans policies, rien à planifier).
+
+---
+
 ## Etat session 2026-07-22 (DATA-007 — review_automation_policies + policy_promotions)
 
 **Fait :**
@@ -401,6 +453,11 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/retention-state.ts` | Purs DATA-008 : `computeCutoff`/`isExpired` (null=sans limite), `isPurgeable`, `requiresL4ForPurge`/`assertPurgeAuthorized` (audit=L4), `derivePeriod` (week/month/year), `RETENTION_DEFAULTS` (§7.11), tuples. |
+| `src/lib/server/retention-state.test.ts` | Vitest DATA-008 — 28 tests (cutoff, expiration infinie, purgeabilité, garde L4, buckets de période). |
+| `src/lib/server/retention.ts` | DATA-008 — `seedRetentionPolicies` idempotent, `upsertObservationAggregate` idempotent (+`computeDimensionsHash`), `createPurgeRun`/`checkpointPurgeRun`/`updatePurgeRun`. |
+| `scripts/purge.ts` | Runner DATA-008 DRY-RUN : plan (lignes+périodes exactes par type) ; `--execute` refusé (destructif différé) ; `--now=` fige la réf. |
+| `scripts/apply-data-008.ts` + `drizzle/manual-data-008.sql` | Application déterministe du DDL additif DATA-008 (`retention_policies` + `observation_aggregates` + `purge_runs`). |
 | `src/lib/server/policy-state.ts` | Purs DATA-007 : `deriveScopeKey`, `nextPolicyVersion`, `canonicalPolicyConfig` (hash), `evaluatePolicyGates` (kill switch ⟂ sync), `canAutoSendReview` (§8.4), `resolveEffectiveKillSwitch`, `derivePromotionKind`, tuples (modes/statuts/kinds). |
 | `src/lib/server/policy-state.test.ts` | Vitest DATA-007 — 29 tests (scope, versionnage, canonicalisation, invariant kill-switch⟂sync, éligibilité envoi, kinds). |
 | `src/lib/server/policies.ts` | DATA-007 — `promotePolicy` transactionnel idempotent (+`computePolicyHash` sha256, journal), `setKillSwitch` (promotion journalisée sans toucher la sync), `getCurrentPolicy`/`getEffectivePolicy`. |
@@ -424,7 +481,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (52 tables) ; +DATA-002/003/004/005/006/007 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs, review_automation_policies+policy_promotions). |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (55 tables) ; +DATA-002→008 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs, policies+promotions, retention_policies+observation_aggregates+purge_runs). |
 | `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
 | `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
 | `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
