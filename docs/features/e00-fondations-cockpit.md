@@ -4,6 +4,93 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (FIND-001/FIND-004 + JOB-001 — la chaîne agentique tourne)
+
+**Fait :** premier lot NON-données de E00 — la couche DATA produit enfin de la donnée de
+nouvelle génération, et la queue est consommée. **Aucun DDL** (55 tables, zéro dérive).
+
+- **FIND-001 + FIND-004** — 1er **détecteur déterministe** `keyword_opportunity` (§10.4), sans IA
+  dans la boucle (§3.3 : le fait est établi par arithmétique, l'agent commentera plus tard).
+  - Module **pur** `detector-state.ts` : `buildWindow` (N dernières semaines **complètes présentes** —
+    les observations sont hebdo), **`areWindowsComparable`** (aucun delta entre longueurs
+    différentes, GSC-004), `aggregateWindow` (Σ métriques + **position pondérée par impressions**,
+    tri déterministe → rejouable quel que soit l'ordre d'arrivée), `selectOpportunities`
+    (impressions ≥ seuil ∧ position exploitable ∧ CTR sous cible ∧ gain ≥ 1 clic),
+    `isExcludedQuery` (**bruit configuré** marque/navigationnel — liste par projet, jamais
+    d'heuristique devinée), `scoreOpportunity` (les 4 composantes §10.2, sommées par le
+    `computePriorityScore` **existant**), `deriveOpportunitySeverity` (**plafond `medium` à faible
+    volume ou confiance < 50** → FIND-002), `buildOpportunityEvidence` (**pointeurs** d'ids, plafonnés).
+  - IO `detectors/keyword-opportunity.ts` : lit `gsc_query_page_observations`, écrit via
+    `upsertFinding`/`recordFindingEvent` **existants**. Seuils = défauts < projection projet
+    (`project_projections.payload.detectors.keyword_opportunity`, tolérant à l'absence) < overrides.
+    Événement seulement quand il y a à dire : `created`, ou `aggravated`/`improved` via
+    `deriveSeverityEventType` — une re-détection identique n'enfle pas le journal.
+  - Runner `scripts/detect.ts` (`--project=<slug|all>`, `--weeks`, `--dry-run`, `--limit`) : ouvre un
+    `monitoring_run` + `monitoring_step` (traçabilité `findings.run_id`), clé d'idempotence
+    `deriveIdempotencyKey` → rejeu = un seul run. **Troncature jamais silencieuse** (le plafond
+    `maxCandidates` atteint est annoncé avec le total réel).
+- **JOB-001** — **réclamation atomique** de la queue durable (§6.2), en UNE instruction
+  `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *`, consommant
+  `idx_jobs_claim` (posé en DATA-003).
+  - `job-state.ts` (**pur**) : `decideAfterFailure` (réutilise `computeBackoff`/`shouldDeadLetter`/
+    `normalizeError` de DATA-003), `computeLeaseUntil`/`isLeaseExpired`, `deriveWorkerId`.
+  - `jobs-claim.ts` : `claimJob` (filtre de type **paramétré**, jamais concaténé), `completeJob`/
+    `failJob`/`releaseJob` — tous **refusent d'agir sur le job d'un autre worker** (`lease_owner`
+    dans le WHERE).
+  - `job-runner.ts` : registre de handlers + boucle `runWorker` **arrêtable** (AbortSignal). Premier
+    handler réel = le détecteur → la chaîne **`queue → worker → détecteur → findings`** est bouclée.
+  - `scripts/worker.ts` (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) +
+    `scripts/job-claim-concurrency.ts` (**preuve d'unicité**, impossible en vitest pur).
+- **Correctif transverse — `timestamps.ts`** : les colonnes temporelles sont des `text` dont le
+  DEFAULT SQL est `'YYYY-MM-DD HH:MM:SS'`, alors que le code écrivait de l'**ISO**. Deux formats dans
+  une même colonne cassent toute comparaison lexicale (`'T'` 0x54 > `' '` 0x20 → un horodatage ISO du
+  matin paraît **postérieur** à un horodatage DB du soir). `toDbTimestamp`/`toDbTimestampPlus` posés
+  et câblés dans `findings.ts`, `monitoring.ts`, tout le chemin jobs. Vérifié en base : **0 ligne au
+  format ISO** sur 13 findings.
+- **Injection de client db** : `db/index.ts` lit `$env` → non importable depuis `tsx`. Les modules
+  d'écriture (`findings.ts`, `monitoring.ts`) acceptent désormais un client optionnel et n'importent
+  `db/index.js` que **dynamiquement**, à défaut. Une seule implémentation sert l'app ET les runners
+  (fini la duplication de requêtes dans `scripts/`).
+- Vérif : `npm run test` = **231/231** (+59 : 35 détecteur, 16 jobs, 8 timestamps) · `npm run check` =
+  **0 err / 42 warn** (baseline) · introspection = **55 tables, zéro dérive** ·
+  `job-claim-concurrency` = **21/21 vertes sur Neon** · détection réelle exécutée : **13 findings**
+  sur 3 projets (jonlabs 10, bisrepetita 2, physiopommier 1), **0 doublon de fingerprint**,
+  13 événements `created`/`detector`, rejeu → `occurrence_count` 2 puis 3 sans nouvelle ligne.
+
+**Acceptations couvertes.** FIND-001 : (1) rejouable sur un snapshot figé (agrégation et tri
+déterministes, testés sur ordre inversé) ; (2) deux versions comparables (`detector_version` =
+`keyword_opportunity@1`) ; (3) aucune explication IA requise pour établir le fait. FIND-004 :
+(1) chaque opportunité montre query, page, période et métriques ; (2) seuils configurables par projet ;
+(3) aucune page publiée automatiquement (le détecteur n'écrit que des findings). JOB-001 : (1) test
+concurrent réel → 8 workers, 8 jobs distincts, aucun doublon ; (2) arrêt gracieux → job mené à son
+terme, aucun `running` orphelin, **tentative rendue** ; (3) jobs non réclamables (backoff,
+`available_at` futur à priorité 100) **ne bloquent pas la file**.
+
+**Prochain :** FIND-003 (cycle de vie : auto-résolution quand un finding cesse de matcher, snooze,
+réouverture) et/ou **JOB-002** (renouvellement de bail, détection de worker mort, remise en queue) —
+puis l'**agent réel** qui lit ces findings et produit des `action_proposals` gouvernées par les
+policies DATA-007. L'inbox UI (E11) reste à faire : les findings existent, rien ne les affiche encore.
+
+**Pièges :**
+- **`attempts` s'incrémente à la RÉCLAMATION**, pas à l'échec — sinon un job qui tue ses workers
+  boucle à l'infini. Corollaire : `releaseJob` **rend** la tentative (`GREATEST(attempts - 1, 0)`),
+  sans quoi redémarrer un worker deux fois suffit à envoyer un job sain en dead-letter. (Trouvé par
+  le test de concurrence, pas par relecture.)
+- **Prédicat de disponibilité toujours CASTÉ** : `available_at::timestamp <= $now::timestamp`. Une
+  comparaison lexicale sur ces colonnes `text` est fausse dès que deux formats coexistent.
+- `sql\`… = ANY(${array})\`` **ne marche pas** avec le driver Neon (le tableau est sérialisé élément
+  par élément → `malformed array literal`). Utiliser `IN (${sql.join(...)})`.
+- **SIGINT n'atteint pas node sous Git Bash/Windows** : l'arrêt gracieux se vérifie par `AbortSignal`
+  (même chemin de code ; le signal n'en est que le déclencheur), pas par `kill -INT`.
+- Le détecteur **ne résout jamais** un finding qui cesse de matcher (c'est FIND-003) : un finding
+  `open` qui n'apparaît plus dans un run n'est pas un bug.
+- `project_projections` est **vide** : les seuils par projet retombent sur les défauts. Le chemin
+  d'override avale toute anomalie (payload invalide → défauts) plutôt que de casser une détection.
+- Le plafond `maxCandidates=50` **mord déjà** : barberconcept a **1310** couples franchissant les
+  seuils. Le runner l'annonce ; ce n'est pas une couverture complète.
+
+---
+
 ## Etat session 2026-07-22 (DATA-008 — rétention, agrégation & purge)
 
 **Fait :** (périmètre validé = **expand + dry-run, aucune suppression réelle**)
@@ -453,6 +540,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 
 | Fichier | Rôle |
 |---------|------|
+| `src/lib/server/detector-state.ts` | Purs FIND-001/004 : `buildWindow`/`areWindowsComparable` (fenêtres hebdo comparables), `aggregateWindow` (position pondérée), `selectOpportunities` (+ bruit configuré, troncature reportée), `scoreOpportunity` (composantes §10.2), `deriveOpportunitySeverity` (plafond faible volume), `buildOpportunityEvidence` (pointeurs). |
+| `src/lib/server/detector-state.test.ts` | Vitest FIND-001/004 — 35 tests (rejouabilité, pondération, seuils, confiance dégradée, plafond de sévérité, preuves). |
+| `src/lib/server/detectors/keyword-opportunity.ts` | IO du détecteur : lit les observations, écrit findings + événements, seuils par projet (projection), client db injecté. |
+| `scripts/detect.ts` | Runner du détecteur (`--project=<slug\|all>`, `--weeks`, `--dry-run`, `--limit`) : run+step de traçabilité, rapport avec troncature explicite. |
+| `src/lib/server/job-state.ts` | Purs JOB-001 : `decideAfterFailure` (backoff/dead-letter via DATA-003), `computeLeaseUntil`/`isLeaseExpired`, `deriveWorkerId`. |
+| `src/lib/server/job-state.test.ts` | Vitest JOB-001 — 16 tests (backoff exponentiel plafonné, dead-letter au plafond exact, bail, normalisation d'erreur). |
+| `src/lib/server/jobs-claim.ts` | JOB-001 — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob`/`releaseJob` (gardés par `lease_owner`). |
+| `src/lib/server/job-runner.ts` | JOB-001 — registre de handlers (dont le détecteur) + boucle `runWorker` arrêtable (AbortSignal), compteurs retournés. |
+| `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
+| `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (21 vérifs : concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; nettoie ses propres lignes. |
+| `src/lib/server/timestamps.ts` (+ `.test.ts`) | Format canonique `YYYY-MM-DD HH:MM:SS` des colonnes `text` (`toDbTimestamp`/`toDbTimestampPlus`) — 8 tests, dont la preuve du piège lexical ISO vs DB. |
+| `src/lib/server/db/types.ts` | Type `AppDb` isolé de `db/index.ts` (qui lit `$env`) → permet l'injection de client dans les modules d'écriture. |
 | `src/lib/server/retention-state.ts` | Purs DATA-008 : `computeCutoff`/`isExpired` (null=sans limite), `isPurgeable`, `requiresL4ForPurge`/`assertPurgeAuthorized` (audit=L4), `derivePeriod` (week/month/year), `RETENTION_DEFAULTS` (§7.11), tuples. |
 | `src/lib/server/retention-state.test.ts` | Vitest DATA-008 — 28 tests (cutoff, expiration infinie, purgeabilité, garde L4, buckets de période). |
 | `src/lib/server/retention.ts` | DATA-008 — `seedRetentionPolicies` idempotent, `upsertObservationAggregate` idempotent (+`computeDimensionsHash`), `createPurgeRun`/`checkpointPurgeRun`/`updatePurgeRun`. |
@@ -492,6 +591,25 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
+- **FIND-001/FIND-004** : le détecteur est **pur + IO**, jamais un script monolithique — la logique
+  testée par vitest, l'IO réduit à lire/écrire. **Fenêtre = semaines complètes présentes** (les
+  observations sont hebdo), et deux fenêtres de longueurs différentes ne se comparent jamais
+  (`areWindowsComparable`). Une **fenêtre incomplète baisse la confiance**, elle ne supprime pas le
+  finding ; un **faible volume plafonne la sévérité à `medium`** (jamais de `critical` sans données).
+  Le **bruit est configuré, jamais deviné** (`excludeQueryPatterns` par projet) : on préfère un
+  finding de marque visible à un filtre implicite faux. **Troncature annoncée** (`maxCandidates`
+  atteint = dit avec le total réel). Le détecteur **n'auto-résout rien** → FIND-003.
+- **JOB-001** : `attempts` s'incrémente **à la réclamation** (un worker qui meurt consomme sa
+  tentative → pas de boucle infinie sur un job « poison »), et `releaseJob` la **rend** (arrêt
+  gracieux = rien n'a tourné). Toutes les mutations d'état sont gardées par `lease_owner` : un worker
+  ne clôt jamais le job d'un autre. Reaper de baux morts = **JOB-002**, hors lot.
+- **Format temporel canonique** (`timestamps.ts`) : les colonnes `text` ont un DEFAULT SQL
+  `YYYY-MM-DD HH:MM:SS` ; toute écriture applicative passe désormais par `toDbTimestamp`, et tout
+  prédicat SQL **caste** (`::timestamp`). Mélanger ISO et format DB dans une colonne casse les
+  comparaisons lexicales — c'est le bug qui aurait rendu un job indisponible jusqu'au lendemain.
+- **Injection de client db** : `findings.ts`/`monitoring.ts` acceptent un client optionnel et
+  n'importent `db/index.js` (qui lit `$env`) que **dynamiquement**. Les runners `scripts/` réutilisent
+  ainsi les vraies fonctions d'écriture au lieu de réimplémenter les requêtes.
 - Config au boot **log-only** (pas de throw) pour protéger le daily driver ; fail-fast strict délégué à `requireEnv` au point d'usage.
 - Flags OFF par défaut ; un flag route le comportement, n'efface jamais de donnée.
 - **IDX-008** : garde à deux étages (flag maître `indexnow` + éligibilité type) ; refus audité en DB, zéro quota.

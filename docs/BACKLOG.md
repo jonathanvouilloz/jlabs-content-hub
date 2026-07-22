@@ -392,7 +392,7 @@ Acceptation :
 
 ## JOB-001 — Réclamation atomique des jobs
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** DATA-003
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-22 — `claimJob` FOR UPDATE SKIP LOCKED en une instruction, lease/owner/attempt, complete/fail/release gardés par `lease_owner`, boucle `runWorker` arrêtable ; preuve d'unicité sur Neon via `scripts/job-claim-concurrency.ts` 21/21 ; reaper de baux morts = JOB-002) · **Dépendances :** DATA-003
 
 Travail :
 
@@ -773,7 +773,7 @@ Acceptation :
 
 ## FIND-001 — Framework commun de détecteurs
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-005, GSC-004
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-22 — contrat input/output versionné (`detector_version`), module pur `detector-state.ts` + IO `detectors/keyword-opportunity.ts` + runner `scripts/detect.ts` ; preuves/période/score/confiance/fingerprint imposés ; un détecteur par projet/run avec `monitoring_run`+`step`. Dépendance GSC-004 contournée : le détecteur tourne sur les observations backfillées, fenêtres hebdo comparables via `areWindowsComparable`) · **Dépendances :** DATA-005, GSC-004
 
 Travail :
 
@@ -790,7 +790,7 @@ Acceptation :
 
 ## FIND-002 — Scoring priorité et confiance
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** M · **État :** READY (partiellement couvert le 2026-07-22 : impact/urgence/confiance/strategic-fit calculés et bornés par `computePriorityScore` (§10.2), signaux à faible volume plafonnés à `medium` — reste à faire : poids documentés PAR TYPE de finding et override audité) · **Dépendances :** FIND-001
 
 Travail :
 
@@ -824,7 +824,7 @@ Acceptation :
 
 ## FIND-004 — Opportunités de mots-clés
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-22 — `keyword_opportunity@1` : impressions + position exploitable + CTR sous cible, seuils configurables par projet (projection), bruit navigationnel/marque exclu par configuration, verdict porté par `recommended_skill=seo-refresh`. 13 findings réels écrits sur 3 projets. Aucune page publiée automatiquement) · **Dépendances :** FIND-001
 
 Travail :
 

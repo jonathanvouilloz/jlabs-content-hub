@@ -1,5 +1,5 @@
 {
-  "stamp": "post-backfill",
+  "stamp": "post-find-001",
   "schemas": [
     "seostats",
     "core"
@@ -1263,7 +1263,7 @@
     {
       "schema": "seostats",
       "table": "finding_events",
-      "rowCount": 0,
+      "rowCount": 13,
       "columns": [
         {
           "column": "id",
@@ -1363,7 +1363,7 @@
     {
       "schema": "seostats",
       "table": "findings",
-      "rowCount": 0,
+      "rowCount": 13,
       "columns": [
         {
           "column": "id",
@@ -3212,7 +3212,7 @@
     {
       "schema": "seostats",
       "table": "jobs",
-      "rowCount": 0,
+      "rowCount": 2,
       "columns": [
         {
           "column": "id",
@@ -3532,7 +3532,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_runs",
-      "rowCount": 0,
+      "rowCount": 1,
       "columns": [
         {
           "column": "id",
@@ -3646,7 +3646,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_steps",
-      "rowCount": 0,
+      "rowCount": 1,
       "columns": [
         {
           "column": "id",
@@ -4899,7 +4899,7 @@
     {
       "schema": "seostats",
       "table": "retention_policies",
-      "rowCount": 0,
+      "rowCount": 9,
       "columns": [
         {
           "column": "id",
