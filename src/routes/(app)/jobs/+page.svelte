@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { ListChecks, RotateCcw } from 'lucide-svelte';
+	import { CalendarClock, ListChecks, RotateCcw } from 'lucide-svelte';
 	import {
+		CADENCE_LABEL,
 		CLASS_LABEL,
 		STATUS_LABEL,
 		formatDbTimestamp,
-		formatRelative
+		formatRelative,
+		formatScheduleSlot
 	} from '$lib/utils/job-format.js';
 
 	let { data } = $props();
@@ -87,6 +89,38 @@
 
 	const totalPages = $derived(Math.ceil(data.total / data.filters.limit));
 	const currentPage = $derived(Math.floor(data.filters.offset / data.filters.limit) + 1);
+
+	// ── Planification (JOB-005) ──────────────────────────────────────
+	// Seules les cadences RÉELLEMENT câblées sont listées : une cadence qui se
+	// calcule mais n'enfile aucun job ferait attendre un run qui ne viendra pas.
+	// Les autres sont nommées une fois, en note.
+	const scheduleRows = $derived(data.schedule.rows.filter((r) => r.wired && r.enabled));
+	const disabledRows = $derived(data.schedule.rows.filter((r) => r.wired && !r.enabled));
+	const unwiredCadences = $derived([
+		...new Set(data.schedule.rows.filter((r) => !r.wired).map((r) => r.cadence))
+	]);
+
+	/** Groupé par projet : un projet, ses cadences — l'ordre du serveur est conservé. */
+	const scheduleByProject = $derived(
+		scheduleRows.reduce<Array<{ slug: string; name: string; rows: typeof scheduleRows }>>(
+			(acc, row) => {
+				const last = acc.at(-1);
+				if (last && last.slug === row.projectSlug) last.rows.push(row);
+				else acc.push({ slug: row.projectSlug, name: row.projectName, rows: [row] });
+				return acc;
+			},
+			[]
+		)
+	);
+
+	/** Le prochain créneau, tous projets confondus — le résumé qu'on lit sans déplier. */
+	const soonest = $derived(
+		scheduleRows.reduce<(typeof scheduleRows)[number] | null>(
+			(best, row) =>
+				row.instantDb && (!best?.instantDb || row.instantDb < best.instantDb) ? row : best,
+			null
+		)
+	);
 </script>
 
 <div class="flex flex-col h-[calc(100vh-73px)] -mx-6 -my-6 lg:-mx-8">
@@ -95,8 +129,68 @@
 		<h1 class="text-xl font-semibold text-surface-900">Jobs</h1>
 		<p class="mt-0.5 text-xs text-surface-400">
 			File d'exécution du cockpit — {data.total} job{data.total !== 1 ? 's' : ''} pour ces filtres.
-			Horodatages en <span class="font-medium">UTC</span>.
+			Horodatages en <span class="font-medium">UTC</span>. La file est planifiée et drainée au tick
+			horaire (<code>/api/cron/tick</code>).
 		</p>
+	</div>
+
+	<!-- Planification (JOB-005) -->
+	<div class="flex-shrink-0 px-6 lg:px-8 pb-3">
+		<details class="rounded-lg border border-surface-200 bg-white">
+			<summary class="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-surface-600">
+				<CalendarClock class="h-3.5 w-3.5 text-surface-400" />
+				<span class="font-medium text-surface-900">Planification</span>
+				{#if soonest}
+					<span class="text-surface-400">
+						prochain : {soonest.projectSlug} · {CADENCE_LABEL[soonest.cadence] ?? soonest.cadence}
+						· {formatScheduleSlot(soonest.localSlot)}
+						<span class="text-surface-300">({formatRelative(soonest.instantDb, data.now)})</span>
+					</span>
+				{:else}
+					<span class="text-surface-400">aucune cadence active</span>
+				{/if}
+			</summary>
+
+			<div class="border-t border-surface-100 px-3 py-2">
+				<p class="mb-2 text-[11px] text-surface-400">
+					Créneaux en <span class="font-medium">{data.schedule.timeZone}</span> (heure métier), et
+					l'instant correspondant en <span class="font-medium">UTC</span> — l'écart est
+					exactement ce que le scheduler gère aux changements d'heure.
+				</p>
+
+				<div class="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+					{#each scheduleByProject as project (project.slug)}
+						<div class="py-1">
+							<div class="text-[11px] font-semibold text-surface-900">{project.name}</div>
+							{#each project.rows as row (row.cadence)}
+								<div class="flex items-baseline justify-between gap-2 text-[11px] text-surface-500">
+									<span class="text-surface-600">{CADENCE_LABEL[row.cadence] ?? row.cadence}</span>
+									<span class="tabular-nums">
+										{formatScheduleSlot(row.localSlot)}
+										<span class="text-surface-300">· {formatDbTimestamp(row.instantDb)} UTC</span>
+									</span>
+								</div>
+							{/each}
+						</div>
+					{/each}
+				</div>
+
+				{#if disabledRows.length > 0 || unwiredCadences.length > 0}
+					<p class="mt-2 border-t border-surface-100 pt-2 text-[11px] text-surface-400">
+						{#if unwiredCadences.length > 0}
+							Cadences sans job câblé (elles ne planifient rien) :
+							{unwiredCadences.map((c) => CADENCE_LABEL[c] ?? c).join(', ')}.
+						{/if}
+						{#if disabledRows.length > 0}
+							Désactivées par projet :
+							{disabledRows
+								.map((r) => `${r.projectSlug}/${CADENCE_LABEL[r.cadence] ?? r.cadence}`)
+								.join(', ')}.
+						{/if}
+					</p>
+				{/if}
+			</div>
+		</details>
 	</div>
 
 	<!-- Compteurs cliquables -->

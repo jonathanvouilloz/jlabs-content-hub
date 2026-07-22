@@ -62,7 +62,7 @@
 				message:
 					action === 'requeue'
 						? `Job remis en file (reprise n°${body.requeuedCount}). ` +
-							`Il repartira au prochain lancement de worker.` +
+							`Il repartira au prochain tick (≤ 1 h).` +
 							(body.warning ? ` ${body.warning}` : '')
 						: `Job annulé.` +
 							(body.wasRunning
@@ -211,8 +211,9 @@
 			{/if}
 
 			<p class="mt-3 text-[11px] text-surface-400">
-				Aucun worker ne tourne en continu : un job relancé ne repart qu'au prochain lancement de
-				worker (<code>npx tsx scripts/worker.ts --once</code>), le cron dédié restant à faire.
+				La file est drainée au tick horaire (<code>/api/cron/tick</code>) : un job relancé repart
+				donc au plus tard dans l'heure. Pour ne pas attendre :
+				<code>npx tsx scripts/worker.ts --once</code>.
 			</p>
 		</div>
 	{/if}

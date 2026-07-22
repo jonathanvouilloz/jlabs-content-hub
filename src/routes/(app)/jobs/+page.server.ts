@@ -2,6 +2,8 @@ import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { countJobs, countJobsByStatus, listJobs } from '$lib/server/jobs-claim.js';
 import { normalizeJobFilters } from '$lib/server/job-console.js';
+import { listNextOccurrences } from '$lib/server/scheduler.js';
+import { BUSINESS_TIMEZONE } from '$lib/server/schedule-state.js';
 import { toDbTimestamp } from '$lib/server/timestamps.js';
 import { sql } from 'drizzle-orm';
 
@@ -33,7 +35,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		type: filters.type
 	};
 
-	const [jobs, total, byStatus, types] = await Promise.all([
+	const now = new Date();
+
+	const [jobs, total, byStatus, types, schedule] = await Promise.all([
 		listJobs({ ...query, limit: filters.limit, offset: filters.offset }),
 		countJobs(query),
 		// Les compteurs d'en-tête ignorent les filtres de statut/classe (ils SONT le
@@ -44,7 +48,10 @@ export const load: PageServerLoad = async ({ url }) => {
 			.execute(
 				sql`SELECT DISTINCT type FROM "seostats"."jobs" ORDER BY type`
 			)
-			.then((r) => ((r.rows ?? []) as unknown as { type: string }[]).map((x) => x.type))
+			.then((r) => ((r.rows ?? []) as unknown as { type: string }[]).map((x) => x.type)),
+		// JOB-005 — la planification est CALCULÉE, pas stockée : cette liste ne peut
+		// donc pas se désynchroniser de ce que le tick fera réellement.
+		listNextOccurrences({ db, now })
 	]);
 
 	return {
@@ -53,8 +60,16 @@ export const load: PageServerLoad = async ({ url }) => {
 		byStatus,
 		types,
 		filters,
+		schedule: {
+			timeZone: BUSINESS_TIMEZONE,
+			// Le filtre projet de la page vaut aussi pour la planification : redescendre
+			// sur un projet ne doit pas laisser les six autres à l'écran.
+			rows: filters.projectSlug
+				? schedule.filter((r) => r.projectSlug === filters.projectSlug)
+				: schedule
+		},
 		// L'heure du serveur au format DB : les écarts (« disponible dans 4 min ») se
 		// calculent contre elle, jamais contre l'horloge du navigateur.
-		now: toDbTimestamp(new Date())
+		now: toDbTimestamp(now)
 	};
 };

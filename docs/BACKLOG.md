@@ -460,7 +460,7 @@ Acceptation :
 
 ## JOB-005 — Scheduler timezone-aware
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-001
+**Priorité :** P0 · **Taille :** M · **État :** **DONE** (2026-07-22 — `schedule-state.ts` (pur, `Intl`, aucune dépendance) : cadences hourly/daily/weekly/monthly, créneau nommé en heure LOCALE, heure inexistante qui glisse et heure doublée résolue à la première occurrence ; `scheduler.ts` : `planDueJobs` (fenêtre de rattrapage 6 h, idempotent par créneau local, **zéro DDL**), `listNextOccurrences`, `schedulePostPublish` (J+3/J+7/J+28 via `available_at`) ; route `/api/cron/tick` (`0 * * * *`) qui **planifie PUIS draine** la file ; panneau Planification sur `/jobs` ; `scripts/schedule.ts` dry-run par défaut. 40 tests vitest + preuve Neon 33/33. Détail : `docs/features/e00-fondations-cockpit.md`) · **Dépendances :** JOB-001
 
 Travail :
 

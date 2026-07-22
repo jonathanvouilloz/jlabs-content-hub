@@ -40,6 +40,14 @@ export const KIND_LABEL: Record<string, string> = {
 	lease_stall: 'worker bloqué'
 };
 
+/** Cadence de planification (JOB-005), en clair. */
+export const CADENCE_LABEL: Record<string, string> = {
+	hourly: 'horaire',
+	daily: 'quotidien',
+	weekly: 'hebdomadaire',
+	monthly: 'mensuel'
+};
+
 /** Statut du JOB, en clair. */
 export const STATUS_LABEL: Record<string, string> = {
 	queued: 'en file',
@@ -101,6 +109,24 @@ export function parseDbTimestamp(ts: string | null): number | null {
 	if (!m) return null;
 	const parsed = Date.parse(`${m[1]}T${m[2]}Z`);
 	return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * JOB-005 — Créneau LOCAL (`2026-07-20T09:00`, Europe/Zurich) → `lun 20.07 09:00`.
+ *
+ * À la différence de `formatDbTimestamp`, cette valeur n'est PAS un instant UTC :
+ * c'est le créneau métier tel qu'il a été planifié. L'interface doit donc afficher
+ * les deux — l'écart entre eux est exactement ce que le scheduler existe pour gérer.
+ */
+export function formatScheduleSlot(slot: string | null): string {
+	if (!slot) return '—';
+	const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(slot);
+	if (!m) return slot;
+	const [, y, mo, d, h, mi] = m;
+	const days = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+	// Date nue en UTC : on ne lit que le jour de semaine, aucun fuseau n'intervient.
+	const dow = days[new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay()];
+	return `${dow} ${d}.${mo} ${h}:${mi}`;
 }
 
 /**

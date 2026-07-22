@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+	CADENCE_LABEL,
 	CLASS_LABEL,
 	OUTCOME_LABEL,
 	STATUS_LABEL,
@@ -7,6 +8,7 @@ import {
 	formatDbTimestamp,
 	formatDuration,
 	formatRelative,
+	formatScheduleSlot,
 	parseDbTimestamp
 } from './job-format.js';
 // Imports RELATIFS : les vocabulaires vivent avec la file (côté serveur), et ce
@@ -15,6 +17,7 @@ import {
 import { ATTEMPT_OUTCOMES } from '../server/job-state.js';
 import { ERROR_CLASSES } from '../server/job-retry.js';
 import { JOB_STATUSES } from '../server/monitoring-state.js';
+import { SCHEDULE_CADENCES } from '../server/schedule-state.js';
 
 // ── Formats ─────────────────────────────────────────────────────────
 
@@ -54,6 +57,12 @@ describe('formats des colonnes text', () => {
 		expect(formatRelative('2026-07-22 07:00:00', now)).toBe('il y a 2 h 00 min');
 		expect(formatRelative(null, now)).toBe('—');
 	});
+
+	it('créneau planifié : jour de semaine + heure LOCALE (jamais reconverti)', () => {
+		expect(formatScheduleSlot('2026-07-20T09:00')).toBe('lun 20.07 09:00');
+		expect(formatScheduleSlot('2026-10-26T09:00')).toBe('lun 26.10 09:00');
+		expect(formatScheduleSlot(null)).toBe('—');
+	});
 });
 
 // ── Libellés ────────────────────────────────────────────────────────
@@ -74,6 +83,12 @@ describe('libellés partagés CLI ↔ console', () => {
 	it('chaque statut de job a un libellé', () => {
 		for (const s of JOB_STATUSES) {
 			expect(STATUS_LABEL[s]).toBeTruthy();
+		}
+	});
+
+	it('chaque cadence de planification a un libellé', () => {
+		for (const c of SCHEDULE_CADENCES) {
+			expect(CADENCE_LABEL[c]).toBeTruthy();
 		}
 	});
 });

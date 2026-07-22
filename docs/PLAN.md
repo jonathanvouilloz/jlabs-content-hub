@@ -65,11 +65,13 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   détecteur déterministe) et **FIND-003** (cycle de vie : les findings se ferment, se rouvrent et se
   mettent en veille seuls). **La queue est complète** : **JOB-001** (réclamation atomique),
   **JOB-002** (bail vivant, worker mort, journal `job_attempts`, exactly-once des effets),
-  **JOB-003** (erreur classée, backoff jitté, dead-letter reprenable) et **JOB-007** (console
-  d'exploitation `/jobs` : liste, chronologie, retry ciblé, annulation auditée). DB à
-  **57 tables, zéro dérive** · test **374/374**. Prochain : l'**agent réel** (findings → proposals,
-  gouverné par les policies DATA-007), **JOB-005** (scheduler — aujourd'hui aucun worker ne tourne
-  seul) et l'inbox UI (E11). Détail →
+  **JOB-003** (erreur classée, backoff jitté, dead-letter reprenable), **JOB-007** (console
+  d'exploitation `/jobs` : liste, chronologie, retry ciblé, annulation auditée) et **JOB-005**
+  (scheduler timezone-aware : tick horaire `/api/cron/tick` qui planifie les cadences
+  `Europe/Zurich` — DST comprise, zéro DDL — **et draine la file** : plus rien ne dépend d'un
+  lancement manuel). DB à **57 tables, zéro dérive** · test **414/414**. Prochain : l'**agent réel**
+  (findings → proposals, gouverné par les policies DATA-007), **JOB-006** (prévenir le 429),
+  **JOB-004** (DAG de steps) et l'inbox UI (E11). Détail →
   [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

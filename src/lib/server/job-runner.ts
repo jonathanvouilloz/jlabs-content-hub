@@ -51,6 +51,8 @@ import {
 	renewLease,
 	startAttempt
 } from './jobs-lease.js';
+import { recordStep, recomputeRunStatus } from './monitoring.js';
+import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { expireSnoozes } from './findings.js';
 
@@ -299,6 +301,57 @@ async function reapOnce(
 	}
 }
 
+/**
+ * JOB-005 — Conclut, côté RUN, le job qui vient de finir son histoire.
+ *
+ * Un job planifié porte le `run_id` du créneau qui l'a produit. Sans cette ligne, le
+ * run resterait `queued` à vie : `classifyRunOutcome` dérive le statut d'un run de
+ * ses STEPS, et personne n'en écrivait pour un job de queue. La supervision aurait
+ * alors montré des runs éternellement en attente au-dessus de jobs réussis.
+ *
+ * N'est appelée qu'aux issues TERMINALES (réussi, ou mort après épuisement) : un job
+ * qui va être rejoué n'a rien conclu, et lui écrire un step `failed` ferait basculer
+ * son run en échec avant que la partie soit jouée.
+ *
+ * Non bloquante, comme la passe de reaper : l'exécution du job fait foi, sa
+ * comptabilité de run ne doit jamais pouvoir la faire échouer après coup.
+ */
+async function concludeRunStep(input: {
+	db: AppDb;
+	job: ClaimedJob;
+	status: 'success' | 'failed';
+	durationMs: number;
+	errorCode?: string | null;
+	errorMessage?: string | null;
+}): Promise<void> {
+	if (!input.job.runId) return;
+	try {
+		await recordStep(
+			{
+				runId: input.job.runId,
+				stepType: input.job.type,
+				status: input.status,
+				// L'`attempt` du job : deux tentatives d'un même job écrivent deux steps
+				// distincts, et l'unique (run, step_type, attempt) rend l'écriture
+				// idempotente si le même verdict était rejoué.
+				attempt: Math.max(1, input.job.attempts),
+				durationMs: input.durationMs,
+				errorCode: input.errorCode ?? null,
+				errorMessage: input.errorMessage ?? null,
+				finishedAt: toDbTimestamp()
+			},
+			input.db
+		);
+		await recomputeRunStatus(input.job.runId, input.db);
+	} catch (err) {
+		logger.warn('conclusion du run échouée (le job, lui, est conclu)', {
+			jobId: input.job.id,
+			runId: input.job.runId,
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
 async function handleClaimedJob(
 	job: ClaimedJob,
 	options: WorkerOptions & { handlers: Map<string, JobHandler> },
@@ -368,6 +421,16 @@ async function handleClaimedJob(
 			outcome: outcome?.status ?? 'bail perdu',
 			deadReason: outcome?.deadReason ?? undefined
 		});
+		if (outcome?.status === 'dead') {
+			await concludeRunStep({
+				db: options.db,
+				job,
+				status: 'failed',
+				durationMs: 0,
+				errorCode: NO_HANDLER_ERROR_CODE,
+				errorMessage: `Aucun handler pour le type "${job.type}".`
+			});
+		}
 		return;
 	}
 
@@ -441,6 +504,7 @@ async function handleClaimedJob(
 				heartbeatCount: heartbeats
 			});
 			logger.info('job réussi', { jobId: job.id, type: job.type, durationMs: Date.now() - t0 });
+			await concludeRunStep({ db: options.db, job, status: 'success', durationMs: Date.now() - t0 });
 		} else {
 			// Bail perdu (expiré et repris ailleurs) : on ne réécrit pas l'état
 			// d'un job qu'on ne possède plus — ni le sien, ni celui de sa tentative,
@@ -530,6 +594,18 @@ async function handleClaimedJob(
 			deadReason: outcome?.deadReason ?? undefined,
 			retryInMs: outcome?.backoffMs
 		});
+		// Seul un job MORT a fini son histoire : un job encore rejouable ne conclut
+		// pas son run (il peut très bien réussir à la tentative suivante).
+		if (outcome?.status === 'dead') {
+			await concludeRunStep({
+				db: options.db,
+				job,
+				status: 'failed',
+				durationMs: Date.now() - t0,
+				errorCode: code,
+				errorMessage: err instanceof Error ? err.message : String(err)
+			});
+		}
 	} finally {
 		// Un intervalle survivant garderait le process en vie après la boucle.
 		clearInterval(beat);

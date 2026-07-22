@@ -4,6 +4,111 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (JOB-005 — la file cesse d'attendre qu'on la lance)
+
+**Fait :** JOB-001/002/003/007 avaient tout construit — réclamation atomique, bail vivant, reaper,
+erreur classée, dead-letter reprenable, console d'exploitation — et **rien ne déclenchait rien** :
+chaque bloc de session depuis JOB-002 répétait le même piège (« sur Vercel aucun worker permanent »),
+et dans `/jobs` le bouton **Relancer remettait un job en file que personne ne venait prendre**. Un
+tick horaire planifie désormais les cadences en heure métier puis **draine la file dans la même
+invocation**. **Aucun DDL** (57 tables, zéro dérive) : la planification ne persiste aucun état.
+
+- **Le créneau est LOCAL, l'instant en est dérivé.** Toute la mécanique DST tient dans ce choix :
+  un créneau se nomme par ses champs `Europe/Zurich` (`2026-07-20T09:00`), jamais par un instant.
+  Le lundi 09:00 métier s'écrit alors **08:00 UTC en hiver et 07:00 UTC en été** sans que sa clé
+  logique ne bouge — et le retour à l'heure d'hiver ne peut **pas** produire de doublon, puisque
+  02:30 local n'existe qu'une fois au calendrier même quand l'instant, lui, se présente deux fois.
+- **`zonedFieldsToUtc` ne fait pas confiance à une passe unique.** Aux bordières, l'offset à
+  appliquer n'est pas celui de l'instant qu'on calcule. Les **deux** offsets en vigueur autour du
+  créneau (veille / lendemain) sont testés, et on garde ceux qui **se relisent bien** : deux
+  candidats valides → créneau ambigu, on prend le **premier** instant (convention `compatible` de
+  Temporal) ; **zéro** candidat → créneau inexistant (29 mars, 02:30), il **GLISSE à 03:30** au lieu
+  d'être escamoté. Un créneau quotidien avalé une fois l'an serait un trou de monitoring muet.
+- **Zéro table de planification — assumé.** Le non-double-déclenchement n'est pas gardé par un
+  `last_fired_at` (qui peut diverger, se perdre au redéploiement, ou mentir) mais par la clé
+  d'idempotence du créneau local, **déjà unique en base**. Conséquence : rejouer un tick, redémarrer
+  à 09:00 et **rattraper un créneau manqué sont la même opération**, sans effet la deuxième fois.
+  Prouvé en base : deux planifications du même créneau → 1 run, 1 job ; un tick **en retard de
+  47 min** rattrape le même créneau sans rien créer.
+- **La fenêtre de rattrapage (6 h) plutôt que « sommes-nous pile à l'heure ? »** — Vercel ne
+  garantit pas la minute et un tick peut échouer. Regarder en arrière coûte zéro (idempotence), un
+  créneau manqué est en revanche perdu pour de bon.
+- **Le tick planifie ET draine.** Un scheduler seul aurait rempli une file que personne ne vide,
+  avec en prime l'illusion que ça tourne. `runWorker({once})` s'arrête au premier tour à vide, un
+  `AbortController` armé à **240 s** rend la main avant `maxDuration: 300` — un SIGKILL de
+  plateforme ne repasserait par aucun `finally` et laisserait un job `running` jusqu'au reaper.
+- **Le cron perd sa sémantique métier.** `0 * * * *` bat, et c'est `schedule-state.ts` qui sait
+  quelle heure il est à Zurich. Ça **révise consciemment la décision du 2026-04-27** (« cron horaire
+  avec dedup = gaspillage ») : c'est le seul moyen d'être exact sur les deux bascules sans permuter
+  deux entrées saisonnières à la main, et le tick sert **aussi** de worker et de reaper.
+- **Une cadence sans handler ne planifie rien** — trouvé en regardant la sortie du premier dry-run :
+  `hourly` × 6 projets × 6 heures = **36 lignes par tick** pour n'exécuter personne. Elles sont
+  écartées en amont et **nommées une fois** (`cadencesWithoutJob`), au lieu d'être répétées à chaque
+  créneau. Le bruit finit toujours par cacher ce qui travaille.
+- **Bug trouvé en vérifiant (hors périmètre, corrigé)** : un run planifié restait **`queued` à vie**.
+  `classifyRunOutcome` dérive le statut d'un run de ses **steps**, et personne n'en écrivait pour un
+  job de queue — la supervision aurait montré des runs éternellement en attente **au-dessus de jobs
+  réussis**. `concludeRunStep` (non bloquante, comme la passe de reaper) écrit le step et recalcule
+  le run, **aux seules issues terminales** : un job encore rejouable n'a rien conclu, et lui écrire
+  un `failed` ferait basculer son run en échec avant la fin de la partie.
+- Vérif : `npm run test` = **414/414** (+40) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **57 tables** (56 `seostats` + `core.entities`, convention
+  `data-001-cartography.ts`), zéro dérive · **`scripts/job-005-schedule-proof.ts` = 33/33 vertes sur
+  Neon**, **rejouée deux fois de suite** · non-régression : `job-007-console-proof` **vert**,
+  `job-003-retry-proof` **vert**, `job-002-recovery-proof` **vert**, `job-claim-concurrency` **vert**
+  · **13 findings intacts** · **0 horodatage ISO** · routes sondées en dev : `/api/cron/tick` → 401
+  sans bearer, **401 avec un mauvais**, 200 avec le bon, **405** en POST ; `/jobs` → 303 `/login`.
+- **Chaîne réelle démontrée** : `schedule.ts --execute` a planifié le créneau quotidien de
+  `bisrepetita` (run `daily`, `triggered_by='schedule'`, `period_end='2026-07-22T07:00'`) → le tick
+  l'a **réclamé et exécuté** (`claimed: 1, succeeded: 1`) → job `succeeded`, tentative journalisée,
+  **run conclu en `success`** avec son step.
+
+**Acceptations couvertes.** (1) « les tests couvrent les deux changements DST » : 2026-03-29 (02:30
+inexistant → glisse à 03:30 ; lundi 09:00 = 08:00 UTC avant, 07:00 UTC après) et 2026-10-25 (02:30
+doublé → une seule occurrence ; la journée de 25 h ne saute aucun créneau quotidien) — 38 tests purs,
+plus la vérification en base des deux régimes ; (2) « un restart à 09:00 ne crée qu'un run logique » :
+deux planifications → `created` puis `reused`, **1 run et 1 job en base**, et un tick postérieur ne
+rejoue pas un créneau déjà exécuté ; (3) « la prochaine exécution est visible par projet » :
+`listNextOccurrences` (24 lignes = 6 projets × 4 cadences) alimente le panneau **Planification** de
+`/jobs` et `scripts/schedule.ts`, en heure métier **et** en UTC. Débloque **JOB-006** et donne à
+**FIND-003** son expiration de veilles récurrente.
+
+**Prochain :** l'**agent réel** qui lit les findings et produit des `action_proposals` gouvernées par
+les policies DATA-007 · **JOB-006** (prévenir le 429 au lieu d'y réagir) · **JOB-004** (DAG de steps,
+statut `partial` — le scheduler ouvre un run et met ses jobs en file, il n'ordonnance encore rien).
+L'inbox UI (E11) reste à faire.
+
+**Pièges :**
+- **`vercel.json` ne suffit pas : rien ne bat tant que ce n'est pas déployé.** Et au **premier tick
+  après déploiement**, la fenêtre de rattrapage tire les créneaux des 6 dernières heures — attendu,
+  sans doublon, mais ça inclut **barberconcept**, dont la détection hebdo écrira **50 findings d'un
+  coup** (plafond `maxCandidates`, 1310 couples franchissent les seuils). Décision restée à
+  Jonathan : soit on la laisse partir au premier lundi, soit on désactive `weekly` pour ce projet
+  via `project_projections.payload.schedules`.
+- **La cadence `weekly` déclenche une VRAIE détection sur les 6 projets.** Toute preuve doit passer
+  un `catalog` de substitution (paramètre prévu pour ça) — sinon elle écrit des findings de
+  production.
+- **Ne jamais nommer un créneau par son instant UTC.** Toute la garantie anti-doublon vient de ce
+  que la clé porte le champ **local**. Une clé en UTC ferait deux créneaux distincts d'un même
+  lundi 09:00 selon la saison, et un seul le jour du retour à l'heure d'hiver.
+- **Le run reste `queued` tant qu'aucun de ses jobs n'a conclu** (un job en retry n'a rien conclu).
+  Le statut de fin de course est exact ; le suivi fin d'un run **en cours** est l'affaire de JOB-004.
+- **Une preuve qui ouvre des runs a DEUX niveaux d'enfants** : `jobs` **et** `monitoring_steps`
+  (écrits par `concludeRunStep`). Oublier les seconds fait échouer le nettoyage **après** toutes les
+  vérifications — donc en laissant croire à un succès. C'est ce qui est arrivé une fois ici.
+- **Le budget de drain (240 s) doit rester sous `maxDuration` (300 s)** avec de la marge : la
+  plateforme tue sans repasser par les `finally`.
+- **`applyJitter`, `random`, `now`, `since`** — toute cette famille reçoit son temps en injection.
+  Une fonction de calendrier qui lirait `Date.now()` ne serait ni rejouable, ni testable un 29 mars.
+- **Reste à vérifier de visu** (inchangé depuis JOB-007) : le rendu de `/jobs` n'a pas pu être
+  constaté — aucune session admin ouverte, et fournir un mot de passe est exclu. Le chargement
+  serveur, lui, est vérifié (303 vers `/login`, `npm run check` vert).
+- Toujours en suspens hors JOB-005 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` est **planifiable mais
+  sans handler** (E03) : ne pas l'enfiler en production, il mourrait en `NoHandlerRegistered`.
+
+---
+
 ## Etat session 2026-07-22 (JOB-007 — la file cesse d'être invisible)
 
 **Fait :** JOB-001/002/003 avaient tout écrit — bail, journal append-only, classe d'erreur,
