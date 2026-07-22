@@ -19,7 +19,8 @@ gouvernées par les policies DATA-007 · **JOB-005** (scheduler timezone-aware �
 worker ne tourne seul, tout dépend d'un lancement manuel, ce qui limite l'effet du bouton
 « Relancer ») · **JOB-006** (prévenir le 429 au lieu d'y réagir). L'inbox UI (E11) reste à faire.
 
-Commit : `[hub] add: JOB-007 console d'exploitation des jobs (liste, chronologie, retry, annulation)`.
+Commit : `05e5eca` [hub] add: JOB-007 console d'exploitation des jobs (liste, chronologie, retry,
+annulation).
 
 **À faire au prochain passage devant l'écran :** le rendu des deux pages n'a pas pu être constaté
 (session admin requise) — ouvrir `/jobs` une fois connecté. `npm run build` échoue par ailleurs sur
