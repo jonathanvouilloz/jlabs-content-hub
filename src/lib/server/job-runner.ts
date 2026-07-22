@@ -19,21 +19,32 @@
  *   - une passe de REAPER sur les tours à vide : la file se répare elle-même,
  *     sans infra nouvelle (le cron reste l'affaire de JOB-005).
  *
- * Hors périmètre : classification fine des erreurs (JOB-003), DAG de
- * dépendances (JOB-004), console d'exploitation (JOB-007).
+ * JOB-003 ajoute le JUGEMENT sur l'échec : l'erreur est classée, et la classe
+ * décide — replanification jittée, report pour quota (la tentative est rendue),
+ * ou dead-letter immédiat quand rejouer ne peut rien changer.
+ *
+ * Hors périmètre : DAG de dépendances (JOB-004), console d'exploitation (JOB-007).
  */
 import type { AppDb } from './db/types.js';
 import { log } from './log.js';
-import { claimJob, completeJob, failJob, releaseJob, type ClaimedJob } from './jobs-claim.js';
+import {
+	claimJob,
+	completeJob,
+	deferJob,
+	failJob,
+	releaseJob,
+	type ClaimedJob,
+	type FailOutcome
+} from './jobs-claim.js';
 import {
 	DEFAULT_LEASE_MS,
 	NO_HANDLER_ERROR_CODE,
-	classifyExecutionError,
 	computeRenewInterval,
 	providerTimeoutError,
 	type AbandonKind,
 	type WorkerTickOutcome
 } from './job-state.js';
+import { classifyJobFailure, decideRetry, type ErrorClass } from './job-retry.js';
 import {
 	finishAttempt,
 	reclaimExpiredLeases,
@@ -167,6 +178,14 @@ export interface WorkerStats {
 	/** JOB-002 — jobs repris à un worker mort par ce worker-ci. */
 	reclaimed: number;
 	abandonedByKind: Record<AbandonKind, number>;
+	/** JOB-003 — jobs REPORTÉS pour cause de quota (tentative rendue, pas un échec). */
+	deferred: number;
+	/** JOB-003 — répartition des échecs par nature (lisible sans requêter la DB). */
+	failedByClass: Record<ErrorClass, number>;
+}
+
+function emptyClassCounters(): Record<ErrorClass, number> {
+	return { retryable: 0, quota: 0, auth: 0, permanent: 0 };
 }
 
 /** Budget de durée par défaut : au-delà, on considère que le provider ne répondra pas. */
@@ -197,7 +216,9 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		idleTicks: 0,
 		stoppedGracefully: false,
 		reclaimed: 0,
-		abandonedByKind: { worker_death: 0, lease_stall: 0 }
+		abandonedByKind: { worker_death: 0, lease_stall: 0 },
+		deferred: 0,
+		failedByClass: emptyClassCounters()
 	};
 
 	logger.info('worker démarré', { workerId: options.workerId, types });
@@ -323,8 +344,9 @@ async function handleClaimedJob(
 
 	const handler = options.handlers.get(job.type);
 	if (!handler) {
-		// Erreur de configuration, traitée comme un échec normal (backoff puis
-		// dead-letter) mais avec un code repérable.
+		// Erreur de CONFIGURATION : depuis JOB-003 elle est classée `permanent` →
+		// dead-letter immédiat. Rejouer cinq fois n'a jamais fait apparaître un
+		// handler manquant, ça ne faisait que retarder le moment où on le voit.
 		const outcome = await failJob({
 			db: options.db,
 			job,
@@ -336,10 +358,16 @@ async function handleClaimedJob(
 			db: options.db,
 			attemptId: attempt.id,
 			outcome: outcome?.status === 'dead' ? 'dead' : 'failed',
+			errorClass: outcome?.errorClass ?? 'permanent',
 			errorCode: NO_HANDLER_ERROR_CODE,
 			errorMessage: `Aucun handler pour le type "${job.type}".`
 		});
-		logger.error('aucun handler enregistré', { jobId: job.id, type: job.type });
+		logger.error('aucun handler enregistré', {
+			jobId: job.id,
+			type: job.type,
+			outcome: outcome?.status ?? 'bail perdu',
+			deadReason: outcome?.deadReason ?? undefined
+		});
 		return;
 	}
 
@@ -424,18 +452,68 @@ async function handleClaimedJob(
 			});
 		}
 	} catch (err) {
-		const { code, isProviderTimeout } = classifyExecutionError(err);
+		// L'erreur est d'abord CLASSÉE : c'est elle, et non le seul compteur de
+		// tentatives, qui décide du sort du job (JOB-003).
+		const { code, errorClass, isProviderTimeout: timeout } = classifyJobFailure(err);
+		// Un dépassement de budget est reformulé en erreur de timeout provider (JOB-002) :
+		// `classifyExecutionError` étant idempotente, la classe ne bouge pas.
+		const cause = timeout ? providerTimeoutError(maxDurationMs) : err;
+
+		// Décision prise UNE fois ici pour ROUTER ; sur les chemins retry/dead c'est
+		// `failJob` qui la reprend à son compte (même entrée, même politique).
+		const decision = decideRetry({
+			attempts: job.attempts,
+			maxAttempts: job.maxAttempts,
+			deferrals: job.deferrals,
+			error: cause,
+			now: new Date(),
+			random: Math.random
+		});
+
+		if (decision.action === 'defer') {
+			// Quota : le job n'a rien fait de mal. Sa tentative lui est rendue, il
+			// repassera quand le provider aura desserré.
+			const deferred = await deferJob({
+				db: options.db,
+				jobId: job.id,
+				workerId: options.workerId,
+				delayMs: decision.delayMs,
+				errorCode: decision.errorCode,
+				errorMessage: decision.errorMessage
+			});
+			if (deferred) stats.deferred += 1;
+			await finishAttempt({
+				db: options.db,
+				attemptId: attempt.id,
+				outcome: deferred ? 'deferred' : 'abandoned',
+				errorClass,
+				errorCode: code,
+				errorMessage: decision.errorMessage,
+				heartbeatCount: heartbeats
+			});
+			logger.warn('job reporté (quota provider)', {
+				jobId: job.id,
+				type: job.type,
+				errorCode: code,
+				deferrals: job.deferrals + 1,
+				retryAfterMs: decision.retryAfterMs,
+				retryInMs: deferred?.delayMs ?? decision.delayMs
+			});
+			return;
+		}
+
 		const outcome = await failJob({
 			db: options.db,
 			job,
 			workerId: options.workerId,
-			error: isProviderTimeout ? providerTimeoutError(maxDurationMs) : err
+			error: cause
 		});
 		countFailure(outcome, stats);
 		await finishAttempt({
 			db: options.db,
 			attemptId: attempt.id,
 			outcome: outcome === null ? 'abandoned' : outcome.status === 'dead' ? 'dead' : 'failed',
+			errorClass,
 			errorCode: code,
 			errorMessage: err instanceof Error ? err.message : String(err),
 			heartbeatCount: heartbeats
@@ -446,8 +524,10 @@ async function handleClaimedJob(
 			attempts: job.attempts,
 			maxAttempts: job.maxAttempts,
 			errorCode: code,
-			providerTimeout: isProviderTimeout,
+			errorClass,
+			providerTimeout: timeout,
 			outcome: outcome?.status ?? 'bail perdu',
+			deadReason: outcome?.deadReason ?? undefined,
 			retryInMs: outcome?.backoffMs
 		});
 	} finally {
@@ -475,12 +555,10 @@ function abortRace(
 	});
 }
 
-function countFailure(
-	outcome: { status: 'queued' | 'dead' } | null,
-	stats: WorkerStats
-): void {
+function countFailure(outcome: FailOutcome | null, stats: WorkerStats): void {
 	if (!outcome) return;
 	stats.failed += 1;
+	stats.failedByClass[outcome.errorClass] += 1;
 	if (outcome.status === 'dead') stats.deadLettered += 1;
 }
 

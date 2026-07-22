@@ -4,6 +4,116 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-22 (JOB-003 — l'échec est jugé, plus seulement compté)
+
+**Fait :** JOB-001/002 savaient réclamer, tenir un bail et survivre à un worker mort — mais **toute
+erreur y était traitée à l'identique** : backoff exponentiel, puis dead-letter au plafond. Un **403
+structurel brûlait donc cinq tentatives sur une heure** alors qu'aucune ne pouvait aboutir, un **429
+consommait le même budget qu'un bug**, et le backoff étant déterministe, N jobs échoués sur le même
+provider revenaient **tous à la même seconde**. **Aucune table créée** (57 tables, zéro dérive) :
+4 colonnes additives + 1 index partiel.
+
+- **Le module pur `job-retry.ts`** — l'échec est d'abord **CLASSÉ**, et la classe décide :
+  `retryable` (replanifié, jitté, borné par `max_attempts`) · `quota` (**reporté**) · `auth` et
+  `permanent` (**dead-letter immédiat**). La politique de plafond n'est **pas réinventée** :
+  `decideRetry` délègue à `decideAfterFailure` (JOB-001 → `computeBackoff`/`shouldDeadLetter` de
+  DATA-003) et n'ajoute que le jugement et le jitter.
+- **Le piège que ce module existe pour éviter — la raison prime sur le statut.** Google ne respecte
+  pas la sémantique naïve des codes : un dépassement de quota arrive en **403 + `rateLimitExceeded`**,
+  un refresh token mort en **400 + `invalid_grant`**. Classer sur le statut nu ferait exactement
+  l'inverse de ce qu'il faut (le quota condamné en permanent, l'auth bouclant cinq fois). L'ordre
+  d'examen est donc : codes internes → marqueurs de quota → d'auth → permanents → **puis seulement**
+  le statut HTTP (429 = quota, 401 = auth, **tout autre 4xx = permanent** — un 4xx est par définition
+  une erreur du client, la rejouer à l'identique redonne le même 4xx), 5xx → retryable. Une erreur
+  **illisible retombe sur `retryable`** : on ne condamne jamais un job sur ce qu'on n'a pas su lire.
+- **Jitter sans perdre la pureté** : `applyJitter` reçoit son `random` en **injection** (même
+  discipline que le `nonce` de `deriveWorkerId`). **Sans `random`, le délai ressort inchangé** → tout
+  le comportement déterministe de JOB-001/002 et ses tests restent valides tels quels ; seules les
+  couches IO (`failJob`, le reaper) fournissent `Math.random`. Vérifié en réel : le 1er échec de la
+  preuve JOB-001 replanifie à **+31 965 ms** au lieu de 30 000 pile.
+- **`Retry-After` est un contrat** : honoré (secondes ou date HTTP, plafonné à **6 h** — sans ceiling
+  un provider peut parquer un job pendant des jours), et le jitter peut l'**allonger, jamais le
+  raboter** : repasser sous la barre rejouerait le 429 à coup sûr.
+- **`deferJob` — le 429 ne consomme pas de tentative.** Décision produit : le job n'a rien fait de
+  mal. Sa tentative lui est **rendue** (`attempts - 1`, comme `releaseJob`) et c'est **`deferrals`**,
+  compteur séparé et **plafonné (20)**, qui borne la boucle. Sans l'asymétrie, une journée de
+  saturation provider enverrait en dead-letter des jobs sains ; sans le plafond, un provider
+  définitivement fermé les ferait tourner sans fin.
+- **`requeueDeadJob` — la dead-letter n'est plus un cul-de-sac.** `attempts` **repart à zéro** (sinon
+  un job repris à 5/5 remourrait au premier échec et la reprise ne serait qu'un geste), mais **rien
+  n'est effacé** : `job_attempts` est append-only et la reprise **y écrit sa propre ligne**
+  (`requeued`, l'auteur en `worker_id`, la raison en `metadata_json`). L'acceptation « une reprise
+  manuelle conserve l'historique » est portée par le **journal**, pas par le compteur. Écriture
+  **transactionnelle** : un job relancé sans trace serait un trou dans l'audit.
+- **Câblage** : `job-runner.ts` route sur `decision.action` (`defer` → `deferJob`, sinon `failJob`) ;
+  `WorkerStats` gagne `deferred` + `failedByClass` ; le reaper jitte aussi ses remises en file (N
+  workers morts ensemble ne reviennent plus en chœur) ; `job_attempts.error_class` dit pourquoi
+  **cette** tentative-là a échoué, quand `jobs.last_error_*` est écrasé à chaque reprise.
+  **`NoHandlerRegistered` devient `permanent`** : rejouer cinq fois n'a jamais fait apparaître un
+  handler manquant.
+- **Outillage** : `scripts/jobs-requeue.ts` (`--dry-run`, refuse un job vivant, **prévient** qu'une
+  cause `auth`/`permanent` non corrigée re-tombera à l'identique) · `jobs-inspect.ts --dead`
+  (`--class=auth,permanent`) + les nouvelles issues dans la chronologie.
+- **Bug trouvé en vérifiant (hors périmètre, corrigé)** : le nettoyage de `job-claim-concurrency.ts`
+  violait la FK `job_attempts_job_id_fkey` **depuis JOB-002** (qui a fait écrire des tentatives) —
+  l'erreur tombait **après** toutes les vérifications, donc invisible, et la preuve **laissait ses
+  lignes dans la vraie file** à chaque exécution. Nettoyage enfants-d'abord + **type unique par
+  exécution** (`__test_claim:<runId>`) : sans ce cloisonnement, un run réclamait les jobs du run
+  précédent et la preuve mesurait autre chose (2 vérifications rouges à juste titre l'ont montré).
+- Vérif : `npm run test` = **342/342** (+55) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  DDL appliqué sur Neon (**4 colonnes + 1 index partiel**) · introspection = **57 tables, zéro
+  dérive** · **`scripts/job-003-retry-proof.ts` = 44/44 vertes sur Neon** (nettoie ses propres
+  lignes) · non-régression : `job-002-recovery-proof` **27/27**, `job-claim-concurrency` **vert
+  après correction du nettoyage** · chaîne réelle rejouée (`physiopommier findings:lifecycle`) →
+  tentative journalisée · **13 findings intacts** (jonlabs 10 / bisrepetita 2 / physiopommier 1) ·
+  **0 horodatage ISO** dans `jobs` et `job_attempts`.
+
+**Décisions produit (validées avec Jonathan).** (1) **L'auth meurt tout de suite** — réessayer ne
+répare pas un token révoqué, ça retarde l'humain qui doit re-consentir ; `last_error_class='auth'`
+rend la cause filtrable et distincte de `permanent`. (2) **Le quota ne consomme pas de tentative**,
+il se compte à part et sous plafond. (3) **La reprise manuelle remet `attempts` à zéro** : c'est le
+journal qui porte l'histoire.
+
+**Acceptations couvertes.** (1) « 429 et 5xx sont retentés conformément à la policy » : 429 →
+`deferred`, `attempts` **inchangé**, `deferrals` +1, Retry-After honoré (+129 s pour un en-tête à
+120 s) ; 5xx → replanifié, tentative consommée, délai **+31 s** (fourchette 24–36 s attendue) ;
+(2) « 400/403 structurels ne bouclent pas » : 403 → `dead` **à la première tentative** (1/5), 400 +
+`invalid_grant` → `dead` cause `auth`, et le **403 + `rateLimitExceeded` atterrit en `quota`**, pas
+en permanent ; (3) « une reprise manuelle conserve l'historique » : chronologie finale
+`#1 dead → #1 requeued (user:proof, « permission corrigée ») → #1 succeeded`, aucune ligne perdue.
+Débloque **JOB-006**, **JOB-007**, **IDX-007** et **GMB-006**.
+
+**Prochain :** **JOB-007** (console d'exploitation : lister queued/running/failed/dead, retry ciblé,
+inspection — elle lira `jobs` + `job_attempts` + `last_error_class`, tout est là) et/ou l'**agent
+réel** qui lit les findings et produit des `action_proposals` gouvernées par les policies DATA-007.
+L'inbox UI (E11) reste à faire.
+
+**Pièges :**
+- **La raison prime sur le statut HTTP.** Toute évolution de `classifyJobFailure` doit garder cet
+  ordre : un 403 Google porteur de `rateLimitExceeded` est un **quota**, pas un permanent, et un 400
+  porteur d'`invalid_grant` est une **auth**. Inverser condamne des jobs sains et fait boucler les
+  autres.
+- **`applyJitter` sans `random` ne jitte pas** — c'est voulu (rétrocompatibilité et pureté). Un
+  appelant IO qui oublie `Math.random` retombe silencieusement sur le backoff déterministe.
+- Le **jitter n'ampute jamais un `Retry-After`** : la borne basse est le délai demandé par le provider.
+- **`deferJob` rend la tentative** : tout nouveau chemin d'échec quota doit passer par lui, sinon le
+  budget de tentatives se vide sur des reports qui ne sont pas des fautes du job.
+- **`requeueDeadJob` remet `attempts` à 0** : ne jamais lire `jobs.attempts` comme un historique —
+  c'est `job_attempts` qui fait foi (`requeued_count` dit seulement combien de fois on a relancé).
+- Un job repris pour une cause **`auth`/`permanent` non corrigée** re-meurt immédiatement. Le script
+  le dit, il ne l'interdit pas : c'est l'humain qui sait si la cause est levée.
+- **Toute preuve qui écrit dans `jobs` doit supprimer ses `job_attempts`/`job_effects` d'abord**
+  (FK) **et se cloisonner par un type unique**. Les deux manquaient à `job-claim-concurrency.ts`.
+- **22 lignes de test `__test_claim`** (dont **7 en dead-letter**) traînent encore dans la vraie file,
+  héritées des exécutions d'avant ce correctif : elles polluent `--dead`. Purge proposée, **non
+  exécutée** (suppression = décision de Jonathan).
+- Toujours en suspens hors JOB-003 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · **barberconcept** sans finding (50 d'un coup
+  si détection lancée, cf. plafond `maxCandidates`) · **sur Vercel aucun worker permanent** : un job
+  reporté ne repart qu'au prochain lancement (cron dédié = JOB-005).
+
+---
+
 ## Etat session 2026-07-22 (JOB-002 — un worker qui meurt ne perd plus son job)
 
 **Fait :** JOB-001 savait réclamer un job ; il ne savait pas ce qu'il devient quand son worker
@@ -711,12 +821,17 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `src/lib/server/detector-state.test.ts` | Vitest FIND-001/004 — 35 tests (rejouabilité, pondération, seuils, confiance dégradée, plafond de sévérité, preuves). |
 | `src/lib/server/detectors/keyword-opportunity.ts` | IO du détecteur : lit les observations, écrit findings + événements, seuils par projet (projection), client db injecté. |
 | `scripts/detect.ts` | Runner du détecteur (`--project=<slug\|all>`, `--weeks`, `--dry-run`, `--limit`) : run+step de traçabilité, rapport avec troncature explicite. |
-| `src/lib/server/job-state.ts` | Purs JOB-001 : `decideAfterFailure` (backoff/dead-letter via DATA-003), `computeLeaseUntil`/`isLeaseExpired`, `deriveWorkerId`. |
-| `src/lib/server/job-state.test.ts` | Vitest JOB-001 — 16 tests (backoff exponentiel plafonné, dead-letter au plafond exact, bail, normalisation d'erreur). |
-| `src/lib/server/jobs-claim.ts` | JOB-001 — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob`/`releaseJob` (gardés par `lease_owner`). |
-| `src/lib/server/job-runner.ts` | JOB-001 — registre de handlers (dont le détecteur) + boucle `runWorker` arrêtable (AbortSignal), compteurs retournés. |
+| `src/lib/server/job-state.ts` | Purs JOB-001/002 : `decideAfterFailure` (backoff/dead-letter via DATA-003), bail, heartbeat, `classifyAbandonedLease`/`classifyExecutionError`, vocabulaire des tentatives (+ `deferred`/`requeued` en JOB-003). |
+| `src/lib/server/job-state.test.ts` | Vitest JOB-001/002 — 39 tests (backoff exponentiel plafonné, dead-letter au plafond exact, bail, heartbeat, nature d'abandon). |
+| **`src/lib/server/job-retry.ts`** | **Purs JOB-003** : `classifyJobFailure` (**raison avant statut** — 403+quota Google, 400+`invalid_grant`), `parseRetryAfter`/`extractRetryAfterMs` (plafond 6 h), `applyJitter` (`random` **injecté**), `RETRY_DEFAULTS` par classe, `decideRetry` (retry / defer / dead + `deadReason`). |
+| **`src/lib/server/job-retry.test.ts`** | **Vitest JOB-003 — 55 tests** (table de classification, priorité raison>statut, Retry-After, bornes et déterminisme du jitter, les 4 classes, les deux plafonds). |
+| `src/lib/server/jobs-claim.ts` | JOB-001 + **JOB-003** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, **`deferJob`** (quota : tentative rendue), **`requeueDeadJob`** (transactionnel, journalise la reprise), **`listDeadJobs`**. |
+| `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` dans les compteurs. |
 | `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
-| `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (21 vérifs : concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; nettoie ses propres lignes. |
+| `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; **type unique par exécution** + nettoyage enfants-d'abord (corrigé en JOB-003). |
+| **`scripts/job-003-retry-proof.ts`** | **Preuve JOB-003 sur Neon (44 vérifs)** : 5xx replanifié/jitté, 429 reporté (tentative rendue, Retry-After honoré), 403-quota Google ≠ 403 structurel, dead-letter immédiat, plafond de reports, reprise manuelle avec historique intact ; nettoie ses propres lignes. |
+| **`scripts/jobs-requeue.ts`** | Reprise d'un job depuis la dead-letter (`--job`, `--actor`, `--reason`, `--dry-run`) ; refuse un job vivant, prévient sur cause `auth`/`permanent`. |
+| **`scripts/apply-job-003.ts`** + `drizzle/manual-job-003.sql` | DDL additif JOB-003 (`last_error_class`/`deferrals`/`requeued_count` sur `jobs`, `error_class` sur `job_attempts`, index partiel `idx_jobs_dead`) ; vérifie colonnes ET index. |
 | `src/lib/server/timestamps.ts` (+ `.test.ts`) | Format canonique `YYYY-MM-DD HH:MM:SS` des colonnes `text` (`toDbTimestamp`/`toDbTimestampPlus`) — 8 tests, dont la preuve du piège lexical ISO vs DB. |
 | `src/lib/server/db/types.ts` | Type `AppDb` isolé de `db/index.ts` (qui lit `$env`) → permet l'injection de client dans les modules d'écriture. |
 | `src/lib/server/retention-state.ts` | Purs DATA-008 : `computeCutoff`/`isExpired` (null=sans limite), `isPurgeable`, `requiresL4ForPurge`/`assertPurgeAuthorized` (audit=L4), `derivePeriod` (week/month/year), `RETENTION_DEFAULTS` (§7.11), tuples. |
@@ -758,6 +873,16 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
+- **JOB-003** : l'échec est **classé avant d'être compté**, et la **raison prime sur le statut HTTP**
+  (403+`rateLimitExceeded` = quota, 400+`invalid_grant` = auth — la sémantique Google inverse la
+  lecture naïve). Tout **4xx non reconnu = permanent** (rejouer une erreur du client redonne la même
+  erreur) ; une erreur **illisible = retryable** (on ne condamne pas à l'aveugle). **L'auth meurt
+  immédiatement** (réessayer ne répare pas un token révoqué). **Le quota ne consomme pas de
+  tentative** : elle est rendue et le compteur **séparé** `deferrals`, plafonné, borne la boucle.
+  **Le jitter vit dans la couche IO** (`random` injecté ; sans lui, comportement déterministe
+  inchangé) et **n'ampute jamais un `Retry-After`**. **La reprise manuelle remet `attempts` à zéro** :
+  l'historique est porté par `job_attempts` (append-only, la reprise y écrit sa ligne `requeued`),
+  jamais par le compteur. Aucune table neuve : 4 colonnes + 1 index partiel.
 - **FIND-003** : la closure d'un run = **`selection.matched` complet**, jamais la liste tronquée
   écrite — sinon la troncature ferme des findings vivants (1310 vs 50 chez barberconcept). Une
   réconciliation n'a lieu que sur un run **autoritaire**, et une absence isolée ne résout jamais
@@ -841,8 +966,9 @@ DATA-001 · `b6df05e` DATA-002 · `1ab115f` DATA-003 · `7d3ae9c` DATA-004 · `4
 `7cb94c1` fix chunk · `f9432ce` DATA-005 · `4c24bc9` docs DATA-005 · `16fa000` DATA-006 · `43fe9d7`
 docs DATA-006 · `15a92cb` DATA-007 · `a8bdd2f` docs DATA-007 · `0f78d89` DATA-008 · `c6ccc70` docs
 DATA-008 · `f9b7801` wrap DATA-007/008 · `9e25e5d` fix timestamps + injection db · `717bb71`
-FIND-001/004 détecteur · `7321f5a` JOB-001 claim atomique · `cc6a92f` docs FIND/JOB · **`5428ec7`
-FIND-003 cycle de vie** · `9d6976d` docs FIND-003.
+FIND-001/004 détecteur · `7321f5a` JOB-001 claim atomique · `cc6a92f` docs FIND/JOB · `5428ec7`
+FIND-003 cycle de vie · `9d6976d` docs FIND-003 · `8aea66e` JOB-002 bail/heartbeat/récupération ·
+`77b570b` docs JOB-002 · `1c31db6` décisions JOB-002.
 
 ## Reste du premier lot §9 (non fait)
 - [ ] **GOV-001 (reste)** — marquer `Desktop/apps/jlabs-content-hub` legacy read-only (garder comme backup

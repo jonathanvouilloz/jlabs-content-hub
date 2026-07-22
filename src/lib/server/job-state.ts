@@ -10,7 +10,8 @@
  * JOB-002 y ajoute la mécanique de bail vivant : cadence de heartbeat, nature
  * d'un abandon (crash local vs blocage), et classification minimale des erreurs
  * d'exécution (timeout provider vs échec local). La classification FINE des
- * erreurs (429, auth, quota, permanent) reste JOB-003.
+ * erreurs (429, auth, quota, permanent), le jitter et la dead-letter vivent dans
+ * `job-retry.ts` (JOB-003), qui s'appuie sur ce module sans le réécrire.
  */
 import { computeBackoff, shouldDeadLetter, normalizeError, type JobStatus } from './monitoring-state.js';
 import { toDbTimestamp, toDbTimestampPlus } from './timestamps.js';
@@ -178,7 +179,8 @@ const TIMEOUT_CODES = new Set([
  * C'est la moitié « vivante » de l'acceptation « distinguer timeout provider et
  * crash local » : le crash se constate de l'extérieur (bail mort → reaper), le
  * timeout se constate de l'intérieur, ici. La classification FINE (auth, quota,
- * 429, permanent) est JOB-003 — on ne tranche que ce que JOB-002 exige.
+ * 429, permanent) est bâtie PAR-DESSUS, dans `job-retry.ts` (JOB-003), qui appelle
+ * cette fonction — elle reste donc l'unique source de vérité sur le timeout.
  */
 export function classifyExecutionError(err: unknown): { code: string; isProviderTimeout: boolean } {
 	const { code } = normalizeError(err);
@@ -275,6 +277,12 @@ export const NO_HANDLER_ERROR_CODE = 'NoHandlerRegistered';
  * du job : un job `queued` peut avoir derrière lui une tentative `abandoned` et
  * une `failed`. C'est ce vocabulaire qui rend lisible « la #1 a été abandonnée,
  * la #2 a réussi ».
+ *
+ * JOB-003 en ajoute deux, qui ne sont NI des succès NI des échecs du job :
+ *   - `deferred` : la tentative a buté sur un quota provider ; elle est RENDUE
+ *     (le numéro se répètera) et le job attend son tour ;
+ *   - `requeued` : un humain a relancé le job depuis la dead-letter — c'est la
+ *     ligne qui conserve « qui, quand, pourquoi » sans effacer l'historique.
  */
 export const ATTEMPT_OUTCOMES = [
 	'running',
@@ -282,6 +290,8 @@ export const ATTEMPT_OUTCOMES = [
 	'failed',
 	'abandoned',
 	'released',
+	'deferred',
+	'requeued',
 	'dead'
 ] as const;
 export type AttemptOutcome = (typeof ATTEMPT_OUTCOMES)[number];

@@ -1,5 +1,5 @@
 {
-  "stamp": "post-job-002",
+  "stamp": "post-job-003",
   "schemas": [
     "seostats",
     "core"
@@ -3243,7 +3243,7 @@
     {
       "schema": "seostats",
       "table": "job_attempts",
-      "rowCount": 0,
+      "rowCount": 1,
       "columns": [
         {
           "column": "id",
@@ -3326,6 +3326,12 @@
         {
           "column": "duration_ms",
           "type": "integer",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "error_class",
+          "type": "text",
           "nullable": true,
           "default": null
         }
@@ -3467,7 +3473,7 @@
     {
       "schema": "seostats",
       "table": "jobs",
-      "rowCount": 3,
+      "rowCount": 4,
       "columns": [
         {
           "column": "id",
@@ -3588,6 +3594,24 @@
           "type": "text",
           "nullable": true,
           "default": null
+        },
+        {
+          "column": "last_error_class",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "deferrals",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "column": "requeued_count",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
         }
       ],
       "primaryKey": [
@@ -3620,6 +3644,7 @@
       ],
       "indexes": [
         "idx_jobs_claim",
+        "idx_jobs_dead",
         "idx_jobs_lease",
         "idx_jobs_project_status",
         "jobs_idempotency_unique",

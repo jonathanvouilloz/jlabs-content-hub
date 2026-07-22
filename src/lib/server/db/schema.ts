@@ -694,6 +694,15 @@ export const jobs = seostats.table(
 		dependsOn: text('depends_on'), // JSON array d'ids de jobs prérequis
 		lastErrorCode: text('last_error_code'),
 		lastErrorMessage: text('last_error_message'),
+		// JOB-003 — nature du dernier échec : 'retryable'|'quota'|'auth'|'permanent'.
+		// C'est elle qui décide du sort du job (retry / report / dead-letter immédiat).
+		lastErrorClass: text('last_error_class'),
+		// Reports pour cause de quota provider (429). Compteur SÉPARÉ de `attempts` :
+		// un 429 rend sa tentative (le job n'a rien fait de mal) mais reste borné ici,
+		// sinon un provider mort ferait boucler le job sans fin.
+		deferrals: integer('deferrals').notNull().default(0),
+		// Reprises manuelles depuis la dead-letter (miroir de `findings.reopen_count`).
+		requeuedCount: integer('requeued_count').notNull().default(0),
 		createdAt: text('created_at').notNull().default(nowText),
 		updatedAt: text('updated_at').notNull().default(nowText),
 		finishedAt: text('finished_at')
@@ -704,7 +713,12 @@ export const jobs = seostats.table(
 		// ORDER BY priority DESC, available_at ASC FOR UPDATE SKIP LOCKED).
 		index('idx_jobs_claim').on(table.status, table.availableAt, table.priority),
 		index('idx_jobs_project_status').on(table.projectId, table.status),
-		index('idx_jobs_lease').on(table.leaseUntil)
+		index('idx_jobs_lease').on(table.leaseUntil),
+		// JOB-003 : listing de la dead-letter — index PARTIEL, la console ne scanne
+		// jamais toute la file pour afficher les jobs morts.
+		index('idx_jobs_dead')
+			.on(table.finishedAt)
+			.where(sql`status = 'dead'`)
 	]
 );
 
@@ -1485,9 +1499,11 @@ export const jobAttempts = seostats.table(
 			.references(() => projects.id), // filtrage cross-projet (JOB-007)
 		attemptNo: integer('attempt_no').notNull(), // = jobs.attempts après incrément au claim
 		workerId: text('worker_id').notNull(),
-		outcome: text('outcome').notNull().default('running'), // running|succeeded|failed|abandoned|released|dead
+		outcome: text('outcome').notNull().default('running'), // running|succeeded|failed|abandoned|released|deferred|requeued|dead
 		abandonKind: text('abandon_kind'), // worker_death|lease_stall (null hors abandon)
 		errorCode: text('error_code'),
+		// JOB-003 — pourquoi CETTE tentative a échoué (retryable|quota|auth|permanent).
+		errorClass: text('error_class'),
 		errorMessage: text('error_message'),
 		heartbeatCount: integer('heartbeat_count').notNull().default(0),
 		metadataJson: text('metadata_json'),

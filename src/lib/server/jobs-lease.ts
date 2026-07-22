@@ -21,7 +21,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { jobAttempts, jobEffects } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
-import { toDbTimestamp } from './timestamps.js';
+import { toDbTimestamp, toDbTimestampPlus } from './timestamps.js';
 import {
 	DEFAULT_LEASE_MS,
 	classifyAbandonedLease,
@@ -31,6 +31,7 @@ import {
 	type AbandonKind,
 	type AttemptOutcome
 } from './job-state.js';
+import { RETRY_DEFAULTS, applyJitter } from './job-retry.js';
 
 // ── Renouvellement de bail ──────────────────────────────────────────
 
@@ -100,6 +101,8 @@ export async function finishAttempt(input: {
 	attemptId: string;
 	outcome: Exclude<AttemptOutcome, 'running'>;
 	abandonKind?: AbandonKind | null;
+	/** JOB-003 — nature de l'échec de CETTE tentative (retryable|quota|auth|permanent). */
+	errorClass?: string | null;
 	errorCode?: string | null;
 	errorMessage?: string | null;
 	heartbeatCount?: number;
@@ -110,6 +113,7 @@ export async function finishAttempt(input: {
 		UPDATE "seostats"."job_attempts"
 		   SET outcome = ${input.outcome},
 		       abandon_kind = ${input.abandonKind ?? null},
+		       error_class = ${input.errorClass ?? null},
 		       error_code = ${input.errorCode ?? null},
 		       error_message = ${input.errorMessage ?? null},
 		       heartbeat_count = ${input.heartbeatCount ?? 0},
@@ -135,12 +139,14 @@ export async function listJobAttempts(input: {
 		workerId: string;
 		outcome: string;
 		abandonKind: string | null;
+		errorClass: string | null;
 		errorCode: string | null;
 		errorMessage: string | null;
 		heartbeatCount: number;
 		startedAt: string;
 		finishedAt: string | null;
 		durationMs: number | null;
+		metadataJson: string | null;
 	}[]
 > {
 	return input.db
@@ -150,12 +156,14 @@ export async function listJobAttempts(input: {
 			workerId: jobAttempts.workerId,
 			outcome: jobAttempts.outcome,
 			abandonKind: jobAttempts.abandonKind,
+			errorClass: jobAttempts.errorClass,
 			errorCode: jobAttempts.errorCode,
 			errorMessage: jobAttempts.errorMessage,
 			heartbeatCount: jobAttempts.heartbeatCount,
 			startedAt: jobAttempts.startedAt,
 			finishedAt: jobAttempts.finishedAt,
-			durationMs: jobAttempts.durationMs
+			durationMs: jobAttempts.durationMs,
+			metadataJson: jobAttempts.metadataJson
 		})
 		.from(jobAttempts)
 		.where(eq(jobAttempts.jobId, input.jobId))
@@ -275,6 +283,21 @@ export async function reclaimExpiredLeases(input: {
 				now
 			});
 
+			// JOB-003 — jitter appliqué ICI, dans la couche IO : la décision reste pure et
+			// rejouable, seule cette couche connaît le hasard. Sans lui, N workers morts
+			// ensemble (machine éteinte, déploiement interrompu) reviendraient en file à
+			// la même seconde et retomberaient en chœur sur le même provider.
+			const backoffMs =
+				decision.status === 'queued'
+					? applyJitter({
+							delayMs: decision.backoffMs,
+							ratio: RETRY_DEFAULTS.retryable.jitterRatio,
+							random: Math.random
+						})
+					: 0;
+			const availableAt =
+				decision.status === 'queued' ? toDbTimestampPlus(backoffMs, now) : decision.availableAt;
+
 			const entry: ReclaimedLease = {
 				jobId: row.id,
 				projectId: row.project_id,
@@ -283,8 +306,8 @@ export async function reclaimExpiredLeases(input: {
 				attemptNo: Number(row.attempts),
 				kind,
 				outcome: decision.status,
-				availableAt: decision.availableAt,
-				backoffMs: decision.backoffMs
+				availableAt,
+				backoffMs
 			};
 
 			if (input.dryRun) {
@@ -300,7 +323,8 @@ export async function reclaimExpiredLeases(input: {
 			const updated = await tx.execute(sql`
 				UPDATE "seostats"."jobs"
 				   SET status = ${decision.status},
-				       available_at = ${decision.availableAt},
+				       available_at = ${availableAt},
+				       last_error_class = 'retryable',
 				       last_error_code = ${decision.errorCode},
 				       last_error_message = ${decision.errorMessage},
 				       lease_owner = NULL,
@@ -324,6 +348,7 @@ export async function reclaimExpiredLeases(input: {
 				UPDATE "seostats"."job_attempts"
 				   SET outcome = ${decision.status === 'dead' ? 'dead' : 'abandoned'},
 				       abandon_kind = ${kind},
+				       error_class = 'retryable',
 				       error_code = ${decision.errorCode},
 				       error_message = ${decision.errorMessage},
 				       finished_at = ${nowDb},

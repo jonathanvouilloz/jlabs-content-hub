@@ -41,9 +41,19 @@ const arg = (n: string) => args.find((a) => a.startsWith(`--${n}=`))?.split('=')
 const N_JOBS = Number(arg('jobs') ?? 8);
 const N_WORKERS = Number(arg('workers') ?? 8);
 
-/** Marqueur exclusif de ce test : rien d'autre ne porte ce type. */
-const TEST_TYPE = '__test_claim';
-const KEY_PREFIX = `__test_claim:${createId()}:`;
+/**
+ * Marqueur exclusif de ce test : rien d'autre ne porte ce type.
+ *
+ * Le type est UNIQUE PAR EXÉCUTION (`__test_claim:<runId>`) — la file sert par
+ * priorité puis ancienneté, donc un type partagé ferait réclamer à ce run les jobs
+ * d'un run PRÉCÉDENT resté en file (nettoyage interrompu, Ctrl-C…) : la preuve
+ * mesurerait alors autre chose que ce qu'elle annonce. Même cloisonnement que
+ * `job-002-recovery-proof.ts`.
+ */
+const TEST_FAMILY = '__test_claim';
+const RUN_ID = createId();
+const TEST_TYPE = `${TEST_FAMILY}:${RUN_ID}`;
+const KEY_PREFIX = `${TEST_FAMILY}:${RUN_ID}:`;
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema }) as unknown as AppDb;
@@ -97,12 +107,30 @@ async function seedJobs(projectId: string, count: number, futureCount: number): 
 	return ids;
 }
 
+/**
+ * Nettoyage, ENFANTS D'ABORD.
+ *
+ * Depuis JOB-002, `runWorker` journalise chaque tentative dans `job_attempts` et
+ * peut réserver des effets dans `job_effects` : supprimer les jobs seuls viole
+ * alors la FK `job_attempts_job_id_fkey` — le nettoyage échouait en silence (après
+ * toutes les vérifications, donc invisible) et laissait ses lignes de test dans la
+ * vraie file. Même ordre que `job-002-recovery-proof.ts`.
+ */
 async function cleanup(): Promise<number> {
-	const res = await db.execute(sql`
-		DELETE FROM "seostats"."jobs"
+	const ids = await db.execute(sql`
+		SELECT id FROM "seostats"."jobs"
 		 WHERE type = ${TEST_TYPE} AND idempotency_key LIKE ${`${KEY_PREFIX}%`}
-		 RETURNING id
 	`);
+	const jobIds = ((ids.rows ?? []) as unknown as { id: string }[]).map((r) => r.id);
+	if (jobIds.length === 0) return 0;
+
+	const inJobs = sql.join(
+		jobIds.map((i) => sql`${i}`),
+		sql`, `
+	);
+	await db.execute(sql`DELETE FROM "seostats"."job_attempts" WHERE job_id IN (${inJobs})`);
+	await db.execute(sql`DELETE FROM "seostats"."job_effects" WHERE job_id IN (${inJobs})`);
+	const res = await db.execute(sql`DELETE FROM "seostats"."jobs" WHERE id IN (${inJobs}) RETURNING id`);
 	return res.rows?.length ?? 0;
 }
 

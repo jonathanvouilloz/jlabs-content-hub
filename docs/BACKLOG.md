@@ -426,7 +426,7 @@ Acceptation :
 
 ## JOB-003 — Retry, backoff et dead-letter
 
-**Priorité :** P0 · **Taille :** M · **État :** TODO (débloqué par JOB-002 : `job_attempts` conserve l'historique des tentatives, `classifyExecutionError` pose la base à affiner) · **Dépendances :** JOB-001
+**Priorité :** P0 · **Taille :** M · **État :** **DONE** (2026-07-22 — `job-retry.ts` : 4 classes, jitter injecté, `deferJob` pour le quota, dead-letter + `requeueDeadJob`. 55 tests vitest + preuve Neon 44/44) · **Dépendances :** JOB-001
 
 Travail :
 
@@ -477,7 +477,7 @@ Acceptation :
 
 ## JOB-006 — Limites de concurrence et quotas provider
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-003
+**Priorité :** P1 · **Taille :** M · **État :** TODO (débloqué par JOB-003 : la classe `quota` et le compteur `deferrals` existent, il reste à PRÉVENIR le 429 au lieu d'y réagir) · **Dépendances :** JOB-003
 
 Travail :
 
@@ -494,7 +494,7 @@ Acceptation :
 
 ## JOB-007 — Console d'exploitation des jobs
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED (par JOB-003 ; JOB-002 livré — la console lira `job_attempts` et `jobs`) · **Dépendances :** JOB-002, JOB-003
+**Priorité :** P1 · **Taille :** M · **État :** TODO — **débloqué** (JOB-002 + JOB-003 livrés : la console lira `jobs` + `job_attempts` + `last_error_class`, et appellera `listDeadJobs`/`requeueDeadJob` ; `scripts/jobs-inspect.ts` et `scripts/jobs-requeue.ts` en rendent déjà l'équivalent en CLI) · **Dépendances :** JOB-002, JOB-003
 
 Travail :
 
@@ -731,7 +731,7 @@ Acceptation :
 
 ## IDX-007 — Outbox et client IndexNow idempotent
 
-**Priorité :** P1 · **Taille :** L · **État :** BLOCKED · **Dépendances :** IDX-006, JOB-003
+**Priorité :** P1 · **Taille :** L · **État :** BLOCKED par IDX-006 seulement (JOB-003 livré : retry classé + `job_effects`/`guardExternalEffect` pour l'exactly-once de l'outbox) · **Dépendances :** IDX-006, JOB-003
 
 Travail :
 
@@ -1274,7 +1274,7 @@ Acceptation :
 
 ## GMB-006 — State machine de policy et envoi différé
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-007, GMB-005, JOB-003
+**Priorité :** P0 · **Taille :** L · **État :** BLOCKED par GMB-005 seulement (DATA-007 et JOB-003 livrés : policies versionnées + retry classé et jitter réutilisable pour l'envoi différé) · **Dépendances :** DATA-007, GMB-005, JOB-003
 
 Travail :
 
