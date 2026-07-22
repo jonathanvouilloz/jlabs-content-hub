@@ -934,16 +934,25 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `src/lib/server/detector-state.test.ts` | Vitest FIND-001/004 — 35 tests (rejouabilité, pondération, seuils, confiance dégradée, plafond de sévérité, preuves). |
 | `src/lib/server/detectors/keyword-opportunity.ts` | IO du détecteur : lit les observations, écrit findings + événements, seuils par projet (projection), client db injecté. |
 | `scripts/detect.ts` | Runner du détecteur (`--project=<slug\|all>`, `--weeks`, `--dry-run`, `--limit`) : run+step de traçabilité, rapport avec troncature explicite. |
-| `src/lib/server/job-state.ts` | Purs JOB-001/002 : `decideAfterFailure` (backoff/dead-letter via DATA-003), bail, heartbeat, `classifyAbandonedLease`/`classifyExecutionError`, vocabulaire des tentatives (+ `deferred`/`requeued` en JOB-003). |
+| `src/lib/server/job-state.ts` | Purs JOB-001/002 : `decideAfterFailure` (backoff/dead-letter via DATA-003), bail, heartbeat, `classifyAbandonedLease`/`classifyExecutionError`, vocabulaire des tentatives (+ `deferred`/`requeued` en JOB-003, **`cancelled` en JOB-007**). |
 | `src/lib/server/job-state.test.ts` | Vitest JOB-001/002 — 39 tests (backoff exponentiel plafonné, dead-letter au plafond exact, bail, heartbeat, nature d'abandon). |
 | **`src/lib/server/job-retry.ts`** | **Purs JOB-003** : `classifyJobFailure` (**raison avant statut** — 403+quota Google, 400+`invalid_grant`), `parseRetryAfter`/`extractRetryAfterMs` (plafond 6 h), `applyJitter` (`random` **injecté**), `RETRY_DEFAULTS` par classe, `decideRetry` (retry / defer / dead + `deadReason`). |
 | **`src/lib/server/job-retry.test.ts`** | **Vitest JOB-003 — 55 tests** (table de classification, priorité raison>statut, Retry-After, bornes et déterminisme du jitter, les 4 classes, les deux plafonds). |
-| `src/lib/server/jobs-claim.ts` | JOB-001 + **JOB-003** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, **`deferJob`** (quota : tentative rendue), **`requeueDeadJob`** (transactionnel, journalise la reprise), **`listDeadJobs`**. |
+| `src/lib/server/jobs-claim.ts` | JOB-001 + JOB-003 + **JOB-007** — `claimJob` (`FOR UPDATE SKIP LOCKED`, une instruction), `completeJob`/`failJob` (classé)/`releaseJob`, `deferJob` (quota : tentative rendue), `requeueDeadJob` (transactionnel, journalise la reprise), `listDeadJobs`, **`listJobs`/`countJobs`/`countJobsByStatus`/`getJobDetail`** (lecture de la console) et **`cancelJob`** (transactionnel : retire le bail, clôt la tentative ouverte, écrit la ligne d'audit). |
 | `src/lib/server/job-runner.ts` | JOB-001/002 + **JOB-003** — registre de handlers, boucle `runWorker` arrêtable, routage `defer`/`fail` selon la classe, `deferred` + `failedByClass` dans les compteurs. |
 | `scripts/worker.ts` | Worker CLI (`--once`, `--enqueue=<slug>`, `--types`, `--lease-ms`, `--poll-ms`) + arrêt gracieux SIGINT/SIGTERM. |
 | `scripts/job-claim-concurrency.ts` | Preuve d'unicité de réclamation sur Neon (concurrence, étanchéité du bail, arrêt gracieux, backoff/dead-letter) ; **type unique par exécution** + nettoyage enfants-d'abord (corrigé en JOB-003). |
 | **`scripts/job-003-retry-proof.ts`** | **Preuve JOB-003 sur Neon (44 vérifs)** : 5xx replanifié/jitté, 429 reporté (tentative rendue, Retry-After honoré), 403-quota Google ≠ 403 structurel, dead-letter immédiat, plafond de reports, reprise manuelle avec historique intact ; nettoie ses propres lignes. |
 | **`scripts/jobs-requeue.ts`** | Reprise d'un job depuis la dead-letter (`--job`, `--actor`, `--reason`, `--dry-run`) ; refuse un job vivant, prévient sur cause `auth`/`permanent`. |
+| `scripts/jobs-inspect.ts` | Chronologie d'un job et vue dead-letter en CLI (`--job`, `--project`, `--status`, `--dead`, `--class`) ; **libellés importés de `utils/job-format.ts`** depuis JOB-007 — mêmes mots que la console. |
+| **`src/lib/server/job-console.ts`** | **Purs JOB-007 (serveur)** : `normalizeJobFilters` (l'URL réduite au vocabulaire connu **avant** toute requête), `canCancelJob`/`canRequeueJob` (légalité des actions, miroir des gardes SQL), **`explainFailure`** (classe d'erreur → verdict + action + `willRepeat`). |
+| **`src/lib/server/job-console.test.ts`** | **Vitest JOB-007 — 22 tests** (filtres hostiles écartés, pagination bornée, matrice d'annulation/reprise, les 4 classes expliquées, annulation ≠ échec). |
+| **`src/lib/utils/job-format.ts`** (+ `.test.ts`) | **Libellés et formats partagés CLI ↔ console** — `OUTCOME_LABEL`/`CLASS_LABEL`/`KIND_LABEL`/`STATUS_LABEL`, `formatDbTimestamp`/`formatDbTime`/`formatDuration`/`formatRelative` (`now` injecté), `parseDbTimestamp` (**UTC explicite**). Dans `utils/` parce qu'une page Svelte ne peut pas importer `$lib/server`. 9 tests. |
+| **`src/routes/(app)/jobs/+page.server.ts` + `+page.svelte`** | **La file** : filtres normalisés côté serveur, `listJobs`/`countJobs`/`countJobsByStatus`, compteurs cliquables par statut, table dense, pagination ; `now` serveur passé à la page (jamais l'horloge du navigateur). |
+| **`src/routes/(app)/jobs/[id]/+page.server.ts` + `+page.svelte`** | **Un job** : verdict `explainFailure`, chronologie `job_attempts` (jamais `jobs.attempts`), payload **en lecture seule**, Relancer/Annuler avec raison obligatoire. |
+| **`src/routes/api/ops/jobs/[id]/{cancel,requeue}/+server.ts`** | Actions d'exploitation. Namespace `ops` parce que `/api/jobs` sert les `ai_jobs` legacy. POST seul, session exigée, acteur pris **dans la session**, raison obligatoire ; **aucun champ de payload accepté**. |
+| **`scripts/job-007-console-proof.ts`** | **Preuve JOB-007 sur Neon (46 vérifs)** : annulation en file et en cours (le worker ne peut plus ni renouveler, ni conclure, ni échouer), refus sur `succeeded`, reprise + annulation enchaînées, journal append-only, payload inchangé, filtres hostiles ; nettoie ses lignes enfants d'abord. |
+| **`scripts/jobs-purge-test.ts`** | Purge rejouable des lignes de test laissées en file (`starts_with(type,'__test_')`, **pas `LIKE`**), DRY-RUN par défaut, suppression enfants d'abord en une transaction ; liste les types trouvés avant de compter. |
 | **`scripts/apply-job-003.ts`** + `drizzle/manual-job-003.sql` | DDL additif JOB-003 (`last_error_class`/`deferrals`/`requeued_count` sur `jobs`, `error_class` sur `job_attempts`, index partiel `idx_jobs_dead`) ; vérifie colonnes ET index. |
 | `src/lib/server/timestamps.ts` (+ `.test.ts`) | Format canonique `YYYY-MM-DD HH:MM:SS` des colonnes `text` (`toDbTimestamp`/`toDbTimestampPlus`) — 8 tests, dont la preuve du piège lexical ISO vs DB. |
 | `src/lib/server/db/types.ts` | Type `AppDb` isolé de `db/index.ts` (qui lit `$env`) → permet l'injection de client dans les modules d'écriture. |
@@ -975,7 +984,7 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `.env.example` | Référence des 21 env vars + doc flags/LOG_LEVEL (secret-free). |
 | `src/lib/server/indexing.ts` | Indexing API — garde IDX-008 (flag + éligibilité) sur `publishUrl`/`batchSubmit`. |
 | `src/lib/server/indexing-eligibility.ts` | Purs IDX-008 : types éligibles + `evaluateIndexingGuard`. |
-| `src/lib/server/db/schema.ts` | Modèle Drizzle (55 tables) ; +DATA-002→008 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs, policies+promotions, retention_policies+observation_aggregates+purge_runs). |
+| `src/lib/server/db/schema.ts` | Modèle Drizzle (**57 tables**, +`job_attempts`/`job_effects` en JOB-002 ; JOB-007 n'en ajoute aucune) ; +DATA-002→008 (intégrations, orchestration, 10 observations, findings+finding_events, proposals+approvals+agent_runs, policies+promotions, retention_policies+observation_aggregates+purge_runs). |
 | `src/lib/server/observation-state.ts` | Purs DATA-004 : `deriveObservationFingerprint`, `computeWindowStart`/`isWithinWindow`, `assertBoundedPayload`. |
 | `src/lib/server/observations.ts` | DATA-004 — upserts idempotents des 5 tables d'observation ancrées (gsc_query_page/gsc_page/index/keyword_rank/gmb_insight). |
 | `scripts/apply-data-004.ts` + `drizzle/manual-data-004.sql` | Application déterministe du DDL additif DATA-004 (10 tables). |
@@ -986,6 +995,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 | `scripts/apply-data-002.ts` + `drizzle/manual-data-002.sql` | Application déterministe du DDL additif DATA-002. |
 
 ### Décisions clés
+- **JOB-007** : **un job en cours s'annule en lui retirant son bail**, jamais en tuant son worker —
+  `renewLease` cesse de matcher, le runner interrompt son handler, et ses écritures finales
+  (gardées par `lease_owner` + `status='running'`) ne réécrivent rien. C'est le mécanisme de
+  JOB-002 réutilisé. **L'audit est une ligne de journal**, pas un champ : acteur pris **dans la
+  session**, raison obligatoire, `job_attempts` append-only — donc annuler un job qui tourne écrit
+  **deux** lignes (la tentative, la décision), et un refus n'écrit **rien**. « Aucune modification
+  arbitraire du payload » tient par **absence de chemin** (aucune route n'accepte `payload_json`).
+  Les horodatages restent affichés **en UTC** comme ils sont stockés, et l'interface le dit :
+  convertir ferait exister deux lectures d'un même instant selon l'outil.
 - **JOB-003** : l'échec est **classé avant d'être compté**, et la **raison prime sur le statut HTTP**
   (403+`rateLimitExceeded` = quota, 400+`invalid_grant` = auth — la sémantique Google inverse la
   lecture naïve). Tout **4xx non reconnu = permanent** (rejouer une erreur du client redonne la même
