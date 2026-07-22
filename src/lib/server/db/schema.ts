@@ -1253,3 +1253,97 @@ export const agentRuns = seostats.table(
 		index('idx_agent_runs_run').on(table.runId)
 	]
 );
+
+// ── DATA-007 — Politiques d'avis & d'automatisation (SPEC §7.10) ─────
+//
+// Une policy gouverne le comportement d'automatisation des réponses aux avis (et
+// autres actions cadencées) pour un projet, éventuellement affiné par localisation.
+// Elle est VERSIONNÉE (même modèle que project_projections) : on ne modifie jamais
+// une policy en place — on en promeut une nouvelle version, l'ancienne passe
+// `superseded`. Cela garantit qu'« aucune ancienne proposition ne profite
+// silencieusement d'une nouvelle policy » : une proposition/approbation référence
+// la version effective au moment où elle a été évaluée.
+//
+// Invariants portés par le module pur policy-state.ts :
+//   - le `kill_switch` bloque les ENVOIS sans bloquer la synchronisation
+//     (evaluatePolicyGates : syncAllowed ignore le kill switch) ;
+//   - `draft_only`/`manual` n'autorisent jamais l'envoi autonome ; seul
+//     `guarded_auto` envoie, et uniquement les avis éligibles (canAutoSendReview).
+//
+// `scope_key` = `location_id ?? '*'` : rend le partial-unique « une seule policy
+// courante par scope » robuste face aux NULL (Postgres traite les NULL comme
+// distincts, ce qui casserait l'unicité de la policy projet-wide).
+export const reviewAutomationPolicies = seostats.table(
+	'review_automation_policies',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		locationId: text('location_id'), // nullable = policy projet-wide (toutes localisations)
+		scopeKey: text('scope_key').notNull(), // location_id ?? '*' (robustesse NULL du unique current)
+		version: integer('version').notNull().default(1),
+		policyHash: text('policy_hash').notNull(), // hash canonique de la config → dédup re-promotion identique
+		mode: text('mode').notNull().default('draft_only'), // draft_only|guarded_auto|manual (§7.10)
+		syncEnabled: boolean('sync_enabled').notNull().default(true), // sync des avis (indépendante du kill switch)
+		autoGenerationEnabled: boolean('auto_generation_enabled').notNull().default(false),
+		killSwitch: boolean('kill_switch').notNull().default(false), // bloque les ENVOIS, jamais la sync
+		minRatingForAutoSend: integer('min_rating_for_auto_send'), // note minimale pour envoi auto (ex. 5)
+		sendDelayMinutes: integer('send_delay_minutes'), // délai avant envoi
+		jitterMinutes: integer('jitter_minutes'), // jitter aléatoire ajouté au délai
+		sendWindowsJson: text('send_windows_json'), // plages horaires autorisées (JSON borné)
+		defaultLanguage: text('default_language'),
+		signature: text('signature'),
+		escalationCategoriesJson: text('escalation_categories_json'), // catégories nécessitant validation (JSON borné)
+		maxSendsPerRun: integer('max_sends_per_run'), // nombre max d'envois par run
+		status: text('status').notNull().default('current'), // current|superseded
+		promotedBy: text('promoted_by'), // dénormalisé ; le détail vit dans policy_promotions
+		promotedAt: text('promoted_at'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		// Chaque version d'un scope est unique ; l'historique se lit par version croissante.
+		uniqueIndex('review_automation_policies_version_unique').on(
+			table.projectId,
+			table.scopeKey,
+			table.version
+		),
+		// Une seule policy courante par scope (projet + localisation ou projet-wide).
+		uniqueIndex('review_automation_policies_one_current')
+			.on(table.projectId, table.scopeKey)
+			.where(sql`status = 'current'`),
+		index('idx_review_automation_policies_project_status').on(table.projectId, table.status)
+	]
+);
+
+// Journal APPEND-ONLY des promotions de policy (BACKLOG DATA-007 « tracer toute
+// promotion »). Une ligne par transition de version : ancienne→nouvelle version,
+// ancien→nouveau mode, nature (create|mode_change|kill_switch|config_change),
+// auteur et cause. Jamais d'update/delete → la policy effective à toute date se
+// reconstruit depuis ce journal (« la policy effective est visible dans l'audit »).
+export const policyPromotions = seostats.table(
+	'policy_promotions',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		policyId: text('policy_id') // la nouvelle version créée
+			.notNull()
+			.references(() => reviewAutomationPolicies.id),
+		fromPolicyId: text('from_policy_id').references(() => reviewAutomationPolicies.id), // version précédente (nullable = 1re)
+		scopeKey: text('scope_key').notNull(),
+		fromVersion: integer('from_version'), // nullable = création
+		toVersion: integer('to_version').notNull(),
+		fromMode: text('from_mode'),
+		toMode: text('to_mode').notNull(),
+		kind: text('kind').notNull(), // create|mode_change|kill_switch|config_change
+		actor: text('actor').notNull(), // qui a promu (user|agent|policy|system…)
+		reason: text('reason'), // cause de la promotion
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		index('idx_policy_promotions_policy').on(table.policyId),
+		index('idx_policy_promotions_project_scope').on(table.projectId, table.scopeKey)
+	]
+);
