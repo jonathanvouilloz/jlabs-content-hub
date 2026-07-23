@@ -108,14 +108,50 @@ d'autorisation » — chaque proposition affiche son niveau **et qui peut l'acco
   pour essayer, **puis supprimée** : le cookie Better Auth est signé, la voie est fermée sans le
   secret. Ce qui est prouvé : le chargement serveur (303), les endpoints (401), `npm run check` vert.
 - **`= ANY($n)` casse avec le driver Neon** — tout filtre de liste en `IN (…)` paramétré (rappel).
-- Toujours en suspens hors DASH-004/005 : les **5 semaines `2026-07-06` sous-comptées** ne sont
-  toujours pas réparées (`npx tsx scripts/collect-gsc.ts --project=all --week=2026-07-06`) · purge
+- Toujours en suspens hors DASH-004/005 : ~~les 5 semaines `2026-07-06` sous-comptées~~ **réparées
+  le 2026-07-23** (détail sous ce bloc) · purge
   destructive (DATA-008 `--execute`) = session dédiée · **CONTRACT différé** · `ai_jobs → jobs`
   **écarté** · **la double écriture legacy reste une dette datée** (meurt avec GSC-003) · **rien ne
   bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50
   findings** — qui, désormais, **s'afficheront** quelque part.
 
 **Commit :** `f1392c5` [hub] add: DASH-004+005 inbox (findings + propositions), décisions liées au hash
+
+### Réparation de données — semaine `2026-07-06` (même session, hors code)
+
+`npx tsx scripts/collect-gsc.ts --project=all --week=2026-07-06`, un seul pull des 6 projets. Aucun
+`--dry-run` préalable : il consomme le **même** quota sur le compte partagé, donc le faire aurait
+doublé la dépense pour la même donnée.
+
+| projet | lignes | impressions | clics |
+|---|---|---|---|
+| `barberconcept` | 11 579 → **13 591** | 80 794 → **109 060** (+35,0 %) | 629 → **859** |
+| `bisrepetita` | 57 → **65** | 110 → **146** (+32,7 %) | 1 → **2** |
+| `jonlabs` | 227 → **271** | 720 → **981** (+36,3 %) | 2 → 2 |
+| `physiopommier` | 75 → **82** | 261 → **296** (+13,4 %) | 14 → 14 |
+| `spinlink` | 14 → 14 | 129 → 129 (**0 %**) | 4 → 4 |
+| `wildcat` | 54 → **67** | 215 → **287** (+33,5 %) | 5 → **10** |
+
+**+28 670 impressions** au total (82 229 → 110 899). **`spinlink` est rigoureusement inchangé** :
+c'est la contre-épreuve du diagnostic « 5 projets sur 6 », mesurée et non supposée. Observations et
+tables legacy restent au chiffre près (même tampon, une seule collecte).
+
+**Effet de bord traité dans la foulée** : le collecteur recalcule le diff de la semaine qu'il
+collecte — mais le diff de `jonlabs` pour **`2026-07-13`** avait été calculé contre l'ancien
+`2026-07-06`, et affirmait **+84,3 %** d'impressions. Recalculé (DB seule, zéro quota) : **+35,3 %**
+(1327 vs 981). C'est exactement le faux signal que GSC-006 interdit, dans son sens inverse — une
+poussée fantôme née d'une base sous-comptée. Aucun autre diff ne se compare à cette semaine.
+
+**Ce qui n'a PAS été refait** : la détection. Les 13 findings ont été décidés sur les mesures
+sous-comptées ; ils seront re-décidés au prochain run hebdo, sur la donnée réparée. Relancer
+`detect.ts` à la main aurait écrit des findings hors du chemin gouverné par la file — et fait partir
+les 50 de `barberconcept` sans que la décision ait été prise.
+
+**Trace laissée** : ces lignes portent désormais un `fetched_at` **au format DB**, alors que les
+autres semaines gardent l'**ISO** du backfill du 2026-07-21. Inerte aujourd'hui (les observations se
+purgent sur `period_end`, et le seul usage de `fetched_at` — `debug_payload` — n'a pas de runner),
+mais à savoir : en ordre lexical, l'ISO passe **après** le format DB, donc une vieille ligne
+backfillée s'y lit comme plus récente qu'une ligne fraîchement réparée.
 
 ---
 

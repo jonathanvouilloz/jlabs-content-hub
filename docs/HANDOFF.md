@@ -22,6 +22,11 @@ Prochain : **GSC-004** (fenêtres 7/28/90 j, backfill borné, périodes incompl�
 (sitemap, URL Inspection) · **DASH-002** (accueil cross-projet), qui a maintenant une inbox où
 pointer ses compteurs.
 
-⚠️ **Décision toujours en attente** : 5 projets sur 6 ont leur semaine `2026-07-06` **sous-comptée
-de ~36 %** (tirée à la main 1 jour après sa fin). Réparation = `npx tsx scripts/collect-gsc.ts
---project=all --week=2026-07-06` — un pull GSC des 6 projets d'un coup.
+✅ **Semaine `2026-07-06` réparée** (2026-07-23) : un seul pull des 6 projets, **+28 670
+impressions** (82 229 → 110 899). `spinlink` est ressorti **inchangé** — la contre-épreuve du « 5
+sur 6 ». Le diff de `jonlabs` pour `2026-07-13`, qui affirmait +84,3 % contre une base sous-comptée,
+a été recalculé à **+35,3 %**. Détail → le bloc DASH-004+005 du fichier feature.
+
+⚠️ **Pas encore refait** : la **détection**. Les 13 findings ont été décidés sur les mesures
+sous-comptées ; ils seront re-décidés au prochain run hebdo, sur la donnée réparée — et c'est là que
+`barberconcept` écrira ses **50 findings** (décision maintenue).
