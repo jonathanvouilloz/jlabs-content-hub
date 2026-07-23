@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Source de vérité DB = **Neon (Postgres)**, schéma `seostats` d'une base partagée avec `invoices` (voir `docs/NEON-MIGRATION.md`). Ex "Content Hub" / "jokiSEO". La sync GitHub a été retirée en 2026-05 (le repo `content/` reste une archive figée).
 
-> ⚠️ **Migration quasi finie** : refactor code + **données** Turso→Neon faits et vérifiés (branche `feat/neon`, Phase 4 ✅ le 2026-07-21). Reste la Phase 6 (roter le password Neon exposé, décommissionner Turso). Voir `docs/HANDOFF.md`.
+> ✅ **Migration terminée côté code et données** (2026-07-23) : plus de `@libsql/client`, plus de `DATABASE_AUTH_TOKEN`, 58 tables vérifiées dans `seostats`. Ne restent que deux gestes d'**infra**, hors code et hors chemin critique : roter le password Neon exposé les 2026-07-20/21, supprimer la base Turso. Voir `docs/NEON-MIGRATION.md`.
 
 ## Stack technique
 
@@ -118,6 +118,12 @@ Crons (vercel.json) :
 - `/api/cron/gmb-weekly-digest` — lundi 8h00 — récap hebdo aux clients opt-in (`projects.weekly_digest_enabled = true` + `client_email` renseigné)
 - `/api/cron/linkedin-publish` — quotidien 9h00
 
+> ⚠️ **`/api/cron/gsc-snapshot` n'est plus planifié** (GSC-002). La collecte GSC passe par la file :
+> `collect:gsc_query_page`, enfilé par la cadence hebdo (lundi 09:00 `Europe/Zurich`) et drainé par
+> le tick. La route reste appelable **à la main** pour un rattrapage. **Ne pas la replanifier** : les
+> 6 projets partagent un seul service account, donc un seul pool de quota — deux chemins de collecte
+> le consommeraient deux fois pour la même donnée.
+
 Critical errors (email immédiat à `ADMIN_EMAIL`, dedup 1h via `gmb_settings.critical_sent_*`) :
 - Refresh token Google échoué
 - Une location GMB échoue 3x de suite
@@ -153,11 +159,12 @@ Pour les images GMB, le skill `/publish-hub` doit :
 **Date :** 2026-07-23
 **Produit :** **seo-stats** — cockpit agentique de monitoring SEO & présence locale. Ex "Content Hub" / "jokiSEO".
 **Cap :** déléguer 90% du monitoring récurrent aux agents (findings persistants + validation humaine). Voir `docs/SPEC.md`.
-**Chantier transverse :** migration Turso → Neon **quasi finie**. Refactor code + données faits+vérifiés (branche `feat/neon`, Phase 4 ✅ 2026-07-21). Reste Phase 6 (rotation password + décommissionnement Turso).
+**Chantier transverse :** migration Turso → Neon **finie côté code et données**. Reste deux gestes d'infra hors chemin critique (rotation du password exposé, suppression de Turso).
 **DB cible :** Neon `neondb`, schéma `seostats` (partagé avec `invoices` via schéma `core`). **58 tables**, ~6 projets GSC.
 **Socle livré :** epics 1-22 DONE, epic 23 (positions GSC) en prod. Refactor in-place, DataForSEO = fournisseur SEO externe.
 **Admin :** contact@jonlabs.ch
-**Prochaine étape :** Phase 6 (roter password Neon + décommissionner Turso) → puis l'**inbox UI** (E11/DASH-005) ou les **collecteurs E03**. Détail : `docs/HANDOFF.md`.
+**Collecte (E03) :** **GSC-001+002 livrés** — `collect:gsc_query_page` est le premier type de job qui appelle vraiment un provider. Il pagine Search Analytics, **ne persiste rien avant la fin de la pagination** (une semaine tronquée se lirait comme complète, donc comme une chute), écrit les observations **et** les tables legacy depuis un seul fetch, et tient la fraîcheur dans `project_integrations`. Le catalogue hebdo est passé à la **profondeur 3** : `collect` → `detect` → `propose`, arêtes obligatoires. `GscApiError` porte `status`/`reason`, ce qui rend la classification JOB-003 exacte sur les deux cas que Google fait à l'envers (403 `rateLimitExceeded` = quota, 400 `invalid_grant` = auth).
+**Prochaine étape :** l'**inbox UI** (E11/DASH-005) ou **GSC-004** (fenêtres/backfill). Détail : `docs/HANDOFF.md`.
 **File de jobs (E00) :** réclamation atomique, bail + reaper, erreurs classées, console `/jobs`, scheduler horaire, producteur de propositions, **dépendances entre jobs** (JOB-004 : un prérequis obligatoire mort fait passer son dépendant en **`skipped`** et le run en `partial` ; un optionnel mort ne bloque personne) — et depuis **JOB-006** la **capacité** : plafonds global / projet / provider, **tour d'équité** (un gros projet ne prend plus tout un tick), et **refroidissement provider** (un échec `quota` met toute la cohorte au repos, `attempts`/`deferrals` intacts). Les plafonds se règlent **sans redéploiement** (`system_settings` + `scripts/limits.ts`) ; la garde vit **dans `claimJob`**.
 
 > ⚠️ **Avant le prochain déploiement** : le cron `/api/cron/tick` (JOB-005) planifiera le run hebdo des 6 projets — dont **barberconcept**, jamais détecté, qui écrira **50 findings d'un coup** (plafond `maxCandidates`). Décision de Jonathan : laisser partir, ou désactiver `weekly` pour ce projet via `project_projections.payload.schedules`. Depuis JOB-004, son `propose:actions` **attend** la fin de cette détection au lieu de partir en parallèle ; depuis JOB-006, il ne peut plus prendre le tick entier (tour d'équité).

@@ -76,6 +76,7 @@ import { coolDownQuotaLimitedJobs, loadLimitsContext } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
+import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { expireSnoozes } from './findings.js';
 
 const logger = log('worker');
@@ -94,6 +95,14 @@ export interface JobContext {
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<void>;
+
+/**
+ * GSC-002 — collecte `query × page × device`. **Premier type de job qui appelle
+ * réellement un provider externe** : c'est lui qui donne enfin un consommateur aux
+ * budgets et au refroidissement armés par JOB-006 (`PROVIDER_BY_JOB_TYPE`), et le
+ * prérequis du détecteur dans le catalogue hebdo (JOB-004).
+ */
+export const JOB_TYPE_COLLECT_GSC_QUERY_PAGE = 'collect:gsc_query_page';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
@@ -121,6 +130,31 @@ export const JOB_TYPE_NOOP = 'noop';
  */
 export function defaultHandlers(): Map<string, JobHandler> {
 	return new Map<string, JobHandler>([
+		[
+			JOB_TYPE_COLLECT_GSC_QUERY_PAGE,
+			async ({ db, job, signal }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await collectGscQueryPage({
+					projectId: (payload.projectId as string) ?? job.projectId,
+					weekStart: typeof payload.weekStart === 'string' ? payload.weekStart : null,
+					runId: job.runId,
+					client: db,
+					// Le bail : un collecteur qui l'a perdu doit s'arrêter AVANT
+					// d'écrire, sinon deux workers écrivent la même semaine.
+					signal
+				});
+				logger.info('collecte GSC terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					siteUrl: res.siteUrl,
+					weekStart: res.weekStart,
+					pages: res.pages,
+					rows: res.rows,
+					clicks: res.totals.totalClicks,
+					impressions: res.totals.totalImpressions
+				});
+			}
+		],
 		[
 			JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
 			async ({ db, job }) => {

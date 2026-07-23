@@ -9,11 +9,25 @@ import {
 } from './db/schema.js';
 import { getAccessTokenForProject } from './indexing.js';
 import { createId } from './utils.js';
+import {
+	addDaysIso,
+	latestCompleteWeekStart,
+	previousWeekStart,
+	weekEndOf,
+	weekStartOf
+} from './collectors/gsc-collector-state.js';
+import {
+	aggregateByQuery,
+	avgPosition,
+	computeWeeklyDiff,
+	type BucketEntry,
+	type KpiSummary,
+	type WeeklyDiffPayload
+} from './gsc-weekly-diff.js';
 
 const SEARCH_ANALYTICS_BASE = 'https://www.googleapis.com/webmasters/v3/sites';
 const WEBMASTERS_SITES_LIST = 'https://www.googleapis.com/webmasters/v3/sites';
 const PAGE_SIZE = 25_000;
-const GSC_LATENCY_DAYS = 3;
 
 type GscDimension = 'query' | 'page' | 'device' | 'date';
 
@@ -29,71 +43,18 @@ interface SearchAnalyticsResponse {
 	rows?: GscRow[];
 }
 
-export interface BucketEntry {
-	query: string;
-	page: string;
-	clicks: number;
-	clicksPrev: number;
-	deltaClicks: number;
-	impressions: number;
-	impressionsPrev: number;
-	deltaImpressions: number;
-	position: number;
-	positionPrev: number;
-	deltaPosition: number;
-}
-
-export interface KpiSummary {
-	clicks: { curr: number; prev: number; deltaAbs: number; deltaPct: number };
-	impressions: { curr: number; prev: number; deltaAbs: number; deltaPct: number };
-	ctr: { curr: number; prev: number; deltaAbs: number };
-	position: { curr: number; prev: number; deltaAbs: number };
-}
-
-export interface WeeklyDiffPayload {
-	kpis: KpiSummary;
-	rising: BucketEntry[];
-	falling: BucketEntry[];
-	opportunities: BucketEntry[];
-	newKeywords: BucketEntry[];
-	lostKeywords: BucketEntry[];
-}
+// Formes du diff hebdo : définies avec lui dans `gsc-weekly-diff.ts`, réexportées
+// ici pour les appelants historiques. Les redéclarer donnerait deux définitions
+// d'un même contrat, qui finiraient par diverger.
+export type { BucketEntry, KpiSummary, WeeklyDiffPayload };
 
 // ── Date helpers ──────────────────────────────────────────────────
-
-/**
- * Returns the Monday (ISO week start) of the week containing `date`, formatted YYYY-MM-DD (UTC).
- */
-export function weekStartOf(date: Date): string {
-	const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-	const dow = d.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
-	const diff = (dow + 6) % 7; // days back to Monday
-	d.setUTCDate(d.getUTCDate() - diff);
-	return d.toISOString().slice(0, 10);
-}
-
-export function addDaysIso(iso: string, days: number): string {
-	const d = new Date(`${iso}T00:00:00Z`);
-	d.setUTCDate(d.getUTCDate() + days);
-	return d.toISOString().slice(0, 10);
-}
-
-export function previousWeekStart(weekStart: string): string {
-	return addDaysIso(weekStart, -7);
-}
-
-export function weekEndOf(weekStart: string): string {
-	return addDaysIso(weekStart, 6);
-}
-
-/**
- * Most recent fully complete week (Monday-Sunday) accounting for GSC ~3-day latency.
- */
-export function latestCompleteWeekStart(now: Date = new Date()): string {
-	const ref = new Date(now.getTime() - GSC_LATENCY_DAYS * 24 * 60 * 60 * 1000);
-	const thisWeekMonday = weekStartOf(ref);
-	return previousWeekStart(thisWeekMonday);
-}
+//
+// GSC-002 — définis dans `collectors/gsc-collector-state.ts` (module PUR) et
+// RÉEXPORTÉS ici pour les appelants historiques. Une seconde implémentation
+// aurait dérivé de celle du collecteur, et un collecteur qui ne collecte pas la
+// semaine que l'écran affiche est un bug dont on ne voit pas la cause.
+export { weekStartOf, addDaysIso, previousWeekStart, weekEndOf, latestCompleteWeekStart };
 
 // ── List sites accessible to service account ─────────────────────
 
@@ -283,200 +244,13 @@ export async function pullWeeklySnapshot(params: {
 }
 
 // ── Diff computation ──────────────────────────────────────────────
-
-interface AggregatedQueryRow {
-	query: string;
-	clicks: number;
-	impressions: number;
-	weightedPositionSum: number;
-	topPageClicks: number;
-	topPage: string;
-}
-
-async function aggregateByQuery(
-	projectId: string,
-	weekStart: string
-): Promise<Map<string, AggregatedQueryRow>> {
-	const rows = await db
-		.select({
-			query: gscQueryPageData.query,
-			page: gscQueryPageData.page,
-			clicks: gscQueryPageData.clicks,
-			impressions: gscQueryPageData.impressions,
-			position: gscQueryPageData.position
-		})
-		.from(gscQueryPageData)
-		.where(
-			and(eq(gscQueryPageData.projectId, projectId), eq(gscQueryPageData.weekStart, weekStart))
-		);
-
-	const map = new Map<string, AggregatedQueryRow>();
-	for (const r of rows) {
-		const existing = map.get(r.query);
-		if (existing) {
-			existing.clicks += r.clicks;
-			existing.impressions += r.impressions;
-			existing.weightedPositionSum += r.position * r.impressions;
-			if (r.clicks > existing.topPageClicks) {
-				existing.topPageClicks = r.clicks;
-				existing.topPage = r.page;
-			}
-		} else {
-			map.set(r.query, {
-				query: r.query,
-				clicks: r.clicks,
-				impressions: r.impressions,
-				weightedPositionSum: r.position * r.impressions,
-				topPageClicks: r.clicks,
-				topPage: r.page
-			});
-		}
-	}
-	return map;
-}
-
-function avgPosition(row: AggregatedQueryRow): number {
-	return row.impressions > 0 ? row.weightedPositionSum / row.impressions : 0;
-}
-
-function makeEntry(
-	query: string,
-	curr: AggregatedQueryRow | undefined,
-	prev: AggregatedQueryRow | undefined
-): BucketEntry {
-	const c = curr ?? { query, clicks: 0, impressions: 0, weightedPositionSum: 0, topPage: prev?.topPage ?? '', topPageClicks: 0 };
-	const p = prev ?? { query, clicks: 0, impressions: 0, weightedPositionSum: 0, topPage: '', topPageClicks: 0 };
-	return {
-		query,
-		page: c.topPage || p.topPage || '',
-		clicks: c.clicks,
-		clicksPrev: p.clicks,
-		deltaClicks: c.clicks - p.clicks,
-		impressions: c.impressions,
-		impressionsPrev: p.impressions,
-		deltaImpressions: c.impressions - p.impressions,
-		position: avgPosition(c),
-		positionPrev: avgPosition(p),
-		deltaPosition: avgPosition(c) - avgPosition(p)
-	};
-}
-
-export async function computeWeeklyDiff(params: {
-	projectId: string;
-	weekStart: string;
-}): Promise<WeeklyDiffPayload> {
-	const prevWeekStart = previousWeekStart(params.weekStart);
-	const [currMap, prevMap, currSnap, prevSnap] = await Promise.all([
-		aggregateByQuery(params.projectId, params.weekStart),
-		aggregateByQuery(params.projectId, prevWeekStart),
-		db.query.gscSnapshots.findFirst({
-			where: and(
-				eq(gscSnapshots.projectId, params.projectId),
-				eq(gscSnapshots.weekStart, params.weekStart)
-			)
-		}),
-		db.query.gscSnapshots.findFirst({
-			where: and(
-				eq(gscSnapshots.projectId, params.projectId),
-				eq(gscSnapshots.weekStart, prevWeekStart)
-			)
-		})
-	]);
-
-	const allKeys = new Set<string>([...currMap.keys(), ...prevMap.keys()]);
-	const entries: BucketEntry[] = [];
-	for (const k of allKeys) {
-		entries.push(makeEntry(k, currMap.get(k), prevMap.get(k)));
-	}
-
-	const rising = entries
-		.filter((e) => e.deltaClicks > 0)
-		.sort((a, b) => b.deltaClicks - a.deltaClicks)
-		.slice(0, 10);
-
-	const falling = entries
-		.filter((e) => e.deltaClicks < 0)
-		.sort((a, b) => a.deltaClicks - b.deltaClicks)
-		.slice(0, 10);
-
-	const opportunities = entries
-		.filter((e) => e.impressions >= 10 && e.clicks === 0 && e.position > 20)
-		.sort((a, b) => b.impressions - a.impressions)
-		.slice(0, 10);
-
-	const newKeywords = entries
-		.filter((e) => e.clicksPrev === 0 && e.impressionsPrev === 0 && e.impressions > 0)
-		.sort((a, b) => b.impressions - a.impressions)
-		.slice(0, 10);
-
-	const lostKeywords = entries
-		.filter((e) => e.clicks === 0 && e.impressions === 0 && e.impressionsPrev > 0)
-		.sort((a, b) => b.impressionsPrev - a.impressionsPrev)
-		.slice(0, 10);
-
-	const currClicks = currSnap?.totalClicks ?? 0;
-	const prevClicks = prevSnap?.totalClicks ?? 0;
-	const currImpressions = currSnap?.totalImpressions ?? 0;
-	const prevImpressions = prevSnap?.totalImpressions ?? 0;
-	const currCtr = currSnap?.avgCtr ?? 0;
-	const prevCtr = prevSnap?.avgCtr ?? 0;
-	const currPosition = currSnap?.avgPosition ?? 0;
-	const prevPosition = prevSnap?.avgPosition ?? 0;
-
-	const pct = (curr: number, prev: number) => {
-		if (prev === 0) return curr === 0 ? 0 : 100;
-		return ((curr - prev) / prev) * 100;
-	};
-
-	const kpis: KpiSummary = {
-		clicks: {
-			curr: currClicks,
-			prev: prevClicks,
-			deltaAbs: currClicks - prevClicks,
-			deltaPct: pct(currClicks, prevClicks)
-		},
-		impressions: {
-			curr: currImpressions,
-			prev: prevImpressions,
-			deltaAbs: currImpressions - prevImpressions,
-			deltaPct: pct(currImpressions, prevImpressions)
-		},
-		ctr: { curr: currCtr, prev: prevCtr, deltaAbs: currCtr - prevCtr },
-		position: { curr: currPosition, prev: prevPosition, deltaAbs: currPosition - prevPosition }
-	};
-
-	const payload: WeeklyDiffPayload = {
-		kpis,
-		rising,
-		falling,
-		opportunities,
-		newKeywords,
-		lostKeywords
-	};
-
-	// Upsert (delete + insert)
-	await db
-		.delete(gscWeeklyDiffs)
-		.where(
-			and(
-				eq(gscWeeklyDiffs.projectId, params.projectId),
-				eq(gscWeeklyDiffs.weekStart, params.weekStart)
-			)
-		);
-	await db.insert(gscWeeklyDiffs).values({
-		id: createId(),
-		projectId: params.projectId,
-		weekStart: params.weekStart,
-		kpis: JSON.stringify(kpis),
-		rising: JSON.stringify(rising),
-		falling: JSON.stringify(falling),
-		opportunities: JSON.stringify(opportunities),
-		newKeywords: JSON.stringify(newKeywords),
-		lostKeywords: JSON.stringify(lostKeywords)
-	});
-
-	return payload;
-}
+//
+// GSC-002 — déplacé dans `gsc-weekly-diff.ts` (client injecté) pour que le
+// collecteur puisse le rappeler après sa double écriture legacy, dans les deux
+// runtimes. Ce module-ci importe `db` STATIQUEMENT : y laisser le diff aurait
+// rendu le collecteur inchargeable hors SvelteKit, ce qui interdit toute preuve
+// sur Neon. Réexporté pour les appelants historiques (routes, cron, backfill).
+export { computeWeeklyDiff };
 
 // ── Backfill ──────────────────────────────────────────────────────
 

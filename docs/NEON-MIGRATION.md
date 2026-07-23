@@ -1,8 +1,10 @@
 # seo-stats → Neon — Migration (1 base, 3 schémas)
 
-> **Statut réel (2026-07-21) : refactor CODE fait + commité (branche `feat/neon`, typecheck 0 err).
-> App déjà dans `noyau/seo-stats`. Données MIGRÉES + vérifiées. Il RESTE le cutover final (Phase 6 :
-> flip `.env` local → Neon [FAIT], roter le password Neon exposé, décommissionner Turso).**
+> **Statut (2026-07-23) : migration TERMINÉE côté code et données.** Phases 0→5 closes. Le code ne
+> parle plus que Postgres (`@libsql/client` retiré, `DATABASE_AUTH_TOKEN` retiré, `db/index.ts` en
+> `neon-serverless`), 58 tables vérifiées dans `seostats`, app dans `noyau/seo-stats`.
+> **Ne restent que deux gestes d'INFRA, hors code et hors chemin critique** : roter le password Neon
+> exposé en chat les 2026-07-20/21, et supprimer la base Turso (dump archivé).
 > Décision : **une seule base Neon (`neondb`), trois schémas Postgres** `core` / `invoices` / `seostats`.
 
 ## ⚡ Résumé de l'état (à jour)
@@ -17,8 +19,9 @@
   dates texte→timestamptz). FK `projects_slug_fk → core.entities.slug` posée, **0 orphelin**. Vérif par
   `scripts/migrate/03-verify-state.mjs`. Le doc précédent marquait cette phase « à faire » à tort.
 - ✅ **Phase 5** (app déplacée dans le noyau) — **FAIT** : le repo vit à `noyau/seo-stats`.
-- ⏳ **Phase 6** (roter password Neon exposé, décommissionner Turso) — **À FAIRE** (password volontairement
-  pas encore roté). `.env` local repointé sur Neon le 2026-07-21.
+- ⏳ **Phase 6** — **réduite à deux gestes d'INFRA** (aucun code concerné) : roter le password Neon exposé
+  (volontairement pas encore roté, décision Jonathan) et supprimer la base Turso. `.env` local repointé sur
+  Neon le 2026-07-21 ; `@libsql/client` et `DATABASE_AUTH_TOKEN` retirés du repo.
 - ✅ **Ex-bloquant** : canonicalisation `bis-repetita → bisrepetita` — résolue au load (Phase 4).
 
 ## Décision d'architecture
@@ -63,7 +66,7 @@ neondb
   jointure `clients ↔ core.entities` OK. Backup = branche Neon `pre-schema-split` (`ep-polished-shadow`,
   intacte) + dump JSON. Baseline Drizzle versionnée : `invoices/drizzle/0000_baseline.sql` (+ `meta/`
   snapshot) ; le split one-time est archivé en `invoices/drizzle/manual/2026-07-20_schema-split.sql`.
-- **⏳ Reste : P6** (roter password Neon + décommissionner Turso). P3/P4/P5 faits. Voir phases ci-dessous.
+- **⏳ Reste : P6, deux gestes d'infra** (roter password Neon + supprimer Turso). P3/P4/P5 faits. Voir phases ci-dessous.
 - **⚠️ À faire hors-code** : roter le mot de passe Neon (`npg_k4teo0HIxPKF…`) exposé en clair.
 
 ## Phases
@@ -121,8 +124,9 @@ neondb
 - [ ] `npm ci`, `npm run build`, smoke test dashboard + une route API skill.
 - [ ] Mettre à jour `projects.yaml` (`repo_path` seo-stats) + `_MIGRATION.md` (§4 → fait).
 
-### Phase 6 — Cutover / nettoyage — ⏳ EN COURS
+### Phase 6 — Cutover / nettoyage — ⏳ deux gestes d'INFRA restants
 - [x] `.env` **local** repointé Turso → Neon (2026-07-21). Le code (`neon()`) ne parle plus que Postgres.
+- [x] `@libsql/client` retiré des dépendances, `DATABASE_AUTH_TOKEN` retiré de `.env` / `.env.example`.
 - [ ] **Roter le mot de passe Neon** (`npg_k4teo0HIxPKF...`) — exposé en clair en chat les 2026-07-20/21.
       **Volontairement pas encore roté** (décision Jonathan 2026-07-21). À faire avant de considérer le cutover clos.
 - [ ] Décommissionner Turso (dump archivé dispo : `scripts/migrate/01-export-turso.mjs`) une fois la prod Neon validée quelques jours.

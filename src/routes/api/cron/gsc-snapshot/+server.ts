@@ -12,8 +12,18 @@ import { sendCriticalError } from '$lib/server/notifications.js';
 import type { RequestHandler } from './$types';
 
 /**
- * Cron hebdo (lundi 6h30) : pull du snapshot GSC de la dernière semaine complète
- * pour chaque projet configuré (indexingCredentials.siteUrl renseigné), puis diff N vs N-1.
+ * ⚠️ GSC-002 — CETTE ROUTE N'EST PLUS PLANIFIÉE (retirée de `vercel.json`).
+ *
+ * La collecte GSC passe désormais par la file : `collect:gsc_query_page`, mis en
+ * file par la cadence hebdo (lundi 09:00 Europe/Zurich) et drainé par
+ * `/api/cron/tick`. Ce chemin-ci pullait hors de la file — sans `run_id`, sans
+ * classe d'erreur, sans plafond, sans refroidissement — et n'écrivait QUE les
+ * tables legacy, laissant les observations (celles que lit le détecteur) figées.
+ *
+ * Elle reste appelable À LA MAIN, pour un rattrapage ou un diagnostic. Ne pas la
+ * replanifier : les 6 projets partagent un seul service account, donc un seul pool
+ * de quota — deux chemins de collecte le consommeraient deux fois pour la même
+ * donnée.
  *
  * Idempotent : pullWeeklySnapshot renvoie reused=true si la semaine est déjà pull.
  * Isolation : un projet qui échoue n'interrompt pas le batch ; une erreur déclenche

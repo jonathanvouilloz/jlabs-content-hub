@@ -52,14 +52,19 @@ export type JobProvider = (typeof JOB_PROVIDERS)[number];
  * l'autre au sein d'un type, et `monitoring_steps.provider` porte déjà la traçabilité
  * par étape. Une colonne serait une donnée dupliquée, donc une donnée qui peut mentir.
  *
- * **Aujourd'hui aucun type n'appelle de provider** : la détection lit
- * `gsc_query_page_observations` en base, le producteur de propositions est déterministe
- * et sans IA (AGT-000), les veilles ne sortent pas de Postgres. La table est donc armée
- * pour les collecteurs E03 — dont `post_publish:check`, déjà planifiable et déjà
- * déclaré ici — et c'est volontaire : le harnais doit exister AVANT le premier
- * collecteur, sans quoi le premier run sur six projets redécouvrira le 429 six fois.
+ * **GSC-002 a fait arriver le premier consommateur réel.** `collect:gsc_query_page`
+ * appelle l'API Search Analytics, et les 6 projets du parc partagent UN service account
+ * (`indexing-api@jonlabs.iam.gserviceaccount.com`) — donc un seul pool de quota. C'est
+ * exactement la situation pour laquelle le refroidissement a été écrit : le premier
+ * projet refoulé met toute la cohorte au repos, au lieu que les cinq suivants brûlent un
+ * report chacun. Le harnais a précédé le collecteur, comme prévu.
+ *
+ * Les autres types ne sortent pas de la base : la détection lit
+ * `gsc_query_page_observations`, le producteur de propositions est déterministe et sans
+ * IA (AGT-000), les veilles ne sortent pas de Postgres.
  */
 export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
+	'collect:gsc_query_page': 'gsc',
 	'detect:keyword_opportunity': 'none',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',

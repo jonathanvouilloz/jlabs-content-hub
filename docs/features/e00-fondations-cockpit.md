@@ -4,6 +4,134 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-23 (GSC-001+002 — la file va enfin CHERCHER la donnée)
+
+**Fait :** tout produisait, tout décidait, et **plus rien ne collectait**. Les observations avaient
+été peuplées **une fois** — backfill du 2026-07-21 — puis figées : `observations.ts` (301 lignes,
+5 upserts) n'était **importé par aucun appelant**, le piège AGT-000 mot pour mot. Pendant ce temps
+le cron legacy `/api/cron/gsc-snapshot` pullait GSC dans une **boucle `for` sérielle hors de la
+file** : sans `run_id`, sans classe d'erreur, sans plafond, sans refroidissement — et n'écrivait que
+les tables legacy. Les deux séries étaient à égalité **par coïncidence** (semaine `2026-07-06` des
+deux côtés) et allaient diverger au lundi suivant, le détecteur décidant alors sur des mesures d'une
+semaine de plus **chaque** semaine, en silence. **Zéro DDL** (58 tables, zéro dérive).
+
+- **Les 6 projets partagent UN service account** (`indexing-api@jonlabs.iam.gserviceaccount.com`),
+  donc **un seul pool de quota** — mesuré, pas supposé. C'est exactement la prémisse sur laquelle
+  JOB-006 avait armé son refroidissement provider, et `collect:gsc_query_page` en est le **premier
+  consommateur réel** : le premier projet refoulé met toute la cohorte au repos au lieu que les
+  cinq suivants brûlent un report chacun.
+- **L'erreur devient STRUCTURÉE, et c'est le cœur du lot côté file.** `gsc-analytics.ts` jetait
+  `new Error("GSC API 429 pour siteUrl=…")` — une **chaîne**. `classifyJobFailure` cherche
+  `status`/`statusCode`/`code` sur l'objet, n'en trouve aucun, et ne retombait sur la bonne classe
+  **que si** les 200 premiers caractères du corps Google contenaient `rateLimitExceeded`. La file
+  classait donc un quota au petit bonheur — et un quota mal classé part en **dead-letter
+  permanente**. `GscApiError` porte `status`, `reason` et `retryAfter` ; les 7 cas sont prouvés en
+  base, dont les deux que Google fait à l'envers : **403 `rateLimitExceeded` → `quota`** (pas
+  `permanent`) et **400 `invalid_grant` → `auth`**.
+- **RIEN n'est écrit avant la fin de la pagination.** Un upsert n'efface jamais : une collecte
+  coupée à la page 3/5 laisserait une semaine **tronquée qui se LIT comme complète**, et le
+  détecteur y verrait une chute — le faux signal que GSC-006 interdit. On tamponne en mémoire, puis
+  on écrit. Prouvé : un échec en cours laisse le compte **inchangé**.
+- **Une semaine à zéro ligne n'efface rien** — conséquence directe du choix upsert-only, et
+  différence assumée avec le legacy, qui faisait `delete` + `insert`.
+- **BUG DE DONNÉES TROUVÉ EN VÉRIFIANT, antérieur à ce lot.** La recollecte de `jonlabs` semaine
+  `2026-07-06` rendait **271 lignes / 981 impressions** contre **227 / 720** en base. Ce n'était pas
+  le collecteur : **5 projets sur 6** ont eu cette semaine tirée **un jour après sa fin** (tous à
+  10h55 le 13/07 — un backfill manuel, pas le cron, qui à cette date aurait tiré la semaine du
+  29/06 vu la latence de 3 jours). La semaine la plus récente des observations — celle qui pèse le
+  plus dans le détecteur — était donc **sous-comptée de 36 % en impressions**. Le collecteur la
+  répare en la recollectant. Contre-épreuve : une semaine **consolidée** (`2026-06-29`) reproduit le
+  snapshot legacy **au chiffre près** (261 lignes / 820 impressions) — l'arithmétique est bien celle
+  du chemin historique.
+- **Un seul fetch, double écriture** (décision de Jonathan). Le même tampon alimente les
+  observations (canon, lues par le détecteur) **et** les tables legacy + le diff hebdo (lues par le
+  dashboard et `/seo-weekly` · `/seo-actions`). Deux pulls de la même semaine consommeraient deux
+  fois le quota d'un compte partagé. `gsc-snapshot` sort de `vercel.json` ; la route reste, pour le
+  manuel.
+- **Trois modules ont dû devenir chargeables hors runtime SvelteKit**, sans quoi aucune preuve sur
+  Neon n'était possible — le second blocage d'AGT-000, à l'identique. `crypto.ts` importait `$env`
+  **statiquement** → scindé en `crypto-core.ts` **pur** (clé en paramètre) + wrapper.
+  `observations.ts` et `integrations.ts` importaient `db` statiquement → client injecté.
+  `computeWeeklyDiff` a dû quitter `gsc-analytics.ts` (qui, lui, garde son `db` statique) pour
+  `gsc-weekly-diff.ts` : le collecteur doit pouvoir le rappeler, sinon l'écran affiche des KPI figés
+  au-dessus de données fraîches.
+- **Deuxième bug latent corrigé avant sa première occasion de mordre** : `integrations.ts` écrivait
+  ses horodatages en **ISO** dans des colonnes dont le DEFAULT est au format DB — et `computeHealth`
+  **compare ces chaînes lexicalement** (`'T'` 0x54 > `' '` 0x20). Rien n'avait cassé **parce que la
+  table était vide** (0 ligne, vérifié) ; ce lot est le premier à y écrire. Même correction sur
+  `observations.ts`, ce qui **clôt la dette `fetched_at` en ISO** nommée dans les quatre derniers
+  blocs de session.
+- **Le catalogue hebdo passe à la PROFONDEUR 3** : `collect` → `detect` → `propose`, arêtes
+  obligatoires. Conséquence JOB-004 à connaître : un skip se propage en **N-1 passes**, donc si la
+  collecte meurt, `detect` est sauté au tour à vide suivant et `propose` seulement au tick
+  **d'après**.
+- **Un test qui affirmait le faux a été corrigé, pas le code.** L'assertion « `rowKey` ne
+  collisionne pas » était fausse : `join('\x1f')` collisionne si `\x1f` apparaît dans un champ.
+  Durcir `rowKey` seul l'aurait fait **diverger de `rollupPagesFromQueryPage`**, qui groupe avec le
+  même séparateur — la déduplication et l'agrégation n'auraient plus été d'accord. L'invariant est
+  désormais **documenté et testé tel qu'il est**.
+- Vérif : `npm run test` = **612/612** (+37) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **58 tables, zéro dérive** ·
+  **`scripts/gsc-002-collector-proof.ts` = 44/44 vertes sur Neon**, **rejouée trois fois**, base
+  rendue à l'identique · non-régression : `job-006-limits-proof`, `job-005-schedule-proof`,
+  `job-004-dag-proof`, `job-007-console-proof`, `job-003-retry-proof`, `job-002-recovery-proof`,
+  `agt-000-proposer-proof`, `find-003-lifecycle-proof`, `job-claim-concurrency` — **0 échec
+  chacune** · **13 findings** et **4 propositions** intacts · **0 horodatage ISO** · routes sondées
+  en dev (port 5175) : `/api/cron/tick` → **401** sans bearer, **401** avec un mauvais, **200** avec
+  le bon ; `/jobs` → **303** `/login`.
+- **Chaîne réelle démontrée** : les 6 projets passent `--test-access` contre le vrai Google ; une
+  collecte réelle sur `jonlabs` a écrit la semaine **`2026-07-13`** — que les observations
+  **n'avaient jamais eue** — les faisant passer de **16 à 17 semaines** ; `project_integrations` a
+  reçu sa **première ligne** (`healthy`, `active`, `secret_ref` pointeur) ; et la fenêtre du
+  détecteur avance pour la première fois depuis le backfill : **2026-06-22 → 2026-07-19**, 1048
+  observations, 487 couples.
+
+**Acceptations couvertes.** (1) « un rerun retourne les mêmes totaux sans duplication » : deux
+collectes de la même semaine → **0 ligne créée**, totaux identiques, et une mesure qui change est
+**rafraîchie** et non ajoutée ; (2) « pagination et lignes nulles sont testées » : une semaine à
+zéro ligne n'échoue pas et **n'efface rien**, un échec en cours de pagination n'écrit **rien**, un
+doublon de clé est dédupliqué **avant** l'INSERT (Postgres refuserait tout le lot) ; (3) GSC-001
+« les cinq projets peuvent être testés indépendamment, une erreur d'un projet n'affecte pas les
+autres » : `--test-access` isole projet par projet, les six sont verts ; (4) GSC-001 « aucun
+credential n'est stocké dans un payload de job » : `secret_ref` ne porte qu'un **pointeur**
+(`indexing_credentials:{id}`) et `configuration_json` passe `assertNoInlineSecret`.
+
+**Prochain :** l'**inbox UI** qui affiche findings ET propositions (E11/DASH-005) — tout est en
+base, rien ne le montre encore · **GSC-004** (fenêtres 7/28/90 j, backfill borné, périodes
+incomplètes) · **IDX-001/002** (sitemap, URL Inspection), qui donneront au graphe hebdo ses arêtes
+profondes.
+
+**Pièges :**
+- **Une semaine du passé n'est PAS immuable.** GSC complète ses données après coup : recollecter
+  une semaine ancienne en change légitimement les chiffres **à la hausse**. C'est une réparation,
+  pas une dérive — mais un écart entre deux lectures d'une même semaine ne doit pas se
+  diagnostiquer comme un bug du collecteur.
+- **La latence de 3 jours ne suffit pas à consolider une semaine.** Preuve à l'appui : les semaines
+  tirées **1 jour** après leur fin sont sous-comptées de ~36 % ; celles tirées **4 jours** après
+  sont exactes. `latestCompleteWeekStart` vise déjà 8+ jours — **ne jamais tirer une semaine à la
+  main plus tôt**, c'est ce qui a corrompu la semaine `2026-07-06` de 5 projets.
+- **Les 5 semaines `2026-07-06` sous-comptées ne sont PAS encore réparées** (seul `jonlabs` a été
+  recollecté, et sur `2026-07-13`). Les réparer = `npx tsx scripts/collect-gsc.ts --project=all
+  --week=2026-07-06`. Décision laissée à Jonathan : c'est un pull GSC de 6 projets d'un coup.
+- **La double écriture legacy est une DETTE datée**, pas un design : elle disparaît quand l'écran
+  lira les observations (E06/GSC-003). Tant qu'elle vit, les deux écritures doivent rester dans la
+  même foulée — sinon l'écran et le détecteur divergent, ce qu'on vient de corriger.
+- **`gsc-analytics.ts` garde son `db` statique** : ne jamais l'importer depuis un module qui doit
+  tourner dans un runner `tsx`. C'est pourquoi le diff a été extrait.
+- **Une preuve interrompue saute son `cleanup()`** : vérifier la semaine sentinelle `2019-01-07`
+  après toute interruption (`gsc_query_page_data` → `gsc_snapshots` → `gsc_weekly_diffs` →
+  observations → `project_integrations`).
+- **`= ANY($n)` casse avec le driver Neon** — tout filtre de liste en `IN (…)` paramétré (rappel).
+- Toujours en suspens hors GSC-001/002 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` planifiable sans handler
+  (E03) · **rien ne bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira
+  ses **50 findings** (décision maintenue) — mais désormais **après une vraie collecte**, plus sur
+  des mesures figées au 2026-07-06.
+
+**Commit :** (voir ci-dessous)
+
+---
+
 ## Etat session 2026-07-23 (JOB-006 — la file cesse de découvrir le 429 un job à la fois)
 
 **Fait :** JOB-003 savait **réagir** à un quota (429 classé `quota`, tentative rendue, `deferrals`

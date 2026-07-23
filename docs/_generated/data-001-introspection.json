@@ -1,5 +1,5 @@
 {
-  "stamp": "post-job-006",
+  "stamp": "unstamped",
   "schemas": [
     "seostats",
     "core"
@@ -3243,7 +3243,7 @@
     {
       "schema": "seostats",
       "table": "job_attempts",
-      "rowCount": 6,
+      "rowCount": 12,
       "columns": [
         {
           "column": "id",
@@ -3473,7 +3473,7 @@
     {
       "schema": "seostats",
       "table": "jobs",
-      "rowCount": 54,
+      "rowCount": 16,
       "columns": [
         {
           "column": "id",
@@ -3812,7 +3812,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_runs",
-      "rowCount": 5,
+      "rowCount": 11,
       "columns": [
         {
           "column": "id",
@@ -3926,7 +3926,7 @@
     {
       "schema": "seostats",
       "table": "monitoring_steps",
-      "rowCount": 5,
+      "rowCount": 11,
       "columns": [
         {
           "column": "id",

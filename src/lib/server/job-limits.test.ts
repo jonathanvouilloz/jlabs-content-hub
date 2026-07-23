@@ -46,13 +46,19 @@ describe('providerForJobType', () => {
 		expect(providerForJobType('post_publish:check')).toBe('gsc');
 	});
 
+	it('GSC-002 — le collecteur est le premier type qui appelle VRAIMENT un provider', () => {
+		// Les 6 projets partagent un service account, donc un pool de quota : c'est
+		// ce type qui donne enfin un consommateur au refroidissement de JOB-006.
+		expect(providerForJobType('collect:gsc_query_page')).toBe('gsc');
+	});
+
 	it('un type INCONNU vaut `none` — jamais bloqué par un budget provider', () => {
 		expect(providerForJobType('collect:whatever')).toBe('none');
 		expect(providerForJobType('')).toBe('none');
 	});
 
 	it('jobTypesForProvider ne rend que les types déclarés pour ce provider', () => {
-		expect(jobTypesForProvider('gsc')).toEqual(['post_publish:check']);
+		expect(jobTypesForProvider('gsc')).toEqual(['collect:gsc_query_page', 'post_publish:check']);
 		expect(jobTypesForProvider('dataforseo')).toEqual([]);
 		expect(jobTypesForProvider('none')).toContain('detect:keyword_opportunity');
 	});
@@ -167,7 +173,9 @@ describe('planAdmission — concurrence', () => {
 			fairness: openFairness(),
 			now: NOW
 		});
-		expect(plan.excludedTypes).toEqual(['post_publish:check']);
+		// Toute la cohorte `gsc` est exclue — collecteur compris : c'est justement
+		// ce qui empêche les six projets de redécouvrir le 429 un par un.
+		expect(plan.excludedTypes).toEqual(['collect:gsc_query_page', 'post_publish:check']);
 		expect(plan.excludedTypes).not.toContain('detect:keyword_opportunity');
 	});
 
@@ -497,6 +505,7 @@ describe('computeCapacity', () => {
 		});
 		expect(report.providers).toHaveLength(JOB_PROVIDERS.length);
 		expect(report.providers.find((p) => p.provider === 'gsc')?.jobTypes).toEqual([
+			'collect:gsc_query_page',
 			'post_publish:check'
 		]);
 	});

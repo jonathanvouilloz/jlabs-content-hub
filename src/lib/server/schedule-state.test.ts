@@ -347,8 +347,12 @@ describe('SCHEDULE_CATALOG', () => {
 		expect(Object.keys(SCHEDULE_CATALOG).sort()).toEqual([...SCHEDULE_CADENCES].sort());
 	});
 
-	it('hebdo = détecter puis proposer, quotidien = expiration des veilles', () => {
+	it('hebdo = collecter, détecter, proposer ; quotidien = expiration des veilles', () => {
+		// GSC-002 — la chaîne commence par la COLLECTE. Sans elle, le détecteur
+		// travaillait sur des observations figées au backfill du 2026-07-21 et
+		// vieillissait d'une semaine chaque semaine, en silence.
 		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual([
+			'collect:gsc_query_page',
 			'detect:keyword_opportunity',
 			'propose:actions'
 		]);
@@ -376,9 +380,34 @@ describe('SCHEDULE_CATALOG', () => {
 			.toEqual({ jobId: 'j1', jobType: 'detect:keyword_opportunity', required: true });
 	});
 
-	it('le détecteur, lui, ne dépend de rien (il ouvre la chaîne)', () => {
+	it('GSC-002 — le détecteur DÉPEND désormais de la collecte, et c’est obligatoire', () => {
 		const detect = catalogFor('weekly').find((e) => e.jobType === 'detect:keyword_opportunity')!;
-		expect(detect.dependsOn).toBeUndefined();
+		expect(detect.dependsOn).toEqual([{ jobType: 'collect:gsc_query_page' }]);
+		expect(
+			resolveDependencies(detect.dependsOn, new Map([['collect:gsc_query_page', 'j0']]))[0]
+		).toEqual({ jobId: 'j0', jobType: 'collect:gsc_query_page', required: true });
+	});
+
+	it('la collecte, elle, ne dépend de rien (elle ouvre la chaîne)', () => {
+		const collect = catalogFor('weekly').find((e) => e.jobType === 'collect:gsc_query_page')!;
+		expect(collect.dependsOn).toBeUndefined();
+	});
+
+	it('le graphe hebdo est de PROFONDEUR 3 — un skip s’y propage en deux passes', () => {
+		// Conséquence directe de JOB-004 : une chaîne de profondeur N se résout en
+		// N-1 passes. Si la collecte meurt, `detect` est sauté au tour à vide
+		// suivant et `propose` seulement au tick d'APRÈS. À savoir avant de conclure
+		// qu'un job « ne part pas ».
+		const weekly = catalogFor('weekly');
+		const collect = weekly.find((e) => e.jobType === 'collect:gsc_query_page')!;
+		const detect = weekly.find((e) => e.jobType === 'detect:keyword_opportunity')!;
+		const propose = weekly.find((e) => e.jobType === 'propose:actions')!;
+		expect(collect.dependsOn).toBeUndefined();
+		expect(detect.dependsOn?.[0].jobType).toBe(collect.jobType);
+		expect(propose.dependsOn?.[0].jobType).toBe(detect.jobType);
+		// L'ordre de service accompagne l'ordre de dépendance.
+		expect(collect.priority).toBeGreaterThan(detect.priority);
+		expect(detect.priority).toBeGreaterThan(propose.priority);
 	});
 
 	it('chaque cadence déclare un graphe VALIDE (prérequis avant dépendant, sans cycle)', () => {

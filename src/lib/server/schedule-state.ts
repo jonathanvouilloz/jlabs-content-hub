@@ -455,8 +455,26 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// producteur est `skipped` et le run vaut `partial`. Le trou de la semaine est
 	// alors visible, au lieu d'être masqué par des propositions fondées sur des
 	// mesures périmées.
+	//
+	// GSC-002 — la chaîne commence désormais par la COLLECTE. Avant, le détecteur
+	// partait sur des observations que plus rien ne rafraîchissait depuis le backfill
+	// du 2026-07-21 : il décidait chaque semaine sur des mesures d'une semaine plus
+	// vieilles, en silence. Le lien est obligatoire — pas de collecte, pas de
+	// détection, et le run le DIT (`partial`) au lieu de produire des findings fondés
+	// sur des chiffres périmés.
+	//
+	// ⚠️ Le graphe passe à la PROFONDEUR 3. Un skip se propage en N-1 passes : si la
+	// collecte meurt, `detect` est sauté au tour à vide suivant et `propose`
+	// seulement au tick d'APRÈS. Attendu — à ne pas diagnostiquer comme un job « qui
+	// ne part pas ».
 	weekly: [
-		{ jobType: 'detect:keyword_opportunity', priority: 10, payload: { weeks: 4 } },
+		{ jobType: 'collect:gsc_query_page', priority: 12 },
+		{
+			jobType: 'detect:keyword_opportunity',
+			priority: 10,
+			payload: { weeks: 4 },
+			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
+		},
 		{ jobType: 'propose:actions', priority: 8, dependsOn: [{ jobType: 'detect:keyword_opportunity' }] }
 	],
 	monthly: []
