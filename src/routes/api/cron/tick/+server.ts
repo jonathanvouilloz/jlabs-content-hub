@@ -125,13 +125,23 @@ export const GET: RequestHandler = async ({ request }) => {
 					released: stats.released,
 					reclaimed: stats.reclaimed,
 					stoppedGracefully: stats.stoppedGracefully,
-					failedByClass: stats.failedByClass
+					failedByClass: stats.failedByClass,
+					// JOB-006 — ce que la capacité a retenu. `throttledTicks` est la seule
+					// chose qui distingue « la file était vide » de « on n'avait pas le
+					// droit de prendre » : sans lui, un tick bridé se lit comme un tick
+					// tranquille, et personne ne va voir les plafonds.
+					throttledTicks: stats.throttledTicks,
+					heldByReason: stats.heldByReason,
+					quotaPushed: stats.quotaPushed,
+					laps: stats.laps
 				}
 			: { error: drainError }
 	};
 
 	logger.info('tick terminé', {
 		durationMs: body.durationMs,
+		throttledTicks: stats?.throttledTicks ?? 0,
+		quotaPushed: stats?.quotaPushed ?? 0,
 		occurrences: plan?.counters.occurrences ?? 0,
 		jobsCreated: plan?.counters.jobsCreated ?? 0,
 		claimed: stats?.claimed ?? 0,

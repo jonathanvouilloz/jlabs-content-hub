@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { CalendarClock, ListChecks, RotateCcw } from 'lucide-svelte';
+	import { CalendarClock, Gauge, ListChecks, RotateCcw } from 'lucide-svelte';
 	import {
 		CADENCE_LABEL,
+		CAPACITY_STATE_LABEL,
 		CLASS_LABEL,
+		PROVIDER_LABEL,
 		STATUS_LABEL,
 		formatDbTimestamp,
+		formatEpochUtc,
+		formatQuota,
 		formatRelative,
 		formatScheduleSlot
 	} from '$lib/utils/job-format.js';
@@ -124,6 +128,20 @@
 		)
 	);
 
+	// ── Capacité & quotas (JOB-006) ──────────────────────────────────
+	// Les providers `none` (jobs qui ne sortent pas de la base) sont écartés de la
+	// liste : ils n'ont ni quota ni budget, et les afficher ferait chercher une
+	// limite là où il n'y en a pas. Leur charge se lit dans les compteurs de statut.
+	const providerRows = $derived(data.capacity.providers.filter((p) => p.provider !== 'none'));
+	const limitedProviders = $derived(providerRows.filter((p) => p.state !== 'ok'));
+	const busyProjects = $derived(data.capacity.projects.filter((p) => p.running > 0));
+
+	const CAPACITY_TONE: Record<string, string> = {
+		ok: 'text-surface-500',
+		saturated: 'text-amber-700',
+		quota_limited: 'text-red-700'
+	};
+
 	/** Le prochain créneau, tous projets confondus — le résumé qu'on lit sans déplier. */
 	const soonest = $derived(
 		scheduleRows.reduce<(typeof scheduleRows)[number] | null>(
@@ -200,6 +218,95 @@
 						{/if}
 					</p>
 				{/if}
+			</div>
+		</details>
+	</div>
+
+	<!-- Capacité & quotas (JOB-006) -->
+	<div class="flex-shrink-0 px-6 lg:px-8 pb-3">
+		<details class="rounded-lg border border-surface-200 bg-white">
+			<summary class="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-surface-600">
+				<Gauge class="h-3.5 w-3.5 text-surface-400" />
+				<span class="font-medium text-surface-900">Capacité & quotas</span>
+				{#if limitedProviders.length > 0}
+					<span class="text-red-700">
+						{limitedProviders
+							.map(
+								(p) =>
+									`${PROVIDER_LABEL[p.provider] ?? p.provider} : ${CAPACITY_STATE_LABEL[p.state] ?? p.state}`
+							)
+							.join(' · ')}
+					</span>
+				{:else}
+					<span class="text-surface-400">
+						{data.capacity.global.running} job{data.capacity.global.running !== 1 ? 's' : ''} en cours
+						· aucun provider limité
+					</span>
+				{/if}
+			</summary>
+
+			<div class="border-t border-surface-100 px-3 py-2">
+				<p class="mb-2 text-[11px] text-surface-400">
+					Plafonds {data.capacity.configured
+						? 'lus en base'
+						: 'par défaut (aucun réglage en base)'} — modifiables sans redéploiement via
+					<code>scripts/limits.ts</code>. Un plafond à <span class="font-medium">∞</span> n'est pas
+					une limite. L'état d'un provider est <span class="font-medium">dérivé</span> du journal
+					des tentatives : rien n'est stocké, rien ne peut diverger.
+				</p>
+
+				<div class="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+					<div class="py-1">
+						<div class="text-[11px] font-semibold text-surface-900">Providers externes</div>
+						{#each providerRows as p (p.provider)}
+							<div class="flex items-baseline justify-between gap-2 text-[11px]">
+								<span class="text-surface-600">{PROVIDER_LABEL[p.provider] ?? p.provider}</span>
+								<span class="tabular-nums {CAPACITY_TONE[p.state] ?? 'text-surface-500'}">
+									{formatQuota(p.running, p.concurrencyLimit)} en cours ·
+									{formatQuota(p.attemptsInWindow, p.windowBudget)} sur la fenêtre
+									{#if p.cooldownUntilMs !== null}
+										<span class="font-medium">
+											· au repos jusqu'à {formatEpochUtc(p.cooldownUntilMs)} UTC
+										</span>
+									{/if}
+								</span>
+							</div>
+						{/each}
+						{#if providerRows.every((p) => p.jobTypes.length === 0)}
+							<p class="mt-1 text-[11px] text-surface-400">
+								Aucun type de job ne sort encore de la base : ces budgets sont armés pour les
+								collecteurs (E03), pas encore consommés.
+							</p>
+						{/if}
+					</div>
+
+					<div class="py-1">
+						<div class="text-[11px] font-semibold text-surface-900">
+							Projets · global {formatQuota(
+								data.capacity.global.running,
+								data.capacity.global.limit
+							)}
+						</div>
+						{#if busyProjects.length === 0}
+							<p class="text-[11px] text-surface-400">Aucun job en cours.</p>
+						{:else}
+							{#each busyProjects as p (p.projectId)}
+								<div class="flex items-baseline justify-between gap-2 text-[11px]">
+									<span class="text-surface-600">{p.projectSlug}</span>
+									<span class="tabular-nums {CAPACITY_TONE[p.state] ?? 'text-surface-500'}">
+										{formatQuota(p.running, p.concurrencyLimit)} en cours
+									</span>
+								</div>
+							{/each}
+						{/if}
+						<p class="mt-1 text-[11px] text-surface-400">
+							Équité : {data.capacity.limits.perProjectPerLap > 0
+								? `${data.capacity.limits.perProjectPerLap} jobs par projet et par tour`
+								: 'désarmée'}. Le tour n'existe que pendant un drain — il n'a rien à montrer
+							entre deux ticks.
+						</p>
+					</div>
+				</div>
 			</div>
 		</details>
 	</div>

@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
 	CADENCE_LABEL,
+	CAPACITY_STATE_LABEL,
 	CLASS_LABEL,
+	HOLD_REASON_LABEL,
 	OUTCOME_LABEL,
+	PROVIDER_LABEL,
 	STATUS_LABEL,
 	formatDbTime,
 	formatDbTimestamp,
 	formatDuration,
+	formatEpochUtc,
+	formatQuota,
 	formatRelative,
 	formatScheduleSlot,
 	parseDbTimestamp
@@ -18,6 +23,7 @@ import { ATTEMPT_OUTCOMES } from '../server/job-state.js';
 import { ERROR_CLASSES } from '../server/job-retry.js';
 import { JOB_STATUSES } from '../server/monitoring-state.js';
 import { SCHEDULE_CADENCES } from '../server/schedule-state.js';
+import { ADMISSION_HOLD_REASONS, JOB_PROVIDERS } from '../server/job-limits.js';
 
 // ── Formats ─────────────────────────────────────────────────────────
 
@@ -90,5 +96,47 @@ describe('libellés partagés CLI ↔ console', () => {
 		for (const c of SCHEDULE_CADENCES) {
 			expect(CADENCE_LABEL[c]).toBeTruthy();
 		}
+	});
+
+	it('chaque provider a un libellé (JOB-006)', () => {
+		for (const p of JOB_PROVIDERS) {
+			expect(PROVIDER_LABEL[p]).toBeTruthy();
+		}
+	});
+
+	it('chaque cause de retenue a un libellé (JOB-006)', () => {
+		for (const r of ADMISSION_HOLD_REASONS) {
+			expect(HOLD_REASON_LABEL[r]).toBeTruthy();
+		}
+	});
+
+	it('chaque état de capacité a un libellé, dont le `quota_limited` de la SPEC §17.1', () => {
+		for (const s of ['ok', 'saturated', 'quota_limited']) {
+			expect(CAPACITY_STATE_LABEL[s]).toBeTruthy();
+		}
+	});
+});
+
+describe('formatQuota', () => {
+	it('rend usage/plafond', () => {
+		expect(formatQuota(3, 10)).toBe('3/10');
+	});
+
+	it('un plafond à 0 se rend ∞, jamais « /0 »', () => {
+		// « 3/0 » se lirait comme une saturation là où il n'y a AUCUNE borne.
+		expect(formatQuota(3, 0)).toBe('3/∞');
+	});
+});
+
+describe('formatEpochUtc', () => {
+	it('rend un instant epoch comme les horodatages de la file (UTC)', () => {
+		expect(formatEpochUtc(Date.parse('2026-07-22T09:02:11Z'))).toBe(
+			formatDbTimestamp('2026-07-22 09:02:11')
+		);
+	});
+
+	it('null ou non fini → tiret, jamais « Invalid Date »', () => {
+		expect(formatEpochUtc(null)).toBe('—');
+		expect(formatEpochUtc(Number.NaN)).toBe('—');
 	});
 });

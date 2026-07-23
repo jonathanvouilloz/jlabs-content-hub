@@ -477,7 +477,7 @@ Acceptation :
 
 ## JOB-006 — Limites de concurrence et quotas provider
 
-**Priorité :** P1 · **Taille :** M · **État :** TODO (débloqué par JOB-003 : la classe `quota` et le compteur `deferrals` existent, il reste à PRÉVENIR le 429 au lieu d'y réagir) · **Dépendances :** JOB-003
+**Priorité :** P1 · **Taille :** M · **État :** **DONE** (2026-07-23 — module pur `job-limits.ts` (plafonds, tour d'équité, refroidissement provider), garde `ClaimCapacity` dans `claimJob`, passe `coolDownQuotaLimitedJobs`, panneau « Capacité & quotas » sur `/jobs`, `jobs-inspect --capacity`, `scripts/limits.ts` ; **1 DDL** : `system_settings`. Détail : `docs/features/e00-fondations-cockpit.md`) · **Dépendances :** JOB-003
 
 Travail :
 

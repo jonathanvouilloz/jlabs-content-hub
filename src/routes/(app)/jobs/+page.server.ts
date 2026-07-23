@@ -5,6 +5,7 @@ import { describeDependencies, normalizeJobFilters } from '$lib/server/job-conso
 import { parseDependencies } from '$lib/server/job-graph.js';
 import { loadDependencyStatuses } from '$lib/server/jobs-graph.js';
 import { listNextOccurrences } from '$lib/server/scheduler.js';
+import { loadCapacitySnapshot } from '$lib/server/jobs-limits.js';
 import { BUSINESS_TIMEZONE } from '$lib/server/schedule-state.js';
 import { toDbTimestamp } from '$lib/server/timestamps.js';
 import { sql } from 'drizzle-orm';
@@ -39,7 +40,7 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	const now = new Date();
 
-	const [jobs, total, byStatus, types, schedule] = await Promise.all([
+	const [jobs, total, byStatus, types, schedule, capacity] = await Promise.all([
 		listJobs({ ...query, limit: filters.limit, offset: filters.offset }),
 		countJobs(query),
 		// Les compteurs d'en-tête ignorent les filtres de statut/classe (ils SONT le
@@ -53,7 +54,12 @@ export const load: PageServerLoad = async ({ url }) => {
 			.then((r) => ((r.rows ?? []) as unknown as { type: string }[]).map((x) => x.type)),
 		// JOB-005 — la planification est CALCULÉE, pas stockée : cette liste ne peut
 		// donc pas se désynchroniser de ce que le tick fera réellement.
-		listNextOccurrences({ db, now })
+		listNextOccurrences({ db, now }),
+		// JOB-006 — la capacité est DÉRIVÉE (concurrence réelle + journal des quotas),
+		// jamais lue dans un état persisté : elle ne peut donc pas se désynchroniser de
+		// ce que la réclamation appliquera réellement. Le tour d'équité, lui, n'existe
+		// que pendant un drain et n'a rien à montrer ici.
+		loadCapacitySnapshot({ db, now })
 	]);
 
 	// JOB-004 — l'attente d'un job est DÉRIVÉE (arêtes + statut des prérequis), jamais
@@ -79,6 +85,14 @@ export const load: PageServerLoad = async ({ url }) => {
 		types,
 		filters,
 		dependencies,
+		capacity: {
+			...capacity,
+			// Même règle que la planification : redescendre sur un projet ne doit pas
+			// laisser les six autres à l'écran.
+			projects: filters.projectSlug
+				? capacity.projects.filter((p) => p.projectSlug === filters.projectSlug)
+				: capacity.projects
+		},
 		schedule: {
 			timeZone: BUSINESS_TIMEZONE,
 			// Le filtre projet de la page vaut aussi pour la planification : redescendre

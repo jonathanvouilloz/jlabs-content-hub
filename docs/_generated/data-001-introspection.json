@@ -1,15 +1,15 @@
 {
-  "stamp": "unstamped",
+  "stamp": "post-job-006",
   "schemas": [
     "seostats",
     "core"
   ],
   "summary": {
-    "liveCount": 57,
-    "modelCount": 57,
+    "liveCount": 58,
+    "modelCount": 58,
     "inDbNotModel": [],
     "inModelNotDb": [],
-    "inBothCount": 57
+    "inBothCount": 58
   },
   "tables": [
     {
@@ -3473,7 +3473,7 @@
     {
       "schema": "seostats",
       "table": "jobs",
-      "rowCount": 10,
+      "rowCount": 54,
       "columns": [
         {
           "column": "id",
@@ -5801,6 +5801,45 @@
       ],
       "indexes": [
         "status_history_pkey"
+      ]
+    },
+    {
+      "schema": "seostats",
+      "table": "system_settings",
+      "rowCount": 0,
+      "columns": [
+        {
+          "column": "key",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "value",
+          "type": "text",
+          "nullable": false,
+          "default": null
+        },
+        {
+          "column": "description",
+          "type": "text",
+          "nullable": true,
+          "default": null
+        },
+        {
+          "column": "updated_at",
+          "type": "text",
+          "nullable": false,
+          "default": "to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text)"
+        }
+      ],
+      "primaryKey": [
+        "key"
+      ],
+      "uniques": [],
+      "foreignKeys": [],
+      "indexes": [
+        "system_settings_pkey"
       ]
     },
     {

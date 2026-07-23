@@ -150,17 +150,17 @@ Pour les images GMB, le skill `/publish-hub` doit :
 
 ## Etat actuel
 
-**Date :** 2026-07-21
+**Date :** 2026-07-23
 **Produit :** **seo-stats** — cockpit agentique de monitoring SEO & présence locale. Ex "Content Hub" / "jokiSEO".
 **Cap :** déléguer 90% du monitoring récurrent aux agents (findings persistants + validation humaine). Voir `docs/SPEC.md`.
 **Chantier transverse :** migration Turso → Neon **quasi finie**. Refactor code + données faits+vérifiés (branche `feat/neon`, Phase 4 ✅ 2026-07-21). Reste Phase 6 (rotation password + décommissionnement Turso).
-**DB cible :** Neon `neondb`, schéma `seostats` (partagé avec `invoices` via schéma `core`). ~30 tables, ~6 projets GSC.
+**DB cible :** Neon `neondb`, schéma `seostats` (partagé avec `invoices` via schéma `core`). **58 tables**, ~6 projets GSC.
 **Socle livré :** epics 1-22 DONE, epic 23 (positions GSC) en prod. Refactor in-place, DataForSEO = fournisseur SEO externe.
 **Admin :** contact@jonlabs.ch
-**Prochaine étape :** Phase 6 (roter password Neon + décommissionner Turso) → puis reconstruction agentique, premier lot `docs/BACKLOG.md` §9. Détail : `docs/HANDOFF.md`.
-**File de jobs (E00) :** réclamation atomique, bail + reaper, erreurs classées, console `/jobs`, scheduler horaire, producteur de propositions — et depuis **JOB-004** les **dépendances entre jobs** : un prérequis obligatoire mort fait passer son dépendant en **`skipped`** (jamais tenté) et le run en `partial` ; un prérequis **optionnel** mort ne bloque personne. Le lien `detect:keyword_opportunity` → `propose:actions` du hebdo est **obligatoire**.
+**Prochaine étape :** Phase 6 (roter password Neon + décommissionner Turso) → puis l'**inbox UI** (E11/DASH-005) ou les **collecteurs E03**. Détail : `docs/HANDOFF.md`.
+**File de jobs (E00) :** réclamation atomique, bail + reaper, erreurs classées, console `/jobs`, scheduler horaire, producteur de propositions, **dépendances entre jobs** (JOB-004 : un prérequis obligatoire mort fait passer son dépendant en **`skipped`** et le run en `partial` ; un optionnel mort ne bloque personne) — et depuis **JOB-006** la **capacité** : plafonds global / projet / provider, **tour d'équité** (un gros projet ne prend plus tout un tick), et **refroidissement provider** (un échec `quota` met toute la cohorte au repos, `attempts`/`deferrals` intacts). Les plafonds se règlent **sans redéploiement** (`system_settings` + `scripts/limits.ts`) ; la garde vit **dans `claimJob`**.
 
-> ⚠️ **Avant le prochain déploiement** : le cron `/api/cron/tick` (JOB-005) planifiera le run hebdo des 6 projets — dont **barberconcept**, jamais détecté, qui écrira **50 findings d'un coup** (plafond `maxCandidates`). Décision de Jonathan : laisser partir, ou désactiver `weekly` pour ce projet via `project_projections.payload.schedules`. Depuis JOB-004, son `propose:actions` **attend** la fin de cette détection au lieu de partir en parallèle.
+> ⚠️ **Avant le prochain déploiement** : le cron `/api/cron/tick` (JOB-005) planifiera le run hebdo des 6 projets — dont **barberconcept**, jamais détecté, qui écrira **50 findings d'un coup** (plafond `maxCandidates`). Décision de Jonathan : laisser partir, ou désactiver `weekly` pour ce projet via `project_projections.payload.schedules`. Depuis JOB-004, son `propose:actions` **attend** la fin de cette détection au lieu de partir en parallèle ; depuis JOB-006, il ne peut plus prendre le tick entier (tour d'équité).
 
 ## Carte des skills — domaine SEO (partition `noyau/seo-stats`)
 

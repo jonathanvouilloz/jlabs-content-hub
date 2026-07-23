@@ -4,6 +4,128 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-23 (JOB-006 — la file cesse de découvrir le 429 un job à la fois)
+
+**Fait :** JOB-003 savait **réagir** à un quota (429 classé `quota`, tentative rendue, `deferrals`
+qui borne la boucle) — mais rien ne le **prévenait**, et le trou se voyait à trois endroits. (1) Six
+projets sur le même compte GSC : le premier se fait refouler, les **cinq suivants partent quand
+même** et brûlent un report chacun. Rien ne disait au deuxième ce que le premier venait
+d'apprendre. (2) Le tick sert 25 jobs par priorité puis ancienneté : un projet volumineux pouvait
+**remplir le tick entier** et repousser les cinq autres d'une heure — l'acceptation « un site
+volumineux ne monopolise pas les workers » n'était tenue par rien. (3) Aucune capacité réservée aux
+avis et alertes (SLO §17.3). **Un seul DDL** : `system_settings`, table additive et vide.
+
+- **La garde est DANS la réclamation, comme en JOB-004.** `claimJob` gagne un paramètre
+  `capacity` — exclusions de types, de projets, réserve — et les applique en SQL. Ce n'est pas le
+  worker qui filtre après coup : aucun appelant futur ne peut l'oublier, et deux workers concurrents
+  la subissent tous les deux. Prouvé en base : le même job est refusé **avec** la garde et réclamé
+  **sans** elle, alors qu'il est parfaitement disponible.
+- **Une table de config, et c'est assumé.** Le « zéro DDL » des trois derniers lots était un
+  **constat** (« tout était là depuis DATA-003 »), pas une règle : ici il n'y avait rien.
+  L'acceptation exige des limites « configurables sans redéploiement », et sur Vercel une variable
+  d'env n'est relue **qu'au redéploiement**. `gmb_settings` est bien un KV et sert déjà à des clés
+  non-GMB, mais y ranger les quotas GSC ferait mentir son nom à la prochaine lecture. La table naît
+  **vide** : sans ligne, `resolveLimits` rend les défauts du code — appliquer le DDL ne change donc
+  **aucun** comportement, c'est y écrire qui en change un.
+- **Le refroidissement est DÉRIVÉ, jamais stocké.** Un échec `quota` dans `job_attempts` (table
+  append-only, déjà écrite) met **tout le provider** au repos pour sa cohorte. Aucun état de repos
+  n'est persisté — même raison qu'au « zéro table de planification » de JOB-005. C'est aussi
+  pourquoi ce lot **n'écrit pas** `project_integrations.health_status = 'quota_limited'` (SPEC
+  §17.1) : ce serait un second état, dont personne ne serait clairement propriétaire du retour à
+  `healthy`. Dette **nommée**, laissée à OPS-002.
+- **Le report de capacité n'est PAS un report de JOB-003.** La passe de refroidissement pousse
+  `available_at` et pose `last_error_class='quota'` / `last_error_code='QuotaLimited'`, **sans
+  toucher ni `attempts` ni `deferrals`** : ces jobs n'ont pas été réclamés, ils n'ont rien tenté,
+  personne ne leur doit un échec. Aucune ligne de `job_attempts` non plus — cette table dit
+  « une tentative a eu lieu », et il n'y en a pas eu. Vérifié en base sur les trois jobs d'une
+  cohorte, dont un d'un autre projet.
+- **L'équité est un TOUR, pas un quota de drain.** Chaque projet prend au plus `perProjectPerLap`
+  jobs ; quand tous ceux qui ont du travail servable ont eu leur part, un **nouveau tour s'ouvre** et
+  les exclusions tombent. Un tick qui s'arrêterait avec du budget et une file pleine serait pire
+  qu'un tick déséquilibré. Le calcul de réouverture vit dans le module **pur**, donc un test le
+  ferme. Prouvé en base : 6 jobs pour le gros projet, 2 pour le petit, un seul drain → ordre
+  `AABBAAAA`, **2 tours**.
+- **BUG TROUVÉ PAR LA PREUVE, et il était grave** : `projectsWithClaimableWork` ignorait les
+  **types que le worker sait traiter**. Un projet dont le seul travail en file est d'un type que ce
+  worker ne gère pas comptait comme « en attente d'être servi » — et, n'étant jamais servi,
+  **empêchait le tour de se rouvrir pour toujours**, affamant les projets réellement servables. Le
+  compteur `throttledTicks`, ajouté quelques minutes plus tôt, est ce qui a rendu le diagnostic
+  lisible. Corrigé : la photo filtre sur les types de l'appelant.
+- **Un job dont le BAIL A EXPIRÉ ne compte pas comme « en cours ».** `status='running'` ne suffit
+  pas : c'est la définition même de l'abandon (JOB-002), le reaper n'est simplement pas encore
+  passé. Le compter occuperait une place de concurrence **au nom d'un worker mort**, et quelques
+  workers morts suffiraient à geler la file jusqu'au prochain reaper. Le bail est le seul titre de
+  propriété vivant.
+- **`0` vaut « pas de limite », partout et sans exception** (même sémantique que `maxJobs`). Une
+  limite absente ou illisible retombe sur le **défaut du code**, jamais sur « aucune limite » ni sur
+  « file éteinte » — une file arrêtée en silence est le pire mode de panne, celui qui ne se plaint
+  pas. `formatQuota` rend donc `3/∞` et jamais `3/0`.
+- **Un type INCONNU vaut `none`, et c'est le choix INVERSE de `required` (JOB-004)** — délibérément.
+  Là-bas, relâcher la garde sur ce qu'on n'avait pas su lire faisait tourner un job sur des données
+  absentes. Ici, la resserrer sur un type qu'on ne connaît pas empêcherait **tout nouveau handler**
+  de démarrer, alors qu'un type non déclaré reste soumis aux plafonds global et projet.
+- **Un worker bridé ne doit jamais se lire comme un worker inactif** : `throttledTicks` distingue
+  « la file était vide » de « on n'avait pas le droit de prendre ». Sans lui, un tick bridé produit
+  exactement les mêmes statistiques qu'un tick tranquille, et l'exploitant conclut « la file est
+  vide » devant une file pleine.
+- Vérif : `npm run test` = **575/575** (+52) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  introspection = **58 tables, zéro dérive** (l'écart est `system_settings` et **uniquement** lui) ·
+  **`scripts/job-006-limits-proof.ts` = 33/33 vertes sur Neon**, **rejouée trois fois**, base rendue
+  à l'identique · non-régression : `job-004-dag-proof` 44, `job-005-schedule-proof` 33,
+  `job-007-console-proof` 46, `job-003-retry-proof` 44, `job-002-recovery-proof` 31,
+  `agt-000-proposer-proof` 41, `job-claim-concurrency` 22 — **0 échec chacune** · **13 findings** et
+  **4 propositions** intacts · **0 horodatage ISO** · routes sondées en dev (port 5174) :
+  `/api/cron/tick` → **401** sans bearer, **401** avec un mauvais, **200** avec le bon ; `/jobs` →
+  **303** `/login`.
+- **Chaîne réelle démontrée** : un tick authentifié a planifié les **6 créneaux quotidiens**
+  (`findings:lifecycle`, 6 projets), les a **drainés dans la même invocation**, et le tick suivant
+  n'a **rien recréé ni rien réclamé** (idempotence). Le bloc `capacity` de la réponse est exposé.
+
+**Acceptations couvertes.** (1) « un site volumineux ne monopolise pas les workers » : deux projets,
+un seul drain, ordre `AABBAAAA` — le petit est servi **dans le premier tour**, pas après le gros ;
+(2) « les limites sont configurables sans redéploiement » : écrites en base par `scripts/limits.ts`,
+**relues par le worker** dans la preuve (`perProjectPerLap` 5 → 2), et une valeur hors bornes est
+**annoncée comme ignorée** au lieu d'être crue appliquée ; (3) « les reports continuent avec statut
+`quota_limited` lorsque possible » : la cohorte entière est repoussée, `last_error_class='quota'` /
+`last_error_code='QuotaLimited'`, `attempts` et `deferrals` **inchangés**, jobs toujours `queued`,
+et le refroidissement expiré les rend réclamables **sans intervention**.
+
+**Prochain :** l'**inbox UI** qui affiche findings ET propositions (E11/DASH-005) — tout est en base,
+rien ne le montre encore · les **collecteurs E03**, qui donneront enfin de vrais consommateurs aux
+budgets provider armés ici.
+
+**Pièges :**
+- **Le budget par fenêtre compte des JOBS, pas des APPELS API.** Une détection = N appels GSC. C'est
+  un garde-fou grossier ; la vraie prévention est portée par le **refroidissement**. Le compte fin
+  viendra avec E03, quand quelque chose pourra réellement l'écrire — pas avant (piège AGT-000 : un
+  module complet que personne n'appelle).
+- **Aucun type de job n'appelle de provider AUJOURD'HUI** (la détection lit la base, le producteur
+  est déterministe). `PROVIDER_BY_JOB_TYPE` est donc **armé** pour E03 — dont `post_publish:check`,
+  déjà déclaré `gsc`. C'est voulu : le harnais doit exister **avant** le premier collecteur, sinon
+  le premier run sur six projets redécouvre le 429 six fois.
+- **La réserve ne mord pas encore** : `reviews:sync` et `alerts:notify` n'ont pas de handler
+  (E03/E06). Le mécanisme est prouvé, son cas d'usage n'existe pas encore.
+- **Une preuve qui laisse tourner des jobs DOIT désarmer la capacité** (`capacityRefreshEvery: 0`).
+  `job-claim-concurrency` laisse délibérément 8 jobs `running` : le plafond global (4) refusait donc
+  — **correctement** — toute réclamation, et sa boucle sans `once` attendait un job qu'elle n'avait
+  pas le droit de prendre. Trois processus zombies plus tard, le diagnostic a coûté cher.
+- **Tuer une preuve en cours de route saute son `cleanup()`.** Quatre exécutions interrompues ont
+  laissé **44 lignes `__test_claim` dans la vraie file** — que le prochain tick aurait réclamées puis
+  envoyées en dead-letter. Purgées via `jobs-purge-test.ts` (dry-run vérifié, `starts_with`, jamais
+  `LIKE` où `_` est un joker). Vérifier `--capacity` ou la file après toute interruption.
+- **`= ANY($n)` casse avec le driver Neon** — tout filtre de liste en `IN (…)` paramétré (rappel).
+- **`projectsWithClaimableWork` doit TOUJOURS refléter ce que l'appelant peut servir** (types +
+  `DEPENDENCY_GATE`, importée et non recopiée). Toute divergence y fige le tour d'équité.
+- Toujours en suspens hors JOB-006 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · `ai_jobs → jobs` **écarté** · `post_publish:check` planifiable sans handler
+  (E03) · **`observations.ts` écrit encore `fetched_at` en ISO** · **rien ne bat tant que ce n'est
+  pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings** (décision maintenue)
+  — mais depuis ce lot il ne prendra plus le tick entier.
+
+**Commit :** _(voir ci-dessous)_
+
+---
+
 ## Etat session 2026-07-22 (JOB-004 — l'ordre de service devient une dépendance)
 
 **Fait :** le catalogue hebdo enfilait `detect` **puis** `propose`, et son propre commentaire le

@@ -9,6 +9,7 @@
  *   npx tsx scripts/jobs-inspect.ts --job=<id>
  *   npx tsx scripts/jobs-inspect.ts --project=<slug> [--status=running,dead] [--limit=20]
  *   npx tsx scripts/jobs-inspect.ts --dead [--class=auth,permanent] [--project=<slug>]
+ *   npx tsx scripts/jobs-inspect.ts --capacity
  *
  * Sortie type :
  *   job 01J8…  detect:keyword_opportunity  (jonlabs)  [queued, 2/5 tentatives]
@@ -27,7 +28,16 @@ import { listJobAttempts } from '../src/lib/server/jobs-lease.js';
 // Libellés PARTAGÉS avec la console `/jobs` (JOB-007) : deux tables de traduction
 // finiraient par diverger, et un `deferred` rendu « reporté » ici mais « échoué »
 // là ferait diagnostiquer à côté.
-import { CLASS_LABEL, KIND_LABEL, OUTCOME_LABEL } from '../src/lib/utils/job-format.js';
+import { loadCapacitySnapshot } from '../src/lib/server/jobs-limits.js';
+import {
+	CAPACITY_STATE_LABEL,
+	CLASS_LABEL,
+	KIND_LABEL,
+	OUTCOME_LABEL,
+	PROVIDER_LABEL,
+	formatEpochUtc,
+	formatQuota
+} from '../src/lib/utils/job-format.js';
 
 neonConfig.webSocketConstructor = ws;
 
@@ -43,11 +53,13 @@ const PROJECT = arg('project');
 const STATUSES = arg('status')?.split(',').filter(Boolean);
 const LIMIT = Number(arg('limit') ?? 20);
 const DEAD = args.includes('--dead');
+/** JOB-006 — capacité et quotas restants (mêmes chiffres et mêmes libellés que `/jobs`). */
+const CAPACITY = args.includes('--capacity');
 const CLASSES = arg('class')?.split(',').filter(Boolean);
 
-if (!JOB_ID && !PROJECT && !DEAD) {
+if (!JOB_ID && !PROJECT && !DEAD && !CAPACITY) {
 	console.error(
-		'Usage : --job=<id> · --project=<slug> [--status=a,b] · --dead [--class=auth,permanent] [--limit=N]'
+		'Usage : --job=<id> · --project=<slug> [--status=a,b] · --dead [--class=auth,permanent] [--limit=N] · --capacity'
 	);
 	process.exit(1);
 }
@@ -145,7 +157,56 @@ async function showDeadLetter() {
 	);
 }
 
+/**
+ * JOB-006 — la capacité, telle que `/jobs` la rend. Mêmes libellés (`job-format.ts`),
+ * mêmes chiffres, même source dérivée : deux lectures d'un même état finiraient par
+ * diverger, et c'est exactement ce que JOB-007 avait fermé pour les statuts.
+ */
+async function showCapacity(): Promise<void> {
+	const cap = await loadCapacitySnapshot({ db });
+	console.log(
+		`\nCapacité — global ${formatQuota(cap.global.running, cap.global.limit)} en cours` +
+			`, réserve ${cap.limits.reservedSlots} place(s)` +
+			`  [plafonds ${cap.configured ? 'lus en base' : 'par défaut'}]`
+	);
+	console.log('\nProviders externes :');
+	for (const p of cap.providers) {
+		if (p.jobTypes.length === 0 && p.provider !== 'none') {
+			console.log(`  ${(PROVIDER_LABEL[p.provider] ?? p.provider).padEnd(32)} aucun type de job câblé`);
+			continue;
+		}
+		if (p.provider === 'none') continue; // ni quota ni budget : rien à montrer.
+		const cooling = p.cooldownUntilMs !== null ? `  au repos jusqu'à ${formatEpochUtc(p.cooldownUntilMs)} UTC` : '';
+		console.log(
+			`  ${(PROVIDER_LABEL[p.provider] ?? p.provider).padEnd(32)}` +
+				`${formatQuota(p.running, p.concurrencyLimit).padEnd(8)} en cours  ` +
+				`${formatQuota(p.attemptsInWindow, p.windowBudget).padEnd(10)} sur la fenêtre  ` +
+				`[${CAPACITY_STATE_LABEL[p.state] ?? p.state}]${cooling}`
+		);
+	}
+	const busy = cap.projects.filter((p) => p.running > 0);
+	console.log('\nProjets :');
+	if (busy.length === 0) console.log('  (aucun job en cours)');
+	for (const p of busy) {
+		console.log(
+			`  ${p.projectSlug.padEnd(24)}${formatQuota(p.running, p.concurrencyLimit)} en cours  ` +
+				`[${CAPACITY_STATE_LABEL[p.state] ?? p.state}]`
+		);
+	}
+	const equity =
+		cap.limits.perProjectPerLap > 0
+			? `${cap.limits.perProjectPerLap} jobs par projet et par tour`
+			: 'désarmée';
+	console.log(`\nÉquité : ${equity} — le tour n'existe que pendant un drain.\n`);
+}
+
 async function main() {
+	if (CAPACITY) {
+		await showCapacity();
+		await pool.end();
+		return;
+	}
+
 	if (DEAD) {
 		await showDeadLetter();
 		await pool.end();

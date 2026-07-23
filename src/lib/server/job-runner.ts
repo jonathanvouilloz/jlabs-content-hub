@@ -26,6 +26,11 @@
  * JOB-004 ajoute la PASSE DE DÉPENDANCES : les jobs qu'aucun prérequis ne débloquera
  * plus sont conclus (`skipped`) au lieu d'attendre pour toujours. Même forme que le
  * reaper — bornée, non bloquante, jouée au démarrage et à chaque tour à vide.
+ *
+ * JOB-006 ajoute la CAPACITÉ : avant de réclamer, le worker sait ce qu'il a le droit de
+ * prendre — plafonds de concurrence, tour d'équité entre projets, providers au repos. La
+ * décision est pure (`planAdmission`), les restrictions descendent dans la réclamation
+ * (`ClaimCapacity`), et une troisième passe repousse la cohorte d'un provider en quota.
  */
 import type { AppDb } from './db/types.js';
 import { log } from './log.js';
@@ -55,6 +60,19 @@ import {
 } from './jobs-lease.js';
 import { concludeJobStep } from './monitoring.js';
 import { settleBlockedJobs } from './jobs-graph.js';
+import {
+	openFairness,
+	planAdmission,
+	recordClaim,
+	resolveLimits,
+	type AdmissionHoldReason,
+	type FairnessState,
+	type JobProvider,
+	type JobLimits,
+	type ProjectLimitsById,
+	type QueueSnapshot
+} from './job-limits.js';
+import { coolDownQuotaLimitedJobs, loadLimitsContext } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
@@ -203,6 +221,14 @@ export interface WorkerOptions {
 	reapLimit?: number;
 	/** JOB-004 — jobs à dépendances examinés par passe (0 = pas de résolution). */
 	settleLimit?: number;
+	/**
+	 * JOB-006 — désarme entièrement la gouvernance de capacité (0 = désarmé).
+	 * Sert aux preuves qui veulent exercer la file sans ses plafonds, et à personne
+	 * d'autre : en production, une file sans limites est ce que ce lot vient fermer.
+	 */
+	capacityRefreshEvery?: number;
+	/** JOB-006 — jobs repoussés par passe de refroidissement (0 = pas de passe). */
+	cooldownLimit?: number;
 }
 
 export interface WorkerStats {
@@ -222,11 +248,46 @@ export interface WorkerStats {
 	skipped: number;
 	/** JOB-003 — répartition des échecs par nature (lisible sans requêter la DB). */
 	failedByClass: Record<ErrorClass, number>;
+	/**
+	 * JOB-006 — tours de boucle où la capacité a retenu quelque chose, par cause. Même
+	 * geste que `failedByClass` : un tick qui prend moins de jobs que prévu doit dire
+	 * POURQUOI sans qu'on ait à requêter la base.
+	 */
+	heldByReason: Record<AdmissionHoldReason, number>;
+	/** JOB-006 — jobs repoussés parce que leur provider était au repos (quota). */
+	quotaPushed: number;
+	/** JOB-006 — tours d'équité ouverts pendant ce drain. */
+	laps: number;
+	/**
+	 * JOB-006 — tours de boucle passés SANS RIEN RÉCLAMER alors que la capacité
+	 * retenait quelque chose. Sans ce compteur, un worker bridé et un worker qui n'a
+	 * rien à faire produisent exactement les mêmes statistiques — et l'exploitant
+	 * conclurait « la file est vide » devant une file pleine.
+	 */
+	throttledTicks: number;
 }
 
 function emptyClassCounters(): Record<ErrorClass, number> {
 	return { retryable: 0, quota: 0, auth: 0, permanent: 0 };
 }
+
+function emptyHoldCounters(): Record<AdmissionHoldReason, number> {
+	return {
+		global_concurrency: 0,
+		project_concurrency: 0,
+		project_lap: 0,
+		provider_concurrency: 0,
+		provider_cooldown: 0,
+		provider_budget: 0
+	};
+}
+
+/**
+ * JOB-006 — ce que le tour de boucle retient d'un job traité. `quota` est le seul cas
+ * qui doit produire un effet IMMÉDIAT sur la capacité (refroidissement du provider) ;
+ * tout le reste attend le prochain rafraîchissement.
+ */
+type JobRunOutcome = 'quota' | 'other';
 
 /** Budget de durée par défaut : au-delà, on considère que le provider ne répondra pas. */
 export const DEFAULT_MAX_JOB_DURATION_MS = 30 * 60 * 1000; // 30 min
@@ -236,6 +297,25 @@ export const DEFAULT_REAP_LIMIT = 20;
 
 /** Jobs à dépendances examinés par passe. La file réelle en compte quelques dizaines. */
 export const DEFAULT_SETTLE_LIMIT = 50;
+
+/**
+ * JOB-006 — tous les combien la PHOTO de la file est reprise.
+ *
+ * Pas à chaque réclamation : l'instantané coûte quatre requêtes, et 25 jobs par tick en
+ * feraient cent pour un worker qui, sur Vercel, exécute de toute façon ses jobs UN PAR
+ * UN (le compte de `running` ne bouge donc quasiment pas entre deux prises). La part
+ * réellement mouvante — l'équité — vit en mémoire et se recalcule à chaque tour, sans
+ * requête, puisque `planAdmission` est pure.
+ *
+ * La photo est en revanche reprise IMMÉDIATEMENT après un échec classé `quota` : c'est
+ * le seul événement qui doit produire son effet tout de suite, sinon les jobs suivants
+ * de la même cohorte partiraient malgré le refroidissement — précisément le défaut que
+ * ce lot vient fermer.
+ */
+export const DEFAULT_CAPACITY_REFRESH_EVERY = 5;
+
+/** Jobs repoussés par passe de refroidissement (borne, comme le reaper). */
+export const DEFAULT_COOLDOWN_LIMIT = 200;
 
 /**
  * Boucle principale. Renvoie ses compteurs, ce qui rend le worker testable et
@@ -250,6 +330,8 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
 	const reapLimit = options.reapLimit ?? DEFAULT_REAP_LIMIT;
 	const settleLimit = options.settleLimit ?? DEFAULT_SETTLE_LIMIT;
+	const capacityRefreshEvery = options.capacityRefreshEvery ?? DEFAULT_CAPACITY_REFRESH_EVERY;
+	const cooldownLimit = options.cooldownLimit ?? DEFAULT_COOLDOWN_LIMIT;
 
 	const stats: WorkerStats = {
 		claimed: 0,
@@ -263,7 +345,11 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		abandonedByKind: { worker_death: 0, lease_stall: 0 },
 		deferred: 0,
 		skipped: 0,
-		failedByClass: emptyClassCounters()
+		failedByClass: emptyClassCounters(),
+		heldByReason: emptyHoldCounters(),
+		quotaPushed: 0,
+		laps: 0,
+		throttledTicks: 0
 	};
 
 	logger.info('worker démarré', { workerId: options.workerId, types });
@@ -277,6 +363,18 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	// tour sera à vide alors que la file a du travail à trancher.
 	await settleOnce(options.db, settleLimit, stats);
 
+	// JOB-006 — la capacité, chargée avant la première réclamation : un worker qui
+	// démarre alors qu'un provider est en quota ne doit pas commencer par lui envoyer
+	// un job (c'est exactement le tour de trop que ce lot supprime).
+	const governor = new CapacityGovernor({
+		db: options.db,
+		enabled: capacityRefreshEvery > 0,
+		refreshEvery: capacityRefreshEvery,
+		types
+	});
+	await governor.refresh();
+	await coolDownOnce(options.db, governor, cooldownLimit, stats);
+
 	for (;;) {
 		// Point d'arrêt : on ne réclame JAMAIS un job après l'ordre d'arrêt —
 		// c'est ce qui évite le job fantôme laissé « running ».
@@ -286,15 +384,34 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		}
 		if (maxJobs > 0 && stats.claimed >= maxJobs) break;
 
+		// Décision de capacité : pure, donc gratuite, donc reprise à CHAQUE tour —
+		// l'équité change à chaque réclamation, et elle n'est nulle part ailleurs.
+		const admission = governor.plan(stats);
+
 		const job = await claimJob({
 			db: options.db,
 			types,
 			workerId: options.workerId,
-			leaseMs
+			leaseMs,
+			capacity: admission
 		});
 
 		if (!job) {
 			stats.idleTicks += 1;
+			// Un tour à vide n'a pas la même signification selon qu'il n'y avait rien à
+			// prendre ou qu'on n'avait pas le droit de prendre. Le second se journalise :
+			// c'est la seule trace qui distingue une file vide d'une file bridée.
+			if (admission.saturated || admission.excludedTypes.length > 0 || admission.excludedProjectIds.length > 0) {
+				stats.throttledTicks += 1;
+				if (stats.throttledTicks === 1 || stats.throttledTicks % 20 === 0) {
+					logger.info('tour à vide dû à la capacité (la file n’est pas vide)', {
+						saturated: admission.saturated,
+						excludedTypes: admission.excludedTypes.length,
+						excludedProjects: admission.excludedProjectIds.length,
+						throttledTicks: stats.throttledTicks
+					});
+				}
+			}
 			// Tour à vide = le bon moment pour réparer la file : rien d'autre à faire,
 			// et un bail mort remis en queue redevient réclamable au tour suivant.
 			await reapOnce(options.db, reapLimit, leaseMs, stats);
@@ -302,6 +419,10 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 			// finir dans ce même tour de drain. La passe est donc jouée AVANT le `break`
 			// de `once`, pour qu'un tick conclue le run du créneau qu'il a planifié.
 			await settleOnce(options.db, settleLimit, stats);
+			// Et la troisième passe, même forme : un provider entré en quota pendant ce
+			// drain a laissé des jobs `queued` que plus personne ne prendra avant la fin
+			// de son refroidissement — leur `available_at` doit le dire.
+			await coolDownOnce(options.db, governor, cooldownLimit, stats);
 			if (options.once) break;
 			const stopped = await sleep(pollIntervalMs, options.signal);
 			if (stopped) {
@@ -312,7 +433,12 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		}
 
 		stats.claimed += 1;
-		await handleClaimedJob(job, { ...options, handlers }, stats);
+		governor.noteClaim(job.projectId);
+		const outcome = await handleClaimedJob(job, { ...options, handlers }, stats);
+		// Un quota fait reprendre la photo TOUT DE SUITE : c'est le seul événement dont
+		// l'effet ne peut pas attendre le prochain rafraîchissement, sous peine
+		// d'envoyer la cohorte entière se faire refouler une par une.
+		await governor.afterJob({ quota: outcome === 'quota' });
 	}
 
 	logger.info('worker arrêté', { workerId: options.workerId, ...stats });
@@ -382,6 +508,142 @@ async function settleOnce(db: AppDb, limit: number, stats: WorkerStats): Promise
 }
 
 /**
+ * JOB-006 — Le gouverneur de capacité : il tient la PHOTO de la file et l'état
+ * d'équité, et rend à chaque tour les restrictions que la réclamation appliquera.
+ *
+ * Pourquoi une petite classe plutôt que des variables de boucle : les trois choses
+ * qu'elle tient (photo, tour d'équité, cadence de rafraîchissement) doivent bouger
+ * ENSEMBLE et dans un ordre précis. Éparpillées dans `runWorker`, la prochaine
+ * modification en oublierait une — et l'oubli le plus probable est le rafraîchissement
+ * après quota, c'est-à-dire précisément la garantie du lot.
+ *
+ * Elle ne DÉCIDE rien : tout le jugement est dans `planAdmission` (pur, testé sans base).
+ * Elle ne fait que lui fournir sa matière au bon moment.
+ */
+class CapacityGovernor {
+	private readonly db: AppDb;
+	private readonly enabled: boolean;
+	private readonly refreshEvery: number;
+	/** Types de CE worker : le tour d'équité ne raisonne que sur ce qu'il peut servir. */
+	private readonly types: string[];
+	private limits: JobLimits = resolveLimits();
+	private projectLimits: ProjectLimitsById = {};
+	private snapshot: QueueSnapshot | null = null;
+	private fairness: FairnessState = openFairness();
+	private sinceRefresh = 0;
+	/** Dernières fins de refroidissement calculées — la passe de cooldown les consomme. */
+	cooldownUntilByProvider: Partial<Record<JobProvider, number>> = {};
+
+	constructor(input: { db: AppDb; enabled: boolean; refreshEvery: number; types: string[] }) {
+		this.db = input.db;
+		this.enabled = input.enabled;
+		this.refreshEvery = Math.max(1, input.refreshEvery);
+		this.types = input.types;
+	}
+
+	/**
+	 * Reprend la photo et la configuration. NON BLOQUANTE, comme le reaper : si la
+	 * lecture échoue, on garde la photo précédente (ou aucune) et la boucle continue —
+	 * un worker qui refuserait de travailler faute de savoir compter serait pire que
+	 * l'absence de plafond qu'il est censé faire respecter.
+	 */
+	async refresh(): Promise<void> {
+		if (!this.enabled) return;
+		try {
+			const ctx = await loadLimitsContext({
+				db: this.db,
+				windowMs: this.limits.providerWindowMs,
+				types: this.types
+			});
+			this.limits = resolveLimits(ctx.overrides);
+			this.projectLimits = ctx.projectLimits;
+			this.snapshot = ctx.snapshot;
+			this.sinceRefresh = 0;
+		} catch (err) {
+			logger.error('lecture de capacité échouée (la boucle continue)', {
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
+	}
+
+	/** Les restrictions du tour. Sans photo (capacité désarmée ou lecture ratée) : aucune. */
+	plan(stats: WorkerStats): {
+		saturated: boolean;
+		excludedTypes: string[];
+		excludedProjectIds: string[];
+		reservedTypesOnly: string[];
+	} {
+		if (!this.enabled || !this.snapshot) {
+			return { saturated: false, excludedTypes: [], excludedProjectIds: [], reservedTypesOnly: [] };
+		}
+		const admission = planAdmission({
+			limits: this.limits,
+			snapshot: this.snapshot,
+			projectLimits: this.projectLimits,
+			fairness: this.fairness,
+			now: Date.now()
+		});
+		this.fairness = admission.fairness;
+		this.cooldownUntilByProvider = admission.cooldownUntilByProvider;
+		if (admission.lapOpened) stats.laps += 1;
+		for (const hold of admission.holds) stats.heldByReason[hold.reason] += 1;
+		return {
+			saturated: admission.saturated,
+			excludedTypes: admission.excludedTypes,
+			excludedProjectIds: admission.excludedProjectIds,
+			reservedTypesOnly: admission.reservedOnly ? this.limits.reservedTypes : []
+		};
+	}
+
+	/** Comptabilise une réclamation dans le tour courant (mémoire seule). */
+	noteClaim(projectId: string): void {
+		if (!this.enabled) return;
+		this.fairness = recordClaim(this.fairness, projectId);
+	}
+
+	/**
+	 * Après un job : rafraîchit si la cadence l'exige, ou SANS ATTENDRE si le job vient
+	 * de buter sur un quota.
+	 */
+	async afterJob(input: { quota: boolean }): Promise<void> {
+		if (!this.enabled) return;
+		this.sinceRefresh += 1;
+		if (input.quota || this.sinceRefresh >= this.refreshEvery) await this.refresh();
+	}
+}
+
+/**
+ * JOB-006 — Une passe de refroidissement, bornée et non bloquante.
+ *
+ * Troisième jumelle de `reapOnce` / `settleOnce`, et pour la même raison : c'est une
+ * COMMODITÉ du worker, pas sa mission. Ce qu'elle ferme : la garde de réclamation
+ * empêche de PRENDRE un job dont le provider est au repos, mais laisserait ces jobs
+ * `queued` et « disponibles » à l'écran — visiblement prêts, et pourtant jamais pris.
+ */
+async function coolDownOnce(
+	db: AppDb,
+	governor: CapacityGovernor,
+	limit: number,
+	stats: WorkerStats
+): Promise<void> {
+	if (limit <= 0) return;
+	const cooldowns = governor.cooldownUntilByProvider;
+	if (Object.keys(cooldowns).length === 0) return;
+	try {
+		const res = await coolDownQuotaLimitedJobs({
+			db,
+			cooldownUntilByProvider: cooldowns,
+			limit
+		});
+		stats.quotaPushed += res.pushed;
+	} catch (err) {
+		logger.error('passe de refroidissement échouée (la boucle continue)', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
+/**
  * JOB-005 — Conclut, côté RUN, le job qui vient de finir son histoire.
  *
  * N'est appelée qu'aux issues TERMINALES (réussi, ou mort après épuisement) : un job
@@ -428,7 +690,7 @@ async function handleClaimedJob(
 	job: ClaimedJob,
 	options: WorkerOptions & { handlers: Map<string, JobHandler> },
 	stats: WorkerStats
-): Promise<void> {
+): Promise<JobRunOutcome> {
 	// L'ordre d'arrêt est arrivé entre la réclamation et l'exécution : on rend le
 	// job à la file au lieu de l'entamer (aucun effet, aucune tentative gâchée).
 	if (options.signal?.aborted) {
@@ -453,7 +715,7 @@ async function handleClaimedJob(
 		}
 		stats.stoppedGracefully = true;
 		logger.info('job relâché (arrêt gracieux)', { jobId: job.id, type: job.type });
-		return;
+		return 'other';
 	}
 
 	// Le journal s'ouvre AVANT toute exécution : si ce worker meurt à l'instant
@@ -503,7 +765,7 @@ async function handleClaimedJob(
 				errorMessage: `Aucun handler pour le type "${job.type}".`
 			});
 		}
-		return;
+		return 'other';
 	}
 
 	const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
@@ -635,7 +897,9 @@ async function handleClaimedJob(
 				retryAfterMs: decision.retryAfterMs,
 				retryInMs: deferred?.delayMs ?? decision.delayMs
 			});
-			return;
+			// Le seul retour `quota` : il fait reprendre la photo de capacité tout de
+			// suite, pour que la cohorte du provider soit repoussée AVANT le tour suivant.
+			return 'quota';
 		}
 
 		const outcome = await failJob({
@@ -683,6 +947,9 @@ async function handleClaimedJob(
 		clearInterval(beat);
 		if (budget) clearTimeout(budget);
 	}
+	// Réussite, échec rejouable ou dead-letter : rien qui exige de reprendre la photo
+	// de capacité sur-le-champ. Seul le quota le fait, et il est sorti plus haut.
+	return 'other';
 }
 
 /**

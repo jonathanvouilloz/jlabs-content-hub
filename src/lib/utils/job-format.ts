@@ -64,6 +64,57 @@ export const STATUS_LABEL: Record<string, string> = {
 	skipped: 'ignoré (dépendance)'
 };
 
+/** État d'une capacité (provider ou projet), en clair — JOB-006. */
+export const CAPACITY_STATE_LABEL: Record<string, string> = {
+	ok: 'disponible',
+	saturated: 'saturé',
+	// Vocabulaire SPEC §17.1. Distinct de `saturé` : là c'est NOUS qui plafonnons,
+	// ici c'est le PROVIDER qui a dit non — et l'action de l'opérateur n'est pas la
+	// même (attendre la fin du refroidissement contre relever un plafond).
+	quota_limited: 'quota atteint'
+};
+
+/** Provider externe d'un type de job (JOB-006). `none` = ne sort pas de la base. */
+export const PROVIDER_LABEL: Record<string, string> = {
+	gsc: 'Search Console',
+	dataforseo: 'DataForSEO',
+	gmb: 'Google Business',
+	llm: 'LLM',
+	none: 'interne (aucun appel externe)'
+};
+
+/** Pourquoi la capacité a retenu un tour de boucle (JOB-006). */
+export const HOLD_REASON_LABEL: Record<string, string> = {
+	global_concurrency: 'plafond global atteint',
+	project_concurrency: 'plafond du projet atteint',
+	project_lap: 'part du tour consommée',
+	provider_concurrency: 'plafond du provider atteint',
+	provider_cooldown: 'provider au repos (quota)',
+	provider_budget: 'budget du provider épuisé'
+};
+
+/**
+ * `12/25` ou `12/∞`. Un plafond à `0` vaut « pas de limite » dans tout JOB-006 : le
+ * rendre « 12/0 » ferait lire une saturation là où il n'y a aucune borne.
+ */
+export function formatQuota(used: number, limit: number): string {
+	return `${used}/${limit > 0 ? limit : '∞'}`;
+}
+
+/**
+ * Instant epoch → `22.07 09:02`, en UTC comme tout le reste de la console.
+ *
+ * Le refroidissement d'un provider est calculé en millisecondes (il ne vient pas d'une
+ * colonne), mais il doit s'AFFICHER comme les horodatages de la file, sinon deux
+ * instants voisins se liraient dans deux référentiels sur le même écran. La conversion
+ * vit ici, pas dans la page : une page qui la referait à la main est exactement la
+ * divergence que ce module a fermée pour les libellés.
+ */
+export function formatEpochUtc(ms: number | null): string {
+	if (ms === null || !Number.isFinite(ms)) return '—';
+	return formatDbTimestamp(new Date(ms).toISOString().slice(0, 19).replace('T', ' '));
+}
+
 // ── Formats (colonnes `text`, format DB `YYYY-MM-DD HH:MM:SS`) ──────
 
 /**

@@ -317,7 +317,16 @@ async function main() {
 			types: [TEST_TYPE],
 			handlers: new Map([[TEST_TYPE, async () => { stopper.abort(); await delay(80); }]]),
 			pollIntervalMs: 50,
-			signal: stopper.signal
+			signal: stopper.signal,
+			// JOB-006 — capacité DÉSARMÉE ici, et c'est une nécessité, pas un confort :
+			// les étapes précédentes laissent délibérément huit jobs en `running` (bail
+			// de 60 s bien vivant) pour prouver l'étanchéité du bail. Le plafond global
+			// par défaut (4) refuserait donc toute réclamation — correctement — et cette
+			// boucle-ci, qui n'a pas de `once`, attendrait un job qu'elle n'a pas le droit
+			// de prendre jusqu'à l'ordre d'arrêt… que seul le handler déclenche.
+			// Ce qui se mesure ici est la sémantique de réclamation de JOB-001, pas la
+			// capacité : celle-ci a sa propre preuve (`job-006-limits-proof.ts`).
+			capacityRefreshEvery: 0
 		});
 		const stats = await running;
 

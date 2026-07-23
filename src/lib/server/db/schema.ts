@@ -1548,3 +1548,28 @@ export const jobEffects = seostats.table(
 		index('idx_job_effects_job').on(table.jobId)
 	]
 );
+
+// ── JOB-006 — Configuration système (BACKLOG « limites configurables sans redéploiement ») ──
+//
+// KV de portée SYSTÈME : ce qui ne se range sous aucun projet. Aujourd'hui les
+// plafonds de concurrence et les budgets provider de la file (`job-limits.ts`) ;
+// demain les autres boutons d'exploitation.
+//
+// Pourquoi une table plutôt qu'une variable d'environnement : sur Vercel une variable
+// d'env n'est relue qu'au REDÉPLOIEMENT, ce qui ne tient pas l'acceptation « les
+// limites sont configurables sans redéploiement ». Pourquoi pas `gmb_settings`, qui est
+// pourtant déjà un KV (`key`/`value`) et sert déjà à des clés non-GMB : y ranger les
+// quotas GSC ferait mentir son nom à la prochaine lecture.
+//
+// Les caps PAR PROJET, eux, ne vivent pas ici mais dans `project_projections.payload`
+// (calque exact des `schedules` de JOB-005) : c'est la maison du réglage par projet.
+//
+// `value` est du texte libre (JSON ou scalaire) : la lecture passe par `resolveLimits`,
+// qui retombe sur les défauts de code pour toute valeur illisible ou hors bornes — une
+// limite corrompue ne doit jamais pouvoir éteindre la file.
+export const systemSettings = seostats.table('system_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull(),
+	description: text('description'),
+	updatedAt: text('updated_at').notNull().default(nowText)
+});

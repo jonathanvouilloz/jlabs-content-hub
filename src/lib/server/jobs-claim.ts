@@ -91,6 +91,27 @@ export interface ClaimJobInput {
 	leaseMs?: number;
 	/** Date de référence (tests/rejeu) ; par défaut l'horloge du serveur DB. */
 	now?: Date | string;
+	/**
+	 * JOB-006 — restrictions de capacité, DÉJÀ décidées par `planAdmission` (module pur).
+	 *
+	 * Elles descendent jusqu'ici plutôt que de rester dans le worker pour la raison de
+	 * JOB-004 : une garde posée à la porte est subie par tous les appelants, présents et
+	 * futurs, et par deux workers concurrents. Ce paramètre n'ouvre AUCUN chemin
+	 * d'écriture — il ne fait que rétrécir ce parmi quoi la réclamation choisit.
+	 */
+	capacity?: ClaimCapacity;
+}
+
+/** Ce que la capacité retire au choix de la réclamation. Tout est optionnel et additif. */
+export interface ClaimCapacity {
+	/** Rien n'est réclamable : `claimJob` rend `null` sans requêter. */
+	saturated?: boolean;
+	/** Types écartés (provider saturé, au repos, ou hors budget). */
+	excludedTypes?: string[];
+	/** Projets écartés (plafond de concurrence ou part de tour consommée). */
+	excludedProjectIds?: string[];
+	/** Si non vide, SEULS ces types sont réclamables (la réserve mord). */
+	reservedTypesOnly?: string[];
 }
 
 /**
@@ -116,8 +137,13 @@ export interface ClaimJobInput {
  * aucune arête : le JSON n'est même pas touché. C'est aussi pourquoi `enqueueJob`
  * sérialise lui-même la colonne — un contenu malformé ferait échouer le cast, et donc
  * la réclamation de TOUTE la file, pas seulement celle du job fautif.
+ *
+ * EXPORTÉE depuis JOB-006 : l'instantané de capacité doit compter comme « réclamable »
+ * exactement ce que cette garde laisse passer. Deux traductions d'un même prédicat
+ * finiraient par diverger — et ici la divergence ferait croire à du travail en attente
+ * là où il n'y en a pas, donc empêcherait un tour de se rouvrir. Alias `c` imposé.
  */
-const DEPENDENCY_GATE = sql`
+export const DEPENDENCY_GATE = sql`
 	AND (c.depends_on IS NULL OR NOT EXISTS (
 	      SELECT 1
 	        FROM jsonb_array_elements(c.depends_on::jsonb) AS d
@@ -137,6 +163,11 @@ const DEPENDENCY_GATE = sql`
  * même si le worker meurt avant de la conclure.
  */
 export async function claimJob(input: ClaimJobInput): Promise<ClaimedJob | null> {
+	const capacity = input.capacity ?? {};
+	// Capacité globale atteinte : aucune ligne ne peut convenir. On ne va pas la
+	// demander à la base pour se l'entendre dire.
+	if (capacity.saturated) return null;
+
 	const now = toDbTimestamp(input.now ?? new Date());
 	const leaseUntil = computeLeaseUntil({
 		now: input.now ?? new Date(),
@@ -150,6 +181,34 @@ export async function claimJob(input: ClaimJobInput): Promise<ClaimedJob | null>
 		types.length > 0
 			? sql`AND c.type IN (${sql.join(
 					types.map((t) => sql`${t}`),
+					sql`, `
+				)})`
+			: sql``;
+
+	// JOB-006 — mêmes règles de construction que ci-dessus : `IN (…)` paramétré, jamais
+	// `= ANY($n)`. La réserve est une INCLUSION (« seuls ces types ») là où les deux
+	// autres sont des exclusions ; elle se compose donc avec elles sans les contredire.
+	const reserved = capacity.reservedTypesOnly ?? [];
+	const reservedFilter =
+		reserved.length > 0
+			? sql`AND c.type IN (${sql.join(
+					reserved.map((t) => sql`${t}`),
+					sql`, `
+				)})`
+			: sql``;
+	const excludedTypes = capacity.excludedTypes ?? [];
+	const excludedTypeFilter =
+		excludedTypes.length > 0
+			? sql`AND c.type NOT IN (${sql.join(
+					excludedTypes.map((t) => sql`${t}`),
+					sql`, `
+				)})`
+			: sql``;
+	const excludedProjects = capacity.excludedProjectIds ?? [];
+	const excludedProjectFilter =
+		excludedProjects.length > 0
+			? sql`AND c.project_id NOT IN (${sql.join(
+					excludedProjects.map((p) => sql`${p}`),
 					sql`, `
 				)})`
 			: sql``;
@@ -168,6 +227,9 @@ export async function claimJob(input: ClaimJobInput): Promise<ClaimedJob | null>
 		        WHERE c.status = 'queued'
 		          AND c.available_at::timestamp <= ${now}::timestamp
 		          ${typeFilter}
+		          ${reservedFilter}
+		          ${excludedTypeFilter}
+		          ${excludedProjectFilter}
 		          ${DEPENDENCY_GATE}
 		        ORDER BY c.priority DESC, c.available_at ASC
 		        FOR UPDATE SKIP LOCKED
