@@ -115,7 +115,7 @@ d'autorisation » — chaque proposition affiche son niveau **et qui peut l'acco
   bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50
   findings** — qui, désormais, **s'afficheront** quelque part.
 
-**Commit :** _(à venir)_
+**Commit :** `f1392c5` [hub] add: DASH-004+005 inbox (findings + propositions), décisions liées au hash
 
 ---
 
