@@ -128,7 +128,7 @@ profondes.
   ses **50 findings** (décision maintenue) — mais désormais **après une vraie collecte**, plus sur
   des mesures figées au 2026-07-06.
 
-**Commit :** (voir ci-dessous)
+**Commit :** `24fd03e` [hub] add: GSC-001+002 collecteur GSC gouverné par la file
 
 ---
 
