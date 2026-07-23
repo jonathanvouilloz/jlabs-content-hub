@@ -58,7 +58,7 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   validation humaine des actions sensibles.
 - **Vision complète** : [SPEC.md](SPEC.md) (23 sections, décisions validées).
 - **Exécution** : [BACKLOG.md](BACKLOG.md) — 14 epics `E00→E13`, jalons `M0→M6`, premier lot exécutable (§9).
-- **Statut (2026-07-22)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
+- **Statut (2026-07-23)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
   **IDX-008** + **DATA-001→008** livrés (cartographie, intégrations/projections, orchestration+queue,
   10 observations + backfill exécuté, findings, proposals/approvals/agent_runs, policies d'automatisation,
   rétention/purge en expand+dry-run), puis la **chaîne agentique bouclée** : **FIND-001/004** (1er
@@ -72,9 +72,14 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   lancement manuel). **La chaîne de décision est fermée** : **AGT-000** (producteur déterministe
   findings → `action_proposals`, niveaux L0–L4 figés, payload stable donc dédup réelle, plafond par
   projet, auto-approbation bornée à L2 sous policy explicite ; job `propose:actions` planifié le
-  lundi après le détecteur). DB à **57 tables, zéro dérive** · test **464/464**. Prochain :
-  **JOB-004** (DAG de steps — le scheduler enfile `detect` puis `propose` mais n'ordonnance rien),
-  **JOB-006** (prévenir le 429) et l'inbox UI (E11/DASH-005) qui affichera findings ET propositions.
+  lundi après le détecteur). **L'ordonnancement et la capacité sont fermés** : **JOB-004**
+  (dépendances réelles entre jobs — un prérequis obligatoire mort fait `skipped` son dépendant et
+  `partial` son run) et **JOB-006** (plafonds global/projet/provider, **tour d'équité** pour qu'un
+  gros projet ne prenne pas tout un tick, **refroidissement provider** qui met toute la cohorte au
+  repos sur un `quota`, plafonds réglables **sans redéploiement**). DB à **58 tables, zéro dérive**
+  (`system_settings`, seul DDL depuis JOB-003) · test **575/575**. Prochain : l'**inbox UI**
+  (E11/DASH-005) qui affichera findings ET propositions, et les **collecteurs E03** — qui donneront
+  de vrais consommateurs aux budgets provider armés par JOB-006.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
