@@ -76,10 +76,16 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   (dépendances réelles entre jobs — un prérequis obligatoire mort fait `skipped` son dépendant et
   `partial` son run) et **JOB-006** (plafonds global/projet/provider, **tour d'équité** pour qu'un
   gros projet ne prenne pas tout un tick, **refroidissement provider** qui met toute la cohorte au
-  repos sur un `quota`, plafonds réglables **sans redéploiement**). DB à **58 tables, zéro dérive**
-  (`system_settings`, seul DDL depuis JOB-003) · test **575/575**. Prochain : l'**inbox UI**
-  (E11/DASH-005) qui affichera findings ET propositions, et les **collecteurs E03** — qui donneront
-  de vrais consommateurs aux budgets provider armés par JOB-006.
+  repos sur un `quota`, plafonds réglables **sans redéploiement**). **La collecte est branchée** :
+  **GSC-001+002** (`collect:gsc_query_page` — premier job qui appelle vraiment un provider ; rien
+  n'est écrit avant la fin de la pagination, un seul fetch alimente observations **et** legacy,
+  erreurs GSC structurées donc classées juste). **Et la chaîne atteint enfin l'humain** :
+  **DASH-004+005** (inbox `/inbox` — approbation liée au **hash exact** et idempotente, rejet et
+  `changes_requested` motivés et journalisés, lots homogènes dont les **L4 sont exclues**, vue
+  finding avec preuves brutes ; ⚠️ approuver **n'exécute rien**, aucun handler d'exécution
+  n'existe). DB à **58 tables, zéro dérive** (57 `seostats` + 1 miroir `core` ; `system_settings`,
+  seul DDL depuis JOB-003) · test **656/656**. Prochain : **GSC-004** (fenêtres/backfill),
+  **IDX-001/002** (sitemap, URL Inspection) ou **DASH-002** (accueil cross-projet).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
