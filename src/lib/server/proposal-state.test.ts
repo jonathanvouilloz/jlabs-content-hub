@@ -3,6 +3,7 @@ import {
 	canActorApprove,
 	isApprovalValid,
 	statusAfterPayloadChange,
+	isDecidableStatus,
 	isTerminalProposalStatus,
 	PROPOSAL_STATUSES,
 	APPROVAL_LEVELS,
@@ -15,11 +16,12 @@ import {
 } from './proposal-state.js';
 
 describe('vocabulaire SPEC §7.8/§12.1', () => {
-	it('9 statuts de proposition (7 §7.8 + invalidated + expired), sans doublon', () => {
-		expect(PROPOSAL_STATUSES).toHaveLength(9);
-		expect(new Set(PROPOSAL_STATUSES).size).toBe(9);
+	it('10 statuts (7 §7.8 + invalidated + expired + changes_requested), sans doublon', () => {
+		expect(PROPOSAL_STATUSES).toHaveLength(10);
+		expect(new Set(PROPOSAL_STATUSES).size).toBe(10);
 		expect(PROPOSAL_STATUSES).toContain('invalidated');
 		expect(PROPOSAL_STATUSES).toContain('expired');
+		expect(PROPOSAL_STATUSES).toContain('changes_requested');
 	});
 	it('niveaux L0–L4', () => {
 		expect(APPROVAL_LEVELS).toEqual(['L0', 'L1', 'L2', 'L3', 'L4']);
@@ -96,8 +98,27 @@ describe('statusAfterPayloadChange', () => {
 		expect(statusAfterPayloadChange('proposed')).toBe('proposed');
 		expect(statusAfterPayloadChange('invalidated')).toBe('proposed');
 	});
+	it('changes_requested → proposed : la révision demandée a été faite', () => {
+		expect(statusAfterPayloadChange('changes_requested')).toBe('proposed');
+	});
 	it('autres statuts inchangés', () => {
 		expect(statusAfterPayloadChange('executing')).toBe('executing');
+	});
+});
+
+describe('isDecidableStatus (une décision humaine est-elle encore possible ?)', () => {
+	it('proposed, invalidated et changes_requested restent décidables', () => {
+		expect(isDecidableStatus('proposed')).toBe(true);
+		expect(isDecidableStatus('invalidated')).toBe(true);
+		expect(isDecidableStatus('changes_requested')).toBe(true);
+	});
+	it('ce qui est engagé ou clos ne l’est plus', () => {
+		for (const s of ['approved', 'executing', 'executed', 'failed', 'rejected', 'superseded', 'expired']) {
+			expect(isDecidableStatus(s)).toBe(false);
+		}
+	});
+	it('un statut inconnu n’est pas décidable (refus par défaut)', () => {
+		expect(isDecidableStatus('bogus')).toBe(false);
 	});
 });
 

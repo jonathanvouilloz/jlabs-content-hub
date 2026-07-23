@@ -18,7 +18,7 @@
  * (assertBoundedPayload) et sans secret (assertNoInlineSecret) avant persistance.
  */
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
-import { findings, findingEvents } from './db/schema.js';
+import { findings, findingEvents, projects } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
 import { toDbTimestamp } from './timestamps.js';
@@ -664,13 +664,23 @@ const FINDING_COLUMNS = {
 	updatedAt: findings.updatedAt
 } as const;
 
+/** Un finding tel que l'inbox le liste : avec son projet. */
+export interface FindingListRow extends FindingRow {
+	projectSlug: string | null;
+	projectName: string | null;
+	projectColor: string | null;
+}
+
 export interface ListFindingsInput {
 	projectId?: string;
+	/** Slug du projet — l'inbox filtre par slug (ce que porte l'URL), pas par id. */
+	projectSlug?: string | null;
 	/** Statuts retenus ; par défaut, les statuts ACTIFS (l'inbox). */
 	statuses?: readonly string[];
 	types?: readonly string[];
 	minPriority?: number;
 	limit?: number;
+	offset?: number;
 }
 
 /**
@@ -686,26 +696,76 @@ export interface ListFindingsInput {
 export async function listFindings(
 	input: ListFindingsInput = {},
 	client?: AppDb
-): Promise<FindingRow[]> {
+): Promise<FindingListRow[]> {
 	const db = await resolveDb(client);
-	const statuses = input.statuses ?? ACTIVE_STATUSES;
 
+	const rows = await db
+		.select({
+			...FINDING_COLUMNS,
+			// L'inbox est CROSS-PROJET : sans le nom du projet sur chaque ligne, une
+			// liste de 13 findings de 6 projets ne se lit pas. Joint ici plutôt que
+			// résolu par l'appelant, sinon chaque page referait la jointure.
+			projectSlug: projects.slug,
+			projectName: projects.name,
+			projectColor: projects.color
+		})
+		.from(findings)
+		.leftJoin(projects, eq(projects.id, findings.projectId))
+		.where(findingFilters(input))
+		.orderBy(desc(findings.priorityScore), findings.fingerprint)
+		.limit(Math.max(1, Math.floor(input.limit ?? 500)))
+		.offset(Math.max(0, Math.floor(input.offset ?? 0)));
+
+	return rows;
+}
+
+/** Filtres communs à `listFindings` et `countFindings` — définis une fois, sinon
+ *  la liste et son total finissent par décrire deux ensembles différents. */
+function findingFilters(input: ListFindingsInput) {
+	const statuses = input.statuses ?? ACTIVE_STATUSES;
 	const filters = [];
 	if (input.projectId) filters.push(eq(findings.projectId, input.projectId));
+	if (input.projectSlug) filters.push(eq(projects.slug, input.projectSlug));
 	if (statuses.length > 0) filters.push(inArray(findings.status, [...statuses]));
 	if (input.types && input.types.length > 0) filters.push(inArray(findings.type, [...input.types]));
 	if (typeof input.minPriority === 'number' && Number.isFinite(input.minPriority)) {
 		filters.push(gte(findings.priorityScore, Math.floor(input.minPriority)));
 	}
+	return filters.length > 0 ? and(...filters) : undefined;
+}
 
+/** Total correspondant aux mêmes filtres (pagination de l'inbox). */
+export async function countFindings(
+	input: ListFindingsInput = {},
+	client?: AppDb
+): Promise<number> {
+	const db = await resolveDb(client);
 	const rows = await db
-		.select(FINDING_COLUMNS)
+		.select({ n: sql<number>`count(*)::int` })
 		.from(findings)
-		.where(filters.length > 0 ? and(...filters) : undefined)
-		.orderBy(desc(findings.priorityScore), findings.fingerprint)
-		.limit(Math.max(1, Math.floor(input.limit ?? 500)));
+		.leftJoin(projects, eq(projects.id, findings.projectId))
+		.where(findingFilters(input));
+	return rows[0]?.n ?? 0;
+}
 
-	return rows;
+/**
+ * Compteurs par statut, pour l'en-tête de l'inbox. Ils IGNORENT le filtre de
+ * statut (ils SONT le filtre) mais respectent le projet — même règle que
+ * `countJobsByStatus` : cliquer « en veille » ne doit pas afficher « 0 ouvert »
+ * et laisser croire qu'il n'y a rien à traiter.
+ */
+export async function countFindingsByStatus(
+	input: { projectSlug?: string | null } = {},
+	client?: AppDb
+): Promise<Record<string, number>> {
+	const db = await resolveDb(client);
+	const rows = await db
+		.select({ status: findings.status, n: sql<number>`count(*)::int` })
+		.from(findings)
+		.leftJoin(projects, eq(projects.id, findings.projectId))
+		.where(input.projectSlug ? eq(projects.slug, input.projectSlug) : undefined)
+		.groupBy(findings.status);
+	return Object.fromEntries(rows.map((r) => [r.status, r.n]));
 }
 
 /**
@@ -718,6 +778,8 @@ export async function getFindingWithEvidence(
 	client?: AppDb
 ): Promise<{
 	finding: FindingRow;
+	/** Le projet porteur — l'écran a besoin du slug pour lier, pas de l'id. */
+	project: { slug: string | null; name: string | null; color: string | null };
 	events: {
 		id: string;
 		eventType: string;
@@ -730,11 +792,18 @@ export async function getFindingWithEvidence(
 } | null> {
 	const db = await resolveDb(client);
 	const rows = await db
-		.select(FINDING_COLUMNS)
+		.select({
+			...FINDING_COLUMNS,
+			projectSlug: projects.slug,
+			projectName: projects.name,
+			projectColor: projects.color
+		})
 		.from(findings)
+		.leftJoin(projects, eq(projects.id, findings.projectId))
 		.where(eq(findings.id, findingId))
 		.limit(1);
 	if (rows.length === 0) return null;
+	const { projectSlug, projectName, projectColor, ...finding } = rows[0];
 
 	const events = await db
 		.select({
@@ -750,5 +819,9 @@ export async function getFindingWithEvidence(
 		.where(eq(findingEvents.findingId, findingId))
 		.orderBy(findingEvents.createdAt);
 
-	return { finding: rows[0], events };
+	return {
+		finding,
+		project: { slug: projectSlug, name: projectName, color: projectColor },
+		events
+	};
 }

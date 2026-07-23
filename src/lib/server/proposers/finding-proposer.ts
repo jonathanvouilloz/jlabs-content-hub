@@ -32,6 +32,7 @@ import {
 	supersedeProposals,
 	approveProposal
 } from '../proposals.js';
+import { isDecidableStatus } from '../proposal-state.js';
 import {
 	PROPOSER_VERSION,
 	SKILL_BY_ACTION,
@@ -326,9 +327,10 @@ export async function runFindingProposer(input: ProposerInput): Promise<Proposer
 				// Ce qui existait AVANT l'écriture : lu d'abord, pour que la
 				// proposition qu'on s'apprête à créer ne se périme pas elle-même.
 				const existing = await listProposalsForFinding(finding.id, db);
-				const known = existing.some(
+				const sameAsBefore = existing.find(
 					(p) => p.actionType === choice.actionType && p.payloadHash === payloadHash
 				);
+				const known = sameAsBefore !== undefined;
 
 				const created = await createProposal(
 					{
@@ -364,7 +366,21 @@ export async function runFindingProposer(input: ProposerInput): Promise<Proposer
 				// Auto-approbation : bornée à L0–L2 ET à une policy explicite. Aucune
 				// exception — `approveProposal` re-vérifie le niveau côté IO et lèvera
 				// si cette garde-ci était un jour contournée.
-				if (autoApproval.allowed) {
+				//
+				// Troisième borne (DASH-005) : on ne re-décide QUE ce qui est encore
+				// décidable. L'upsert de `createProposal` peut retomber sur une
+				// proposition qu'un humain a rejetée ou dont il a demandé la révision —
+				// la ré-approuver automatiquement ferait réécrire une décision humaine
+				// par une machine, au rythme d'une fois par semaine. `approveProposal`
+				// lèverait ; c'est ici qu'on s'abstient, pour ne pas faire échouer tout
+				// le job de production sur un refus parfaitement normal.
+				const reDecidable = !sameAsBefore || isDecidableStatus(sameAsBefore.status);
+				if (autoApproval.allowed && !reDecidable) {
+					produced.autoApprovalReason =
+						`statut « ${sameAsBefore!.status} » : décision humaine déjà prise, ` +
+						`aucune ré-approbation automatique`;
+				}
+				if (autoApproval.allowed && reDecidable) {
 					await approveProposal(
 						{
 							proposalId: created.id,

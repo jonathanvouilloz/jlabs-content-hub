@@ -1002,7 +1002,12 @@ Acceptation :
 
 ## DASH-004 — Vue finding avec preuves
 
-**Priorité :** P0 · **Taille :** M · **État :** READY · **Dépendances :** FIND-003
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-23) · **Dépendances :** FIND-003
+
+Livré : `/inbox/findings/[id]` — faits, preuves brutes (`evidence_json`, aucune synthèse IA),
+journal, propositions issues, et acknowledge/snooze/dismiss/reopen avec **raison obligatoire** via
+les fonctions FIND-003. Les actions offertes sont dérivées de `canTransition` (§10.1), donc l'écran
+ne propose jamais un geste que l'écriture refuserait.
 
 Travail :
 
@@ -1019,7 +1024,15 @@ Acceptation :
 
 ## DASH-005 — Inbox de propositions et validation groupée
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DATA-006
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-23) · **Dépendances :** DATA-006
+
+Livré : `/inbox` (onglets propositions/findings), `/inbox/proposals/[id]`, et les endpoints
+`/api/ops/proposals/**`. Les 4 acceptations sont prouvées en base
+(`scripts/dash-005-inbox-proof.ts`). Le statut **`changes_requested`** est ajouté au vocabulaire —
+il porte « request changes » sans éditeur de payload, et échappe volontairement à
+`decideSupersession` pour qu'une demande humaine survive au run hebdomadaire. **Réserve :** aucune
+approbation n'est exécutée (pas de handler d'exécution), et les propositions sans `finding_id`
+n'ont pas de journal où écrire leur raison de rejet.
 
 Travail :
 

@@ -4,6 +4,121 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-23 (DASH-004+005 — la chaîne atteint enfin l'humain)
+
+**Fait :** la chaîne SPEC `observations → détecteurs → findings → propositions → approbation` était
+construite de bout en bout **sauf son dernier maillon**. En base : **13 findings** et **4
+propositions** `meta_rewrite` **L3**, produites, scorées, gouvernées — et
+`grep -rl "findings" src/routes` rendait **zéro résultat**. Aucune route, aucune page, aucun
+endpoint ne les lisait : le piège AGT-000 (« un module complet que personne n'appelle »), transposé
+à la couche de **sortie**. `proposals.ts` n'exposait d'ailleurs **que de l'écriture** — son seul
+lecteur, `listProposalsForFinding`, ne sert qu'à la supersession. **Zéro DDL** (58 tables : 57
+`seostats` + 1 miroir `core`, zéro dérive) : `changes_requested` est une **valeur** d'une colonne
+`text`, et `idx_action_proposals_status` attendait « l'inbox cross-projet » depuis DATA-006.
+
+- **L'approbation devient OPTIMISTE, et c'est ce qui rend l'acceptation vraie.** « Chaque
+  approbation est liée au hash exact » ne tient pas sous concurrence si l'appelant approuve « la
+  version courante, quelle qu'elle soit » : entre l'affichage et le clic, le run du lundi peut avoir
+  périmé la proposition. L'écran renvoie donc le `payloadHash` **qu'il a montré** ;
+  `approveProposal` compare **sous transaction** et refuse (`stale_hash` → 409) **sans rien
+  écrire**. Effet de bord gratuit : c'est exactement ce qui **exclut du lot un item modifié** — la
+  deuxième acceptation est obtenue par la même comparaison, sans aucune règle d'interface.
+- **BUG LATENT TROUVÉ EN POSANT LA GARDE DE STATUT, et il visait la décision humaine.**
+  `approveProposal` n'avait **aucune** garde de statut : une proposition **`rejected` par un humain**
+  repassait `approved` au simple rappel de la fonction — et le producteur l'appelle **chaque semaine**
+  sur ce que `createProposal` vient d'upserter. Une machine réécrivait donc une décision humaine, en
+  silence, une fois par semaine. Rien n'avait cassé **parce qu'aucun projet n'a de policy**
+  (`decideAutoApproval` refuse par défaut, l'appel n'a jamais lieu) — même forme que les dettes ISO
+  « la table était vide ». Corrigé aux **deux** bouts : la garde dans `approveProposal`, et
+  l'abstention dans `finding-proposer` (qui **ne lève pas** : faire échouer tout un job de production
+  sur un refus parfaitement normal serait pire que le bug).
+- **L'idempotence est DANS la transaction, pas dans une déduplication d'HTTP.** Une double
+  soumission (double clic, rejeu réseau) écrivait deux lignes dans `proposal_approvals` — et §14.3
+  fait de cette table la trace de référence : l'audit aurait dit **deux décisions** là où un humain
+  n'en a pris qu'une. Si la proposition est déjà `approved` **et** porte une approbation `active` sur
+  le **même hash**, l'existante est rendue telle quelle. Prouvé : deux approbations → **1 seule
+  ligne**, même `approvalId`.
+- **`changes_requested` : un statut, pas un éditeur de payload** (décision de Jonathan). L'autre
+  option — éditer le payload à la main — était un piège à deux détentes : l'édition serait
+  **`superseded` au lundi suivant** (`decideSupersession` périme tout `proposed` dont le hash a
+  changé), et un champ volatil ajouté à la main ferait **exploser la dédup**, le piège central
+  d'AGT-000. Le statut, lui, a un effet de bord **voulu** : `decideSupersession` ne touchant que
+  `proposed`/`invalidated`, une révision demandée **survit au run hebdomadaire**. Prouvé en base.
+- **Le lot est reconstruit DEPUIS LA BASE, jamais accepté du client.** `approve-batch` rejoue
+  `buildApprovalLots` sur les lignes réelles et refuse si les ids demandés ne forment pas
+  **exactement un** lot. Une page modifiée, une requête forgée ou un onglet resté ouvert pendant le
+  run hebdo ne peuvent donc pas faire approuver ensemble deux projets ou deux niveaux. **L4 est
+  exclu dans le module PUR**, pas dans un `{#if}` de template : une règle qui ne vit que dans un
+  template se perd au premier refactor.
+- **Un risque `null` forme sa propre classe** (`inconnu`) et ne se mélange jamais à `low` : ne pas
+  savoir n'est pas savoir que c'est faible. Et **un lot d'un seul élément n'est pas un lot** — c'est
+  l'action individuelle, avec un mot de plus et une confirmation de moins.
+- **Une approbation TOMBÉE reste affichée.** « Il y a eu une décision, elle est tombée avec le
+  payload » et « il n'y a jamais eu de décision » sont deux états qu'un écran ne doit pas confondre :
+  le détail rend les approbations `invalidated` et dit **qu'elles portaient un autre payload**. La
+  validité est **recalculée** par `isApprovalValid` contre le hash courant, jamais lue dans le statut
+  seul.
+- **Toute décision négative porte une raison, journalisée au finding** (`agent_comment`, acteur
+  `user:{email}`) : un refus sans motif n'apprend rien au détecteur, qui reproduira le même finding
+  la semaine suivante. C'est aussi l'acceptation DASH-004 « contester avec une raison », et la
+  matière première de FIND-010.
+- **Le filtre par défaut est l'inbox, mais un filtre INVALIDE ne retombe pas dessus.** Sans
+  `?status`, on montre les statuts ouverts (même choix que `listFindings` avec `ACTIVE_STATUSES`).
+  Avec `?status=bogus`, on rend **vide** : l'utilisateur a demandé autre chose que le défaut, lui
+  rendre le défaut lui ferait croire qu'il regarde son filtre.
+- Vérif : `npm run test` = **656/656** (+44) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **aucun DDL**, introspection = **58 tables** (57 `seostats` + 1 `core`), zéro dérive ·
+  **`scripts/dash-005-inbox-proof.ts` = 47/47 vertes sur Neon**, **rejouée trois fois**, base rendue
+  à l'identique (**13 findings**, **4 propositions**, **0 approbation** avant comme après) ·
+  non-régression : `agt-000-proposer-proof`, `find-003-lifecycle-proof`, `job-006-limits-proof`,
+  `job-004-dag-proof` — **0 échec chacune** · **0 horodatage ISO** dans `action_proposals` et
+  `proposal_approvals` · routes sondées en dev (port 5176) : `/inbox`, `/inbox?tab=findings`,
+  `/inbox/proposals/[id]`, `/inbox/findings/[id]` → **303** `/login` ; les **4** endpoints
+  `/api/ops/**` → **401** sans session.
+
+**Acceptations couvertes.** DASH-005 : (1) « chaque approbation est liée au hash exact » —
+l'approbation porte le hash courant, et une approbation présentée avec un hash périmé **n'écrit
+rien** (statut inchangé, 0 ligne) ; (2) « modifier une proposition l'exclut du lot » — le payload
+modifié change le hash, l'item est **écarté nommément** et les deux autres du lot passent ;
+(3) « L4 n'a pas de bouton tout approuver » — deux L4 **parfaitement homogènes** ne forment aucun
+lot ; (4) « une double soumission reste idempotente » — deux approbations, **1 seule** ligne
+d'audit. DASH-004 : (1) « aucune affirmation ne manque de source identifiable » — `evidence_json`
+est rendu **brut**, aucune synthèse IA sur la page ; (2) « contester avec une raison » — la raison
+est **obligatoire** côté endpoint et journalisée ; (3) « l'action indique son niveau
+d'autorisation » — chaque proposition affiche son niveau **et qui peut l'accorder**.
+
+**Prochain :** **GSC-004** (fenêtres 7/28/90 j, backfill borné, périodes incomplètes) ·
+**IDX-001/002** (sitemap, URL Inspection), qui donneront au graphe hebdo ses arêtes profondes ·
+**DASH-002** (accueil cross-projet), maintenant que l'inbox existe pour recevoir ses compteurs.
+
+**Pièges :**
+- **Approuver n'exécute RIEN.** Aucun handler d'exécution n'existe : une approbation est une
+  **décision journalisée**, pas un lancement. C'est dit à l'écran ; le jour où un exécuteur
+  apparaîtra, ces propositions `approved` seront **déjà là** et partiront au premier tick.
+- **`changes_requested` n'a aucune sortie automatique** — seul un humain la lève. C'est voulu (elle
+  est ainsi protégée du run hebdo), mais une proposition oubliée dans cet état **y reste** et rien
+  ne le signale encore.
+- **Une proposition SANS `finding_id` n'a nulle part où journaliser sa raison de rejet.** Aucune
+  n'existe aujourd'hui (le producteur en attache toujours un) ; à traiter quand REP-001 en produira.
+- **Ne jamais approuver sans renvoyer le hash affiché.** Le paramètre est optionnel côté fonction
+  (le chemin agent vient d'écrire le payload et n'a rien à comparer) mais **obligatoire côté
+  endpoint** : le rendre optionnel à l'UI rouvrirait la course que ce lot vient de fermer.
+- **Le rendu visuel n'a PAS pu être constaté** (limite inchangée depuis JOB-007 : aucune session
+  admin ouverte, fournir un mot de passe est exclu). Une session temporaire a été frappée en base
+  pour essayer, **puis supprimée** : le cookie Better Auth est signé, la voie est fermée sans le
+  secret. Ce qui est prouvé : le chargement serveur (303), les endpoints (401), `npm run check` vert.
+- **`= ANY($n)` casse avec le driver Neon** — tout filtre de liste en `IN (…)` paramétré (rappel).
+- Toujours en suspens hors DASH-004/005 : les **5 semaines `2026-07-06` sous-comptées** ne sont
+  toujours pas réparées (`npx tsx scripts/collect-gsc.ts --project=all --week=2026-07-06`) · purge
+  destructive (DATA-008 `--execute`) = session dédiée · **CONTRACT différé** · `ai_jobs → jobs`
+  **écarté** · **la double écriture legacy reste une dette datée** (meurt avec GSC-003) · **rien ne
+  bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50
+  findings** — qui, désormais, **s'afficheront** quelque part.
+
+**Commit :** _(à venir)_
+
+---
+
 ## Etat session 2026-07-23 (GSC-001+002 — la file va enfin CHERCHER la donnée)
 
 **Fait :** tout produisait, tout décidait, et **plus rien ne collectait**. Les observations avaient

@@ -12,7 +12,15 @@
 // ── Vocabulaire (SPEC §7.8 / §12.1) ─────────────────────────────────
 
 /** Statuts d'une proposition : 7 de §7.8 + `invalidated` (payload modifié après
- *  approbation) + `expired`. */
+ *  approbation) + `expired` + `changes_requested` (DASH-005).
+ *
+ *  `changes_requested` est une décision HUMAINE de ne pas trancher tout de suite :
+ *  « cette intention est bonne, sa forme ne l'est pas encore ». Elle est distincte
+ *  d'un `rejected` (qui clôt) et d'un `invalidated` (que la machine pose quand le
+ *  payload bouge sous une approbation). Elle a un effet de bord VOULU : comme
+ *  `decideSupersession` ne périme que `proposed`/`invalidated`, une proposition en
+ *  révision demandée n'est pas écrasée par le run hebdomadaire suivant — sinon la
+ *  demande d'un humain disparaîtrait au prochain lundi, sans trace ni erreur. */
 export const PROPOSAL_STATUSES = [
 	'proposed',
 	'approved',
@@ -22,7 +30,8 @@ export const PROPOSAL_STATUSES = [
 	'failed',
 	'superseded',
 	'invalidated',
-	'expired'
+	'expired',
+	'changes_requested'
 ] as const;
 export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
 
@@ -129,9 +138,40 @@ export function isTerminalProposalStatus(status: string): boolean {
  * Dérive le statut d'une proposition suite à une modification de son payload : si
  * elle était `approved`, elle retombe à `invalidated` (l'approbation ne tient plus) ;
  * sinon elle reste `proposed`. Toute autre valeur en entrée est inchangée.
+ *
+ * `changes_requested` → `proposed` : la révision demandée a été faite, la
+ * proposition redevient une proposition ordinaire. La laisser en révision après
+ * l'avoir révisée la ferait attendre une action que personne ne doit plus prendre.
  */
 export function statusAfterPayloadChange(currentStatus: string): ProposalStatus {
 	if (currentStatus === 'approved') return 'invalidated';
-	if (currentStatus === 'proposed' || currentStatus === 'invalidated') return 'proposed';
+	if (
+		currentStatus === 'proposed' ||
+		currentStatus === 'invalidated' ||
+		currentStatus === 'changes_requested'
+	) {
+		return 'proposed';
+	}
 	return currentStatus as ProposalStatus;
+}
+
+// ── Légalité des décisions humaines (DASH-005) ──────────────────────
+
+/**
+ * Statuts depuis lesquels une DÉCISION humaine est encore possible — miroir des
+ * gardes que les endpoints appliquent, pour que l'interface propose exactement ce
+ * que le serveur acceptera (même discipline que `CANCELLABLE_STATUSES` en JOB-007).
+ *
+ * `invalidated` en fait partie : la proposition existe toujours, c'est son
+ * approbation qui est tombée avec le payload — la re-décider est précisément ce
+ * qu'on attend d'un humain. `changes_requested` aussi : demander une révision
+ * n'engage à rien, on doit pouvoir en revenir sans passer par un autre statut.
+ * Tout le reste est soit engagé (`approved`, `executing`), soit clos.
+ */
+export const DECIDABLE_STATUSES = ['proposed', 'invalidated', 'changes_requested'] as const;
+
+/** Vrai si une décision humaine (approuver / rejeter / demander une révision) est
+ *  encore légale depuis ce statut. */
+export function isDecidableStatus(status: string): boolean {
+	return (DECIDABLE_STATUSES as readonly string[]).includes(status);
 }
