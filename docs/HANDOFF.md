@@ -20,4 +20,4 @@ budgets provider armés ici.
 maintenue) — mais il ne prendra plus le tick entier. Le budget par fenêtre compte des **jobs**, pas
 des **appels API** : c'est le refroidissement qui prévient vraiment.
 
-Commit : `(à renseigner)` [hub] add: JOB-006 limites de concurrence et quotas provider.
+Commit : `84a18ff` [hub] add: JOB-006 limites de concurrence, équité et quotas provider.

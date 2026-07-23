@@ -122,7 +122,7 @@ budgets provider armés ici.
   pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings** (décision maintenue)
   — mais depuis ce lot il ne prendra plus le tick entier.
 
-**Commit :** _(voir ci-dessous)_
+**Commit :** `84a18ff` [hub] add: JOB-006 limites de concurrence, équité entre projets et quotas provider
 
 ---
 
