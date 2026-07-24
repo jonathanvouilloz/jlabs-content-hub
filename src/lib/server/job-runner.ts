@@ -77,6 +77,7 @@ import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
+import { loadGscLatencyDays } from './gsc-settings.js';
 import { expireSnoozes } from './findings.js';
 
 const logger = log('worker');
@@ -134,11 +135,17 @@ export function defaultHandlers(): Map<string, JobHandler> {
 			JOB_TYPE_COLLECT_GSC_QUERY_PAGE,
 			async ({ db, job, signal }) => {
 				const payload = parsePayload(job.payloadJson);
+				// GSC-004 — latence de consolidation réglable en base : le collecteur
+				// et le read-model des fenêtres visent la MÊME « dernière semaine
+				// complète », sinon l'écran dirait « pas à jour » d'une semaine que la
+				// collecte tient déjà pour finale.
+				const latencyDays = await loadGscLatencyDays(db);
 				const res = await collectGscQueryPage({
 					projectId: (payload.projectId as string) ?? job.projectId,
 					weekStart: typeof payload.weekStart === 'string' ? payload.weekStart : null,
 					runId: job.runId,
 					client: db,
+					latencyDays,
 					// Le bail : un collecteur qui l'a perdu doit s'arrêter AVANT
 					// d'écrire, sinon deux workers écrivent la même semaine.
 					signal

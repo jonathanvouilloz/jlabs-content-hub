@@ -4,6 +4,101 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-24 (GSC-004 — les fenêtres 7/28/90 j, le backfill reprenable, la latence réglable)
+
+**Fait :** GSC-004. La comparaison n'était que **semaine-contre-semaine** ; il manquait les fenêtres
+7/28/90 j, la période finale configurable, un backfill borné **reprenable**, et un signalement
+d'incomplétude. Surprise à l'exploration : **une partie était déjà bâtie mais non câblée** —
+`buildWindow`/`areWindowsComparable` (taggés GSC-004 dans `detector-state.ts`), la dégradation de
+confiance du détecteur, et les helpers day-span de `observation-state.ts` (qui, eux, restent pour les
+domaines *date-grained* : index, keyword). Le vrai reste était le **câblage** + le **backfill**.
+**Zéro DDL** (`schema.ts` intact, 57 tables `seostats` + 1 `core`, zéro dérive) : la latence vit dans
+`system_settings` (clé `gsc.latency_days`), le backfill n'a **aucune** table de checkpoint, et
+l'incomplétude n'a **aucune** colonne.
+
+- **Le grain est la SEMAINE, et « 90 jours » ne l'est pas.** Les observations GSC sont hebdomadaires
+  (`period_start`/`period_end` = lundi→dimanche) : « 7/28/90 j » = **1 / 4 / 13 semaines complètes**,
+  ancrées sur `latestCompleteWeekStart`. Une fenêtre glissante au jour près serait une précision que
+  la donnée n'a pas. Les helpers `computeWindowStart`/`WINDOW_DAYS` d'`observation-state.ts` ne sont
+  donc **pas** le bon outil pour GSC — ils le restent pour index/keyword, qui sont `observed_date`.
+- **« Aucun delta entre longueurs incompatibles » est STRUCTUREL, pas un `{#if}`.** Le refus vit dans
+  `computeWindowDelta` (module pur) : une fenêtre précédente trop courte pour égaler la courante rend
+  `{ available:false, reason:'incomparable_lengths' }`. Une règle qui ne vivrait que dans un template
+  se perdrait au premier refactor — même doctrine que le L4 de DASH-005 exclu dans le module pur.
+- **L'incomplétude BAISSE la confiance, elle ne s'invente pas un drapeau.** `windowCompleteness`
+  DÉRIVE couverture + caveats de deux manques distincts — *pas assez de semaines* (`weeks < expected`)
+  et *pas la dernière semaine complète* (`current.end < latestCompleteWeekEnd`, fenêtre en retard, pas
+  tronquée) — jamais une colonne stockée. Doctrine « état dérivé, jamais stocké » (JOB-004/005) : deux
+  états qui divergent valent moins qu'un seul qui se recalcule.
+- **La latence est réglable SANS redéploiement, et le collecteur la partage.** `latestCompleteWeekStart`
+  gagne un paramètre `latencyDays` (défaut `GSC_LATENCY_DAYS`, comportement d'avant strictement
+  inchangé) ; `loadGscLatencyDays` le lit dans `system_settings`. **Piège évité** : si seul le
+  read-model lisait le réglage, il jugerait « pas à jour » une semaine que le collecteur tient déjà
+  pour finale — donc le handler `collect:gsc_query_page` résout la même latence et la passe au
+  collecteur. Une valeur illisible/négative retombe sur le défaut (jamais un décalage silencieux).
+- **Le backfill est REPRENABLE SANS CHECKPOINT — la reprise est dérivée de la base.** `enqueueGscBackfill`
+  ne ré-enfile que les semaines **sans observation** dans la plage (bornée), par tranches
+  (`maxWeeksPerBatch`), en jobs `collect:gsc_query_page` (déjà idempotents) drainés sous quota/
+  refroidissement JOB-006. Un checkpoint stocké pourrait **mentir** (une semaine « faite » dont le job
+  a échoué après) ; la présence réelle d'observations, non. Conséquence assumée, prouvée en base : le
+  `batch` est un **débit** (jusqu'à N jobs en vol), pas un curseur — rappeler la fonction avant que la
+  tranche soit collectée re-enfile les **mêmes** semaines (idempotent, 0 doublon) ; la reprise
+  **avance** dès qu'une semaine devient présente. Jamais au-delà de la dernière semaine complète (une
+  semaine partielle se lirait comme une chute — le faux signal GSC-006).
+- **Année N-1 : câblée mais INERTE.** `buildYoyComparison` compare la fenêtre courante aux mêmes
+  semaines 52 semaines plus tôt (364 j, pour retomber sur des lundis) — cherchées parmi les paires
+  RÉELLES. La donnée commençant ~2026, elle rend `{ available:false }` jusqu'en 2027, puis s'activera
+  seule. Plutôt qu'un module que rien ne peut nourrir (piège AGT-000), un gate qui se réveille.
+- Vérif : `npm run test` = **679/679** (+23 : 18 `gsc-windows-state` + 5 `gsc-settings`) · `npm run
+  check` = **0 err / 42 warn** (baseline) · **aucun DDL**, `schema.ts` intact, **57 tables `seostats`**
+  (+1 `core`), zéro dérive · **`scripts/gsc-004-windows-proof.ts` = 35/35 vertes sur Neon**, base
+  rendue à l'identique (**75467 observations, 16 jobs, 13 findings, 4 propositions** avant comme après)
+  · non-régression : `dash-005-inbox-proof`, `agt-000-proposer-proof`, `find-003-lifecycle-proof`,
+  `job-006-limits-proof`, `job-004-dag-proof` — **0 échec chacune** · routes sondées en dev (port
+  5199) : `GET /api/projects/[slug]/gsc/windows` → **401** sans auth, **200** avec la clé (barberconcept :
+  16 semaines, span 7 = 859 clics / 109 060 impr, la semaine réparée) ; `/projects/[slug]/windows` →
+  **303** `/login`.
+
+**Acceptations couvertes.** (1) « aucun delta n'est calculé entre périodes de longueurs
+incompatibles » : span 90 sur 8 semaines seulement → non comparable, **delta indisponible**, prouvé en
+base ; (2) « le backfill est reprenable » : reprise **dérivée** des observations, idempotente,
+qui **avance** quand une semaine est collectée — prouvé (2ᵉ appel = 0 doublon, collecte simulée →
+nouvelle semaine enfilée) ; (3) « un manque de données baisse la confiance au lieu de produire un faux
+signal » : `windowCompleteness` rend couverture < 1 + caveat explicite (tronquée / pas à jour), et le
+détecteur garde sa dégradation de confiance interne (intacte, non touchée).
+
+**Prochain :** **DASH-002** (accueil cross-projet, maintenant que l'inbox ET les fenêtres existent) ·
+**IDX-001/002** (sitemap, URL Inspection) · **DASH-003** (cockpit projet), désormais débloqué côté
+fenêtres — il consommera `GET /gsc/windows` et pourra remplacer/enrichir le panneau `/windows`.
+
+**Pièges :**
+- **Le read-model lit le CANON, pas le legacy.** `loadGscWindows` lit `gsc_query_page_observations`
+  (même source que le détecteur) — jamais `gsc_snapshots`/`gsc_weekly_diffs`. Ne pas y brancher un
+  chemin legacy : l'écran et le détecteur divergeraient, ce que GSC-002 venait de fermer.
+- **`= ANY($n)` casse avec Neon** : les fenêtres et la dérivation de présence filtrent par bornes
+  `>=`/`<=` sur `period_start`, jamais par liste paramétrée (rappel, respecté partout ici).
+- **`batch` est un débit, pas un curseur.** Rappeler `enqueueGscBackfill` avant que la tranche soit
+  collectée re-enfile les mêmes semaines (idempotent). C'est voulu : ça borne le nombre de jobs en vol
+  sur un compte partagé, et ça avance tout seul à mesure que la file draine. Ne pas « corriger » ça en
+  un curseur stocké — ce serait le checkpoint menteur qu'on a écarté.
+- **Le panneau `/windows` n'est PAS constatable visuellement** sans session admin (limite JOB-007
+  inchangée) : prouvé au chargement (303/401/200) et au `check`, jamais au rendu. DASH-003 le
+  reprendra ; d'ici là c'est un panneau fonctionnel mais non relu à l'œil.
+- **`gsc-002` non rejoué** (quota GSC réel, compte partagé) : justifié — le cœur du collecteur est
+  inchangé (le paramètre `latencyDays` est optionnel et vaut 3 par défaut), et le chemin de lecture des
+  observations est exercé par `gsc-004-windows-proof`. À rejouer au prochain vrai run de collecte.
+- **Une preuve interrompue saute son `cleanup()`** : vérifier les semaines sentinelles **2018-2019**
+  (`gsc_query_page_observations`), les jobs `backfill:collect:gsc_query_page:%`, et la clé
+  `gsc.latency_days` de `system_settings` après toute interruption.
+- Toujours en suspens hors GSC-004 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · la **double écriture legacy** reste une dette datée (meurt avec GSC-003) ·
+  **rien ne bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50
+  findings** (décision maintenue).
+
+**Commit :** _(à référencer au commit)_
+
+---
+
 ## Etat session 2026-07-23 (DASH-004+005 — la chaîne atteint enfin l'humain)
 
 **Fait :** la chaîne SPEC `observations → détecteurs → findings → propositions → approbation` était

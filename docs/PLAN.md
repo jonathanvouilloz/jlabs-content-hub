@@ -84,8 +84,15 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   `changes_requested` motivés et journalisés, lots homogènes dont les **L4 sont exclues**, vue
   finding avec preuves brutes ; ⚠️ approuver **n'exécute rien**, aucun handler d'exécution
   n'existe). DB à **58 tables, zéro dérive** (57 `seostats` + 1 miroir `core` ; `system_settings`,
-  seul DDL depuis JOB-003) · test **656/656**. Prochain : **GSC-004** (fenêtres/backfill),
-  **IDX-001/002** (sitemap, URL Inspection) ou **DASH-002** (accueil cross-projet).
+  seul DDL depuis JOB-003) · test **656/656**. **Et la comparaison devient multi-fenêtres** :
+  **GSC-004** (fenêtres **7/28/90 j** = 1/4/13 semaines sur le canon d'observations, **delta gardé par
+  comparabilité** — aucun calcul entre longueurs incompatibles —, **confiance dérivée** d'une fenêtre
+  tronquée ou pas à jour ; **latence GSC réglable** sans redéploiement via `system_settings` ;
+  **backfill borné et reprenable** piloté par la file, reprise **dérivée** des observations sans table
+  de checkpoint ; année N-1 câblée mais **inerte** jusqu'en 2027 ; endpoint `GET /gsc/windows` +
+  panneau `/projects/[slug]/windows`). **Zéro DDL** (`schema.ts` intact, 57 `seostats` + 1 `core`) ·
+  test **679/679**. Prochain : **DASH-002** (accueil cross-projet), **IDX-001/002** (sitemap, URL
+  Inspection) ou **DASH-003** (cockpit projet, débloqué côté fenêtres).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

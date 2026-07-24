@@ -52,9 +52,21 @@ export function weekEndOf(weekStart: string): string {
 	return addDaysIso(weekStart, 6);
 }
 
-/** Dernière semaine lundi→dimanche entièrement consolidée. */
-export function latestCompleteWeekStart(now: Date = new Date()): string {
-	const ref = new Date(now.getTime() - GSC_LATENCY_DAYS * 24 * 60 * 60 * 1000);
+/**
+ * Dernière semaine lundi→dimanche entièrement consolidée.
+ *
+ * La latence est PARAMÉTRABLE (GSC-004 : « rendre la période finale configurable
+ * selon la latence GSC ») mais reste `GSC_LATENCY_DAYS` par défaut : sans réglage en
+ * base, le comportement est strictement celui d'avant. Une valeur illisible ou
+ * négative retombe sur le défaut du code — on ne laisse jamais un réglage corrompu
+ * décaler la fenêtre en silence.
+ */
+export function latestCompleteWeekStart(
+	now: Date = new Date(),
+	latencyDays: number = GSC_LATENCY_DAYS
+): string {
+	const days = Number.isFinite(latencyDays) && latencyDays >= 0 ? Math.floor(latencyDays) : GSC_LATENCY_DAYS;
+	const ref = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 	return previousWeekStart(weekStartOf(ref));
 }
 
@@ -72,6 +84,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function resolveCollectionWeek(input: {
 	requested?: string | null;
 	now?: Date;
+	/** Latence de consolidation (défaut `GSC_LATENCY_DAYS`) — cf. `latestCompleteWeekStart`. */
+	latencyDays?: number;
 }): { weekStart: string; weekEnd: string; requested: boolean } {
 	const requested = input.requested?.trim();
 	if (requested) {
@@ -81,7 +95,7 @@ export function resolveCollectionWeek(input: {
 		const weekStart = weekStartOf(new Date(`${requested}T00:00:00Z`));
 		return { weekStart, weekEnd: weekEndOf(weekStart), requested: true };
 	}
-	const weekStart = latestCompleteWeekStart(input.now ?? new Date());
+	const weekStart = latestCompleteWeekStart(input.now ?? new Date(), input.latencyDays);
 	return { weekStart, weekEnd: weekEndOf(weekStart), requested: false };
 }
 

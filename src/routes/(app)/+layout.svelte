@@ -19,6 +19,7 @@
 		TrendingUp,
 		Building2,
 		LineChart,
+		CalendarRange,
 		Search,
 		ListChecks,
 		Inbox
@@ -74,6 +75,7 @@
 			{ href: `/projects/${slug}/gmb-logs`, label: 'Logs GMB', icon: ScrollText, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/reviews`, label: 'Avis Google', icon: Star, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/seo-data`, label: 'SEO data', icon: TrendingUp, exact: false, linkedin: false },
+			{ href: `/projects/${slug}/windows`, label: 'Fenêtres', icon: CalendarRange, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/positions`, label: 'Positions', icon: LineChart, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/settings`, label: 'Parametres', icon: Settings, exact: false, linkedin: false }
 		];

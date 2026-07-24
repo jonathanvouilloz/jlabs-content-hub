@@ -82,6 +82,12 @@ export interface CollectGscInput {
 	deps?: GscAuthDeps;
 	client?: AppDb;
 	now?: Date;
+	/**
+	 * GSC-004 — latence de consolidation (jours) pour résoudre « la dernière semaine
+	 * complète ». Optionnelle : le handler la résout depuis `system_settings`, mais
+	 * l'omettre retombe sur `GSC_LATENCY_DAYS` (comportement d'avant, inchangé).
+	 */
+	latencyDays?: number;
 	signal?: AbortSignal;
 }
 
@@ -116,7 +122,8 @@ export async function collectGscQueryPage(input: CollectGscInput): Promise<Colle
 	const deps: GscAuthDeps = { ...input.deps, client: input.deps?.client ?? input.client };
 	const { weekStart, weekEnd } = resolveCollectionWeek({
 		requested: input.weekStart,
-		now: input.now
+		now: input.now,
+		latencyDays: input.latencyDays
 	});
 
 	const binding = await loadGscBinding(input.projectId, deps);
