@@ -1,10 +1,31 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents, projects, gmbReviews } from '$lib/server/db/schema.js';
+import { contents, projects } from '$lib/server/db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
+import { loadHomeCockpit } from '$lib/server/home.js';
+import { normalizeWindowDays } from '$lib/server/home-state.js';
 
-export const load: PageServerLoad = async () => {
-	const [statusCounts, projectCount, recentContents, pendingReviews, reviewContents] = await Promise.all([
+/**
+ * DASH-002 — L'accueil EST le cockpit cross-projet (SPEC §13.1).
+ *
+ * Ce que la page doit permettre : « identifier en moins d'une minute les projets
+ * nécessitant une action ». D'où l'ordre à l'écran — les projets à traiter d'abord, triés
+ * par urgence, chacun avec UNE phrase qui nomme l'axe en cause (collecte cassée vs
+ * performance en baisse, jamais un score unique qui les confondrait).
+ *
+ * Tout le jugement vit dans `home-state.ts` (pur, testé) et toute la lecture dans
+ * `home.ts` (client injecté) : ce loader ne fait que passer la fenêtre et rendre. Un
+ * calcul posé ici serait invisible aux tests et au runner de preuve.
+ *
+ * Le bandeau CONTENU (compteurs + derniers contenus) reste, en second : c'est l'ancien
+ * accueil Content Hub, il sert encore, mais il ne décide de rien — il passe donc sous ce
+ * qui décide. Aucune route n'est supprimée.
+ */
+export const load: PageServerLoad = async ({ url }) => {
+	const windowDays = normalizeWindowDays(url.searchParams.get('days'));
+
+	const [cockpit, statusCounts, recentContents] = await Promise.all([
+		loadHomeCockpit({ db, windowDays }),
 		db
 			.select({
 				draft: sql<number>`sum(case when ${contents.status} = 'draft' then 1 else 0 end)`,
@@ -14,11 +35,7 @@ export const load: PageServerLoad = async () => {
 				total: sql<number>`count(*)`
 			})
 			.from(contents)
-			.then(r => r[0]),
-		db
-			.select({ count: sql<number>`count(*)` })
-			.from(projects)
-			.where(eq(projects.archived, false)),
+			.then((r) => r[0]),
 		db
 			.select({
 				id: contents.id,
@@ -35,45 +52,18 @@ export const load: PageServerLoad = async () => {
 			.from(contents)
 			.leftJoin(projects, eq(contents.projectId, projects.id))
 			.orderBy(desc(contents.createdAt))
-			.limit(10),
-		// Count pending reviews grouped by project
-		db
-			.select({
-				projectId: gmbReviews.projectId,
-				projectName: projects.name,
-				projectSlug: projects.slug,
-				projectColor: projects.color,
-				count: sql<number>`count(*)`
-			})
-			.from(gmbReviews)
-			.leftJoin(projects, eq(gmbReviews.projectId, projects.id))
-			.groupBy(gmbReviews.projectId),
-		// Count contents in review
-		db
-			.select({
-				projectId: contents.projectId,
-				projectName: projects.name,
-				projectSlug: projects.slug,
-				projectColor: projects.color,
-				count: sql<number>`count(*)`
-			})
-			.from(contents)
-			.leftJoin(projects, eq(contents.projectId, projects.id))
-			.where(eq(contents.status, 'review'))
-			.groupBy(contents.projectId)
+			.limit(8)
 	]);
 
 	return {
-		stats: {
-			projects: projectCount[0]?.count ?? 0,
+		cockpit,
+		contentStats: {
 			draft: statusCounts?.draft ?? 0,
 			review: statusCounts?.review ?? 0,
 			approved: statusCounts?.approved ?? 0,
 			published: statusCounts?.published ?? 0,
 			total: statusCounts?.total ?? 0
 		},
-		recentContents,
-		pendingReviews,
-		reviewContents
+		recentContents
 	};
 };

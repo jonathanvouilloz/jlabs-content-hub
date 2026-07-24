@@ -679,6 +679,20 @@ export interface ListFindingsInput {
 	statuses?: readonly string[];
 	types?: readonly string[];
 	minPriority?: number;
+	/**
+	 * DASH-002 — Filtre d'ACTIVITÉ : ne garder que les findings ayant reçu un événement
+	 * de l'un de ces types depuis `activitySince` (format DB).
+	 *
+	 * Existe pour que les compteurs de l'accueil (« 3 nouveaux », « 2 aggravés ») ouvrent
+	 * une liste qui contient EXACTEMENT ce qu'ils ont compté : le compteur et la liste
+	 * passent par cette même clause. Sans lui, le lien mènerait à un autre ensemble —
+	 * et l'acceptation « chaque compteur ouvre une liste filtrée cohérente » serait
+	 * décorative. On filtre sur les ÉVÉNEMENTS et non sur `first_seen_at`/`resolved_at` :
+	 * ces colonnes ne couvrent pas `aggravated`, et mélanger deux sources ferait diverger
+	 * deux compteurs de la même ligne.
+	 */
+	activityEvents?: readonly string[];
+	activitySince?: string | null;
 	limit?: number;
 	offset?: number;
 }
@@ -730,6 +744,21 @@ function findingFilters(input: ListFindingsInput) {
 	if (input.types && input.types.length > 0) filters.push(inArray(findings.type, [...input.types]));
 	if (typeof input.minPriority === 'number' && Number.isFinite(input.minPriority)) {
 		filters.push(gte(findings.priorityScore, Math.floor(input.minPriority)));
+	}
+	// DASH-002 — activité : EXISTS sur le journal, jamais une jointure. Une jointure
+	// dupliquerait la ligne autant de fois qu'elle a d'événements et ferait mentir
+	// `countFindings` (deux aggravations d'un même finding compteraient pour deux).
+	// ⚠️ Jamais `= ANY($n)` (driver Neon) : `inArray` produit un `IN (…)` paramétré
+	// classique, la borne temporelle est un `>=` simple.
+	if (input.activitySince && input.activityEvents && input.activityEvents.length > 0) {
+		filters.push(
+			sql`EXISTS (
+				SELECT 1 FROM ${findingEvents}
+				 WHERE ${findingEvents.findingId} = ${findings.id}
+				   AND ${inArray(findingEvents.eventType, [...input.activityEvents])}
+				   AND ${findingEvents.createdAt} >= ${input.activitySince}
+			)`
+		);
 	}
 	return filters.length > 0 ? and(...filters) : undefined;
 }

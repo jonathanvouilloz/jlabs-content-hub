@@ -91,8 +91,15 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   **backfill borné et reprenable** piloté par la file, reprise **dérivée** des observations sans table
   de checkpoint ; année N-1 câblée mais **inerte** jusqu'en 2027 ; endpoint `GET /gsc/windows` +
   panneau `/projects/[slug]/windows`). **Zéro DDL** (`schema.ts` intact, 57 `seostats` + 1 `core`) ·
-  test **679/679**. Prochain : **DASH-002** (accueil cross-projet), **IDX-001/002** (sitemap, URL
-  Inspection) ou **DASH-003** (cockpit projet, débloqué côté fenêtres).
+  test **679/679**. **Et l'accueil devient le cockpit** : **DASH-002** (`/` cross-projet — santé à
+  **deux axes qui ne fusionnent jamais**, `pipeline` vs `signal`, un pipeline cassé rendant le signal
+  **`unknown` et jamais `ok`** de sorte qu'une collecte morte ne se lise plus comme le projet le plus
+  sain ; **compteurs dont le nombre et le lien naissent du même filtre**, rejoués depuis leur URL dans
+  la preuve, et **sans lien** quand aucune liste ne saurait les reproduire ; filtre d'activité
+  `?event=`/`?since=` sur l'inbox via EXISTS sur `finding_events` ; « jamais collecté » ≠ 0 h ; ordre
+  d'urgence **total** où `unknown` passe avant `watch` ; **coûts « non instrumentés »**, pas à zéro).
+  **Zéro DDL** · test **716/716**. Prochain : **IDX-001/002** (sitemap, URL Inspection) ou **DASH-003**
+  (cockpit projet, débloqué côté fenêtres).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

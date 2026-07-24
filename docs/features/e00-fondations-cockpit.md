@@ -4,6 +4,119 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (DASH-002 — l'accueil cesse de confondre « la collecte est morte » et « tout va bien »)
+
+**Fait :** DASH-002. La chaîne était complète et l'inbox la rendait décidable — mais **l'accueil
+était encore l'ancien dashboard Content Hub** : compteurs draft/review/publiés et 10 derniers
+contenus, c'est-à-dire zéro information sur ce que le cockpit détecte. Six projets, 13 findings, 4
+propositions, une file gouvernée, des fenêtres de comparaison : rien de tout ça n'apparaissait sur la
+page d'ouverture. **Zéro DDL** (57 tables `seostats` + 1 miroir `core`, `schema.ts` intact, vérifié par
+introspection) : tout se dérive de tables existantes, y compris la notion de « période ».
+
+- **DEUX axes qui ne fusionnent JAMAIS en un score, et c'est toute l'acceptation.** `classifyProject`
+  tient `pipeline` (est-ce que la donnée arrive ?) et `signal` (que dit la donnée ?) séparés jusqu'à
+  l'écran. Un badge unique aurait fait exactement ce que l'acceptation interdit : confondre « le SEO
+  baisse » et « le credential est mort », qui demandent deux gestes opposés. Chaque carte porte donc
+  **une phrase qui nomme l'axe** (« Collecte à réparer — … » vs « Performance à traiter — … »).
+- **Un pipeline cassé rend le signal `unknown`, jamais `ok` — le cœur du lot.** Sans cette règle, un
+  projet dont la collecte est morte afficherait « 0 nouveau finding » et se lirait comme **le projet le
+  plus sain du portefeuille**. C'est le pire mode de panne, celui qui ne se plaint pas. Même doctrine
+  que §10.3 (« une fenêtre absente n'est pas des zéros ») portée à l'échelle du projet. Ce qui était
+  DÉJÀ connu reste dit (un critique découvert avant la panne ne disparaît pas).
+- **Le compteur et sa liste sont le MÊME filtre, pas un nombre et un lien écrits séparément.**
+  `buildCounter` produit les deux depuis un `CounterFilter` unique, et le read-model **compte avec ce
+  descripteur**. La preuve ne compare pas deux nombres calculés par le même code : elle **part de
+  l'URL** et la rejoue comme le loader de l'inbox le ferait. Corollaire assumé : un compteur dont
+  aucune liste ne saurait reproduire le filtre **n'a pas de lien** (`href: null`) — les avis (aucune vue
+  cross-projet n'existe) et les runs d'une période (§13.4 leur donnera la leur) restent des chiffres,
+  plutôt que des liens qui mèneraient ailleurs.
+- **Le filtre d'activité a dû naître pour que ces liens existent.** `ListFindingsInput` gagne
+  `activityEvents`/`activitySince` (clause **EXISTS** sur `finding_events`, jamais une jointure — une
+  jointure dupliquerait la ligne autant de fois qu'elle a d'événements et ferait mentir
+  `countFindings`). Filtrer sur les ÉVÉNEMENTS et non sur `first_seen_at`/`resolved_at` : ces colonnes
+  ne couvrent pas `aggravated`, et mélanger deux sources ferait diverger deux compteurs de la même ligne.
+- **BUG TROUVÉ EN ÉCRIVANT LA PREUVE, latent et daté.** `loadActivity` comptait des **lignes de
+  journal** (`count(*)`) là où la liste liée dédoublonne par finding. Un finding aggravé deux semaines
+  de suite annonçait donc « 2 aggravés » pour **un seul problème** — et `reconcileDetectionRun` écrit un
+  `aggravated` par run, si bien que **toute fenêtre de 28/90 j** rencontrait le cas. La preuve initiale
+  passait par chance (aucun finding n'avait deux aggravations dans 7 j). Corrigé en
+  `count(DISTINCT finding_id)` + contre-épreuve dédiée (bloc B-bis) qui seede la seconde aggravation.
+- **« Jamais collecté » n'est pas un âge de 0 heure.** `deriveFreshness` rend `ageHours: null` et un
+  état `never` À PART : brancher un flux et réparer un flux cassé sont deux gestes différents. Le
+  template ne formate jamais `ageHours ?? 0` — l'acceptation « l'état des données n'est jamais confondu
+  avec une valeur zéro » se perdrait là.
+- **`unknown` se classe AVANT `watch`, délibérément.** Ne pas savoir est plus urgent qu'un signal faible
+  connu : un projet muet est le seul qui puisse cacher n'importe quoi. Et l'ordre est **TOTAL** (dernière
+  clé : le slug) — un écran dont les lignes permutent sans que rien n'ait changé ne se lit plus « en
+  moins d'une minute ».
+- **Les coûts sont « non instrumentés », pas à zéro.** `monitoring_runs.cost_json` existe depuis
+  DATA-003 mais **rien ne l'écrit** (seul `createRun` l'accepte, aucun appelant ne le passe) : afficher
+  « 0 » confondrait *gratuit* et *pas mesuré*. Le gate se réveillera **seul** au premier run qui portera
+  un coût — même forme que le YoY inerte de GSC-004. Un `cost_json` cassé n'écroule pas la page.
+- **Seuil de retard à 10 jours, pas 7.** La cadence est hebdomadaire et la latence GSC vise 8+ jours
+  (GSC-002) : un seuil à 7 j ferait crier les six projets tous les dimanches sur une file parfaitement
+  saine — et une alerte qui crie chaque semaine n'est plus lue.
+- **La fraîcheur du pipeline est celle de GSC, pas du dernier provider quelconque.** Prendre le dernier
+  succès toutes intégrations confondues ferait passer un projet pour frais **parce que LinkedIn a publié
+  un post**, alors que le canon d'observations dont tout dépend n'a rien reçu.
+- **Une lecture par domaine, groupée par projet.** Six projets × sept compteurs feraient 42
+  allers-retours pour une page d'accueil sur un pooler serverless. Et les cumuls cross-projet sont la
+  **somme des cartes**, jamais une requête de plus : le total et le détail ne peuvent pas annoncer deux
+  chiffres pour la même chose.
+- Vérif : `npm run test` = **716/716** (+37 `home-state`) · `npm run check` = **0 err / 42 warn**
+  (baseline) · **aucun DDL**, introspection = **57 tables `seostats`** (+1 `core`), `schema.ts`
+  non modifié (`git status` vide) · **`scripts/dash-002-home-proof.ts` = 44/44 vertes sur Neon**,
+  **rejouée**, base rendue à l'identique (**13 findings, 17 events, 4 propositions, 6 intégrations,
+  16 jobs, 75 467 observations** avant comme après) · non-régression : `dash-005-inbox-proof`,
+  `agt-000-proposer-proof`, `find-003-lifecycle-proof`, `job-006-limits-proof`, `job-004-dag-proof`,
+  `gsc-004-windows-proof` — **0 échec chacune** · routes sondées en dev (port 5200) : `/`,
+  `/?days=28`, `/?days=bogus`, `/inbox?tab=findings&event=…&since=…` → **303** `/login`.
+
+**Acceptations couvertes.** (1) « une intégration cassée est distincte d'une baisse de performance » :
+deux projets réels, deux causes — l'un passe `broken` avec **signal `unknown`** (et non `ok` malgré 0
+finding) et une phrase qui parle de collecte, l'autre `at_risk` avec **pipeline sain** et une phrase qui
+parle de performance ; les deux verdicts ne partagent ni état ni phrase, prouvé en base ; (2) « chaque
+compteur ouvre une liste filtrée cohérente » : les **6 compteurs liés** sont rejoués **depuis leur URL**
+et rendent exactement le nombre affiché, portée cross-projet **et** portée projet — le 7ᵉ n'a pas de
+lien et le dit ; (3) « Jonathan identifie en moins d'une minute les projets nécessitant une action » :
+l'ordre rendu est l'ordre d'urgence (`broken` avant `at_risk`), **stable entre deux lectures**, avec les
+projets à traiter isolés en tête et la santé du portefeuille au **pire** état représenté.
+
+**Prochain :** **IDX-001/002** (sitemap, URL Inspection), qui donneront au graphe hebdo ses arêtes
+profondes · **DASH-003** (cockpit projet, débloqué côté fenêtres — consommera `GET /gsc/windows` et
+pourra reprendre le panneau `/windows`) · **DASH-001** (navigation/design system) reste BLOCKED par
+GOV-002.
+
+**Pièges :**
+- **Le rendu visuel n'a PAS pu être constaté** (limite inchangée depuis JOB-007 : aucune session admin,
+  fournir un mot de passe est exclu, le cookie Better Auth est signé). Ce qui est prouvé : le chargement
+  serveur (303), la compilation (`check` 0 err + build qui compile ses 4090 modules), et le read-model
+  sur Neon. **La mise en page de l'accueil n'a jamais été vue par un œil.**
+- **`npm run build` échoue à l'ADAPTATEUR Vercel** (`EPERM symlink` sur `(app).func`) : limite Windows
+  **préexistante**, vérifiée à l'identique sur l'arbre sans ce lot. La compilation, elle, passe. Ne pas
+  diagnostiquer ça comme une régression du cockpit.
+- **Un compteur ajouté doit naître d'un `CounterFilter`**, jamais d'un nombre + une URL écrits à la
+  main : c'est le seul endroit où la cohérence compteur/liste est tenue, et la preuve ne rejouera que
+  ce que le descripteur sait décrire.
+- **Compter des PROBLÈMES, pas des lignes de journal.** Tout nouveau compteur d'activité doit
+  dédoublonner par `finding_id` (cf. le bug ci-dessus), sinon il divergera de sa liste dès qu'un finding
+  reçoit deux événements du même type dans la fenêtre.
+- **Le seuil de 10 j est un choix, pas une constante physique** (`GSC_STALE_AFTER_HOURS`) : si la cadence
+  de collecte change, il doit changer avec elle, sinon l'accueil devient soit muet soit criard.
+- **`= ANY($n)` casse avec le driver Neon** — bornes `>=` et `inArray` (`IN (…)`) partout ici (rappel).
+- **Une preuve interrompue saute son `cleanup()`** : vérifier alors le provider d'intégration
+  `__test_dash002` (`project_integrations`) et les fingerprints `__test_dash002:%` (`findings` +
+  `finding_events`, **enfants d'abord**).
+- Toujours en suspens hors DASH-002 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · la **double écriture legacy** reste une dette datée (meurt avec GSC-003) ·
+  `gsc-002` non rejoué (quota) · **rien ne bat tant que ce n'est pas déployé** · au 1er tick hebdo,
+  `barberconcept` écrira ses **50 findings** (décision maintenue) — qui, désormais, **le feront passer
+  en tête de l'accueil**.
+
+**Commit :** `1a86df3` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
+
+---
+
 ## Etat session 2026-07-24 (GSC-004 — les fenêtres 7/28/90 j, le backfill reprenable, la latence réglable)
 
 **Fait :** GSC-004. La comparaison n'était que **semaine-contre-semaine** ; il manquait les fenêtres

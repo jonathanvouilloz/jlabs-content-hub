@@ -237,6 +237,23 @@
 		</div>
 	</div>
 
+	<!-- Filtre d'ACTIVITÉ (arrivée depuis un compteur de l'accueil, DASH-002) -->
+	<!-- Une liste filtrée sur une période qui ne dirait pas son filtre se lirait comme un
+	     total : le bandeau nomme la période ET offre la sortie. -->
+	{#if data.activity}
+		<div class="flex-shrink-0 px-6 lg:px-8 pb-3">
+			<div class="flex flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+				<span class="font-medium">
+					Filtré sur l'activité : {data.activity.events.join(', ')}
+				</span>
+				<span class="text-sky-700">depuis {data.activity.since.slice(0, 16)}</span>
+				<a href="/inbox?tab=findings" class="ml-auto font-medium text-sky-700 underline hover:text-sky-900">
+					Voir tous les findings
+				</a>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Filtres -->
 	<div class="flex-shrink-0 px-6 lg:px-8 pb-4">
 		<div class="flex flex-wrap items-end gap-3 rounded-lg border border-surface-200 bg-surface-50 p-3">

@@ -13,6 +13,7 @@ import {
 	proposalAbilities
 } from '$lib/server/proposal-console.js';
 import { toDbTimestamp } from '$lib/server/timestamps.js';
+import { ACTIVITY_EVENTS, parseDbTimestampMs } from '$lib/server/home-state.js';
 
 /**
  * DASH-004/005 — L'inbox : ce que le cockpit a produit et qui attend un humain.
@@ -51,9 +52,26 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const findingStatuses = rawFindingStatus.filter((s) =>
 		(FINDING_STATUSES as readonly string[]).includes(s)
 	);
+	// DASH-002 — filtre d'ACTIVITÉ (`?event=` + `?since=`) : c'est par lui que les
+	// compteurs de l'accueil (« 3 nouveaux », « 2 aggravés ») ouvrent une liste contenant
+	// exactement ce qu'ils ont compté. Comme partout ici, une valeur inventée est ÉCARTÉE
+	// et jamais transmise : un `event` hors catalogue rend le filtre inerte plutôt que de
+	// produire une clause vide qui laisserait tout passer.
+	const rawEvent = (url.searchParams.get('event') ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter((s) => (ACTIVITY_EVENTS as readonly string[]).includes(s));
+	const rawSince = (url.searchParams.get('since') ?? '').trim();
+	// La borne doit être un horodatage lisible au format DB : sinon on l'ignore, plutôt
+	// que de l'envoyer telle quelle dans une comparaison de chaînes.
+	const activitySince =
+		rawEvent.length > 0 && rawSince && parseDbTimestampMs(rawSince) !== null ? rawSince : null;
+
 	const findingFilters = {
 		projectSlug: filters.projectSlug,
 		statuses: rawFindingStatus.length === 0 ? ACTIVE_STATUSES : findingStatuses,
+		activityEvents: activitySince ? rawEvent : undefined,
+		activitySince,
 		limit: filters.limit,
 		offset: filters.offset
 	};
@@ -90,6 +108,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		tab,
 		filters,
 		findingStatuses: rawFindingStatus.length === 0 ? [...ACTIVE_STATUSES] : findingStatuses,
+		// Rendu à l'écran pour que l'utilisateur SACHE qu'il regarde une période et non
+		// tout l'historique : une liste filtrée qui ne dit pas son filtre se lit comme un
+		// total (même raison qu'au filtre de statut invalide qui ne retombe pas sur le défaut).
+		activity: activitySince ? { events: rawEvent, since: activitySince } : null,
 		proposals: proposalRows.map((p) => ({
 			...p,
 			// La légalité est décidée SERVEUR (règle JOB-007) : l'interface propose
