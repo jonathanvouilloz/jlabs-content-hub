@@ -95,7 +95,7 @@ fenêtres — il consommera `GET /gsc/windows` et pourra remplacer/enrichir le p
   **rien ne bat tant que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50
   findings** (décision maintenue).
 
-**Commit :** _(à référencer au commit)_
+**Commit :** `bdbbc46` [hub] add: GSC-004 fenêtres de comparaison, backfill reprenable, latence réglable
 
 ---
 

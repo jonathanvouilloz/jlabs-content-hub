@@ -20,4 +20,4 @@ jamais le legacy · le `batch` du backfill est un débit, pas un curseur (rappel
 `/windows` non constatable sans session admin · `gsc-002` non rejoué (quota) — à rejouer au prochain
 run de collecte réel.
 
-Commit : _(à référencer)_ [hub] add: GSC-004 fenêtres de comparaison, backfill reprenable, latence réglable
+Commit : `bdbbc46` [hub] add: GSC-004 fenêtres de comparaison, backfill reprenable, latence réglable
