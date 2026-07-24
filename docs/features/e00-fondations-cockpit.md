@@ -113,7 +113,7 @@ GOV-002.
   `barberconcept` écrira ses **50 findings** (décision maintenue) — qui, désormais, **le feront passer
   en tête de l'accueil**.
 
-**Commit :** `1a86df3` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
+**Commit :** `6377326` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
 
 ---
 

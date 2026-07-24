@@ -24,4 +24,4 @@ pas des lignes de journal · le `batch` du backfill est un débit, pas un curseu
 `/windows` n'ont jamais été vus à l'œil** (pas de session admin) · `npm run build` échoue à
 l'adaptateur Vercel sur Windows (`EPERM symlink`, **préexistant**) · `gsc-002` non rejoué (quota).
 
-Commit : `1a86df3` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
+Commit : `6377326` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
