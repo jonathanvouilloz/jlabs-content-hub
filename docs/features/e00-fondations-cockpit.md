@@ -4,6 +4,88 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (IDX-004 lot 2 — une page publiée cesse d'attendre le lundi)
+
+**Fait :** IDX-004, **lot 2**, ce qui ferme IDX-004. Le lot 1 avait posé le registre des décisions
+et son canal réservé `scope: 'due'` — mais **aucun producteur** : `post_publish` et `manual`
+étaient déclarés dans le vocabulaire fermé sans que rien n'écrive une ligne, et le catalogue
+quotidien ne contenait que `findings:lifecycle`. Un article publié le mardi n'était donc jamais
+vérifié à J+3 : au mieux l'échantillon tournant finissait par le prendre. **Zéro DDL** — le lot
+n'ajoute que des producteurs (**59 tables**, inchangé).
+
+- **Trois rendez-vous, pas trois fois la même dépense.** `postPublishSelections` **ne passe pas
+  par `allocate`**, et c'est structurel : `dedupeCandidates` fusionne par URL, donc les trois
+  échéances d'une même page y deviendraient une seule ligne. La règle « une URL, un slot » vaut
+  pour **une journée** — deux raisons le même jour, c'est une mesure et un appel. Trois dates
+  futures sont trois rendez-vous, et c'est la clé `(url_normalized, due_date)` qui les sépare.
+  Prouvé dans les deux sens : `dedupeCandidates` n'en garde **1**, la base en porte **3**.
+- **L'idempotence vit dans les DATES, et c'est ce qui répare la republication.** Rejouer la même
+  publication n'écrit rien (`count(*)` 3 → 3) ; **republier** (un `publishedAt` plus récent) pose
+  bien trois nouvelles échéances (3 → 6). C'est exactement ce que la clé de `schedulePostPublish`
+  (`` `${contentId}:J+${offsetDays}` ``, **sans `publishedAt`**) ne sait pas faire — le défaut
+  réveillé au lot 1, et l'argument qui avait fait rejeter son réemploi. Elle n'est **pas
+  touchée** : `post_publish:check` reste sans handler.
+- **Le déclencheur ignore `autoSubmitOnPublish` — délibérément.** Ce drapeau gouverne la
+  *soumission* à l'Indexing API. Ne pas vouloir pousser une URL à Google ne veut pas dire ne pas
+  vouloir **savoir** si elle est indexée : c'est souvent l'inverse, et c'est le même raisonnement
+  qui avait écarté `exclude_patterns` de la sélection au lot 1. La garde qui reste est le **type**
+  (`article`) : un post GMB ou LinkedIn paierait du quota pour une URL qui n'existe pas.
+- **Un seul `publishedAt` pour la ligne et pour les échéances.** La route calculait déjà sa date ;
+  un second `new Date()` plus bas les aurait fait diverger d'un jour à la frontière d'UTC, et la
+  jointure « honorée » (`observed_date >= due_date`) serait devenue fausse **pour toujours**.
+  L'appel est `await` (écriture locale, sans réseau — la laisser filer masquerait une erreur de
+  base) mais **sous garde** : planifier est le corollaire de publier, jamais sa condition.
+- **La cadence quotidienne n'a AUCUN prérequis, et c'est un choix de fond.** Le canal `due` ne lit
+  ni l'inventaire sitemap ni les clics (`collectCandidates` sort avant). Lui donner les prérequis
+  optionnels de l'hebdo par symétrie l'aurait fait **attendre un tick** derrière un
+  `collect:sitemap` lent, pour une passe qui n'en tire rien. L'arête vers le détecteur, elle,
+  reste **obligatoire** : un « toujours pas indexé à J+3 » devient un finding le jour même au lieu
+  d'attendre le lundi — sinon la moitié de la valeur du J+3 se perdait en salle d'attente.
+- **L'audit manuel est borné par le même budget que la politique.** `selectManualUrls` repasse par
+  `resolveBudget` (plafond projet, pool cross-projet, `jobCap`, `MAX_URLS_PER_JOB`) : coller 500
+  URLs dans un terminal ne peut pas vider le pool des six projets, et donc pas envoyer les
+  échéances du lendemain dans un `pool_exhausted` que personne n'aurait décidé. L'**ordre d'entrée
+  est conservé** (pas de tri) : ce qui est coupé est le bas de la liste que l'humain a écrite.
+- **⚠️ Le CLI est en dry-run par DÉFAUT — l'inverse du reste de l'outillage.** Les autres runners
+  écrivent en base ; celui-ci dépense un quota externe payant. L'oubli d'un drapeau doit coûter
+  zéro appel, pas quarante. `--execute` pour écrire et inspecter.
+- Vérif : `npm run test` = **889/889** (+14 : 11 producteurs purs + 3 catalogue) · `npm run check`
+  = **0 err / 42 warn** (baseline) · **`scripts/idx-004-lot2-proof.ts` = 25/25 vertes sur Neon**,
+  base rendue à l'identique (**0 sélection, 0 index_obs, 0 sitemap_obs, 0 réglage** avant comme
+  après) · **zéro appel Google, zéro quota consommé** · CLI en dry-run lancé pour de vrai
+  (fusion du fragment, URL relative écartée, budget annoncé, **rien écrit**) · non-régression :
+  `idx-004-selection-proof`, `idx-005-transition-proof`, `idx-002-inspection-proof --skip-real`,
+  `idx-001-sitemap-proof`, `job-004-dag-proof`, `job-005-schedule-proof`, `job-006-limits-proof`
+  — **0 échec chacune**.
+
+**Acceptations IDX-004 — les deux dernières puces de travail sont closes.** « planifier J+3, J+7 et
+J+28 » : `scheduleIndexChecks` appelée par la route de publication, prouvé qu'au jour J+3 la passe
+quotidienne rend **une** URL et pas trois, et que les deux autres restent dues **intactes**.
+« permettre un audit manuel borné » : `scripts/inspect-urls.ts`, dry-run par défaut, coupé au
+budget projet (120 URLs → 40, `--limit=5` → 5, `0` → 0) et **jamais** au-delà.
+
+**Prochain :** **DASH-003** (cockpit projet) — c'est le seul écran qui lira `indexing-read.ts` et
+`index_selection`, aujourd'hui invisibles. Toujours bloqué par DASH-001 seul.
+
+**Pièges :**
+- **Le CLI est en dry-run par défaut**, contrairement à `detect-index.ts` et consorts qui écrivent
+  sauf `--dry-run`. Ne pas « corriger » cette asymétrie : elle protège un quota payant.
+- **`postPublishSelections` ne doit JAMAIS passer par `allocate`.** Le jour où quelqu'un
+  l'uniformise avec les autres producteurs, deux échéances sur trois disparaissent en silence.
+- **La cadence quotidienne est en profondeur 2** : un skip de l'inspection y saute la détection au
+  tour à vide suivant, comme sur les autres branches.
+- **Une échéance non honorée reste due jusqu'à `maxAgeDays`** (14 j par défaut), puis elle est
+  **abandonnée et comptée** (`expired`). Un J+28 posé sur une page morte ne s'accumule pas.
+- Inchangé depuis le lot 1 : `0` = ZÉRO dans `index-selection-state.ts` · `index_selection` est
+  **optimiste** (une ligne est une intention) · au 1ᵉʳ tick hebdo, `barberconcept` écrira ses 50
+  findings (décision prise : laisser partir) · `npm run build` échoue à l'adaptateur Vercel sous
+  Windows (**préexistant**) · aucun écran ne lit `indexing-read.ts` ni `index_selection`
+  (DASH-003) · **rien ne bat tant que ce n'est pas déployé**.
+
+**Commit :** (à faire)
+
+---
+
 ## Etat session 2026-07-25 (IDX-004 lot 1 — le quota cesse d'être dépensé sans que personne l'ait décidé)
 
 **Fait :** IDX-004, **lot 1 (noyau)**. IDX-002 savait inspecter et IDX-005 savait juger, mais
@@ -2349,12 +2431,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-25 (IDX-004 lot 1)
+> Mise à jour : 2026-07-25 (IDX-004 lot 2)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/collectors/index-selection-state.ts`** *(IDX-004 lot 2)* | **`postPublishSelections`** — une échéance par offset, datée depuis la **PUBLICATION** et jamais depuis « aujourd'hui » (sinon une transition rejouée rendrait d'autres dates, et l'idempotence par `(url, due_date)` s'effondrerait). ⚠️ **Ne passe PAS par `allocate`** : `dedupeCandidates` fusionne par URL, donc les trois échéances d'une page y deviendraient une seule ligne — « une URL, un slot » vaut pour **une journée**, pas pour trois rendez-vous futurs. URL non normalisable ou date illisible ⇒ **rien** (une échéance jamais honorable serait due pour toujours). **`manualSelections`** — coupe au budget **en conservant l'ordre d'entrée** : un tri réordonnerait la priorité de l'opérateur à sa place, puis couperait ailleurs qu'il ne croit. Seul import du module : `normalizeUrl` (pur). |
+| **`src/lib/server/collectors/index-selection.ts`** *(IDX-004 lot 2)* | **`scheduleIndexChecks`** (enveloppe base : normalise la date, délègue le jugement, `persistSelections`) — **n'inspecte rien et ne consomme aucun quota**, ce qui permet de l'appeler depuis une route HTTP. L'idempotence vit dans les **DATES** : rejouer une publication n'écrit rien, **republier** pose de nouvelles échéances — précisément ce que la clé de `schedulePostPublish` (sans `publishedAt`) ne sait pas faire, et la raison pour laquelle elle n'est pas réutilisée. **`selectManualUrls`** — repasse par `loadSelectionSettings` → `resolveProjectSelection` → `loadGlobalPoolUsed` → **`resolveBudget`** en `scope: 'due'` : un audit à la main ne peut pas vider le pool des six projets. |
+| **`src/routes/api/content/[id]/status/+server.ts`** *(IDX-004 lot 2)* | Le déclencheur J+3/J+7/J+28, **sans condition sur `autoSubmitOnPublish`** : ce drapeau gouverne la *soumission* Indexing API, pas le fait de vouloir **savoir** si la page est indexée (même raisonnement qu'`exclude_patterns` au lot 1). Garde de **type** (`article`) : GMB/LinkedIn n'ont pas de page sur le site client. ⚠️ **Un seul `publishedAt`** partagé avec l'écriture de la ligne — un second `new Date()` les ferait diverger d'un jour à la frontière UTC et fausserait la jointure « honorée » pour toujours. `await` mais **sous garde** : planifier est le corollaire de publier, jamais sa condition. |
+| **`src/lib/server/schedule-state.ts`** *(IDX-004 lot 2)* | Catalogue **quotidien** à 3 entrées : `collect:url_inspection` en `{ mode: 'policy', scope: 'due' }` puis `detect:index_transition` en arête **obligatoire**. **Aucun prérequis sur l'inspection** — le canal `due` ne lit ni inventaire ni clics, et les prérequis optionnels de l'hebdo l'auraient fait **attendre un tick** derrière un `collect:sitemap` lent pour rien. Sans cette cadence, un J+3 posé le mardi n'aurait été honoré que le lundi suivant. |
+| **`scripts/inspect-urls.ts`** *(IDX-004 lot 2)* | Audit manuel borné (`--project`, `--url` répétable, `--file`, `--limit`, `--now`, `--note`). ⚠️ **Dry-run par DÉFAUT — l'inverse du reste de l'outillage** : les autres runners écrivent en base, celui-ci dépense un quota **externe payant**, donc l'oubli d'un drapeau doit coûter zéro appel. `--execute` écrit les intentions **puis** inspecte, avec le **même `now`** pour les deux. Dit tout ce qu'il coupe (non normalisables, doublons fusionnés, troncature, gardes) et, en cas d'échec provider, rappelle que les URLs non observées **restent dues**. |
+| **`scripts/idx-004-lot2-proof.ts`** | **Preuve lot 2 sur Neon (25 vérifs), ZÉRO appel Google** : trois échéances datées depuis la publication, chacune portant son détail ; **le point du lot** — au J+3 la passe `due` rend **1** URL et pas 3, les deux autres restant dues **intactes** ; idempotence par les dates (rejouer 3 → 3, republier 3 → 6) ; une observation au J+2 **n'honore pas** J+3, celle du jour même oui ; échéance périmée **comptée** ; `scope: due` ne rend qu'une échéance **malgré 200 pages neuves** en inventaire (contre-épreuve : `full` en rend 17) ; audit manuel coupé à 40/120, `--limit=5` → 5, **`0` → 0**. Réglage `indexing.selection` sauvegardé et restauré. |
 | **`src/lib/server/collectors/index-selection-state.ts`** (+ `.test.ts`) | **Purs IDX-004** : le vocabulaire **FERMÉ** `SELECTION_REASONS` (une raison en texte libre ne s'interroge pas en SQL) et ses trois familles ; `resolveSelectionConfig` — ⚠️ **`0` veut dire ZÉRO ici**, l'inverse de `job-limits.ts`, parce qu'on gouverne un quota **externe payant** et non une concurrence interne (lire `0` comme « illimité » brûlerait le pool en un job) ; `computeSampleCap` avec **`MAX_SAMPLE_PCT = 60` clampé**, d'où l'invariant qui porte l'acceptation 1 : `budget >= 1 ⇒ sampleCap < budget`, donc l'échantillon ne peut **jamais** prendre le dernier slot et un réglage forgé à 100 % retombe à 60 ; `resolveBudget` (la réserve urgente n'est déductible que d'une passe `full` — une passe `due` y a accès, c'est **le** mécanisme cross-projet) ; `allocate` (urgent → routine → sample, les slots inutilisés passant à la famille suivante **dans les deux sens**) ; `dedupeCandidates` (une URL, une place, mais les raisons secondaires **conservées** dans `alsoBecause`) ; `compareCandidates` (ordre **TOTAL**, dernière clé l'URL — sans quoi « rejouer la politique » ne vérifierait rien) ; `isSampleDue` (**jamais observée ⇒ due**, ce qui fait démarrer la rotation d'un projet neuf) ; `isExpired`. **59 tests.** |
 | **`src/lib/server/collectors/index-selection.ts`** | **IO IDX-004** : triptyque de réglages (`SELECTION_SETTINGS_KEY` = `indexing.selection`, `load*` qui **ne lève jamais**, overrides projet dans `project_projections` qui ne peuvent que **RESSERRER**) ; `loadDueSelections` — « honorée » se **DÉRIVE** par un `NOT EXISTS` **corrélé** (une jointure dupliquerait la ligne autant de fois que l'URL a d'observations, leçon DASH-002) et le `>=` y porte toute la sémantique J+N ; `loadGlobalPoolUsed` (**BORNE INFÉRIEURE** : ne compte ni les échecs, ni les illisibles, ni le skill `/seo-index-diagnose` ni la route legacy `seo-data`, qui tapent le même service account — d'où un pool à 800 et non 2 000) ; `collectCandidates` (réutilise `decideStrategic`/`loadClicksByUrl`/`loadProjectTransitionOverrides` **d'IDX-005** : redéclarer « page stratégique » ferait protéger une page qu'on n'inspecte jamais) ; `persistSelections` en **`DO NOTHING`** (une échéance garde sa raison, son détail et son run d'origine) ; `planInspectionSelection` — ⚠️ **écrit AVANT que la collecte parte**, sans quoi un 429 au 3ᵉ appel perdrait les intentions suivantes et rien ne serait replanifié. |
 | **`src/lib/server/db/schema.ts`** *(IDX-004)* + `drizzle/manual-idx-004.sql` + `scripts/apply-idx-004.ts` | **Seul DDL du lot** : `index_selection`, table **vide** à la création (58 → **59 tables**). Registre des **DÉCISIONS**, jamais du résultat : **aucune colonne `status`** (ce serait un second état persistant dont personne n'est propriétaire du retour — motif du `health_status` rejeté par JOB-006). ⚠️ Table **OPTIMISTE** : une ligne est une **intention**, pas une preuve d'inspection ; tout comptage de fait passe par la jointure à `index_observations`. L'unique `(projet, url_normalized, due_date)` **EST** l'anti-duplication de l'acceptation 3, et `url_normalized` est aussi la chaîne envoyée à Google — sinon `/a` et `/a#x` paieraient deux slots et produiraient **deux séries de longueur 1**, trop courtes pour que `confirmTransition` conclue jamais. |

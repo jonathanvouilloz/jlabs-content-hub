@@ -15,10 +15,11 @@
  * l'intention qui porte l'acceptation « une inspection manquée est replanifiée sans
  * duplication ».
  *
- * ⚠️ Ce que ce lot ne fait PAS : la cadence quotidienne `scope: 'due'`, le câblage J+3/J+7/J+28
- * à la publication (`scheduleIndexChecks`) et le CLI d'audit borné sont le LOT 2. Les raisons
- * `post_publish` et `manual` sont déjà déclarées et acceptées ici — un vocabulaire fermé se
- * déclare entier — mais rien ne les produit encore.
+ * LOT 2 — les deux raisons que le lot 1 déclarait sans producteur ont désormais le leur :
+ * `post_publish` par `scheduleIndexChecks` (appelée à la publication d'un article), `manual` par
+ * `selectManualUrls` (CLI d'audit borné). Toutes deux n'écrivent que des INTENTIONS et laissent
+ * la dépense à la passe quotidienne `scope: 'due'` — sauf le CLI en `--execute`, qui inspecte
+ * lui-même mais **sous le même budget** que la politique.
  */
 import { and, eq, gte, lte, notExists, sql } from 'drizzle-orm';
 import type { AppDb } from '../db/types.js';
@@ -27,6 +28,9 @@ import { createId } from '../utils.js';
 import { toDbTimestamp } from '../timestamps.js';
 import { log } from '../log.js';
 import { listFindings } from '../findings.js';
+// Les offsets post-publication sont ceux du scheduler (SPEC §8.1) — déclarés là-bas, jamais
+// redéclarés ici : deux listes divergeraient le jour où l'une bouge.
+import { POST_PUBLISH_OFFSETS_DAYS } from '../schedule-state.js';
 import { MAX_URLS_PER_JOB } from './url-inspection-state.js';
 import { diffInventories, normalizeUrl } from './sitemap-state.js';
 import { loadLatestInventory, loadPreviousInventory, type InventoryUrlRow } from './sitemap-inventory.js';
@@ -48,7 +52,9 @@ import {
 	isExpired,
 	isSampleDue,
 	isSelectionReason,
+	manualSelections,
 	matchesExclude,
+	postPublishSelections,
 	resolveBudget,
 	resolveProjectSelection,
 	resolveSelectionConfig,
@@ -704,6 +710,189 @@ export async function planInspectionSelection(input: {
 				? sources.inventoryDate === null && input.scope === 'full'
 					? 'aucun inventaire sitemap et aucune échéance due'
 					: `aucun candidat (${guards.join(', ') || 'rien à inspecter'})`
+				: null
+	};
+}
+
+// ── Producteurs d'échéances (lot 2) ─────────────────────────────────
+
+export interface ScheduleIndexChecksResult {
+	/** Lignes réellement proposées à l'insert (avant `ON CONFLICT DO NOTHING`). */
+	scheduled: number;
+	/** Les échéances posées, dans l'ordre des offsets. */
+	dueDates: string[];
+	/** Renseigné quand rien n'a été posé, et pourquoi. Le silence se DIT. */
+	skipped: 'unnormalizable' | null;
+}
+
+/**
+ * IDX-004 lot 2 — pose les vérifications post-publication d'une page (J+3, J+7, J+28).
+ *
+ * **N'inspecte rien et ne consomme aucun quota** : elle n'écrit que des INTENTIONS. La dépense
+ * est décidée le jour dit par la passe quotidienne `scope: 'due'`, qui les retrouve par
+ * `loadDueSelections` et les fait passer par le même budget que tout le reste. C'est ce qui
+ * permet de l'appeler depuis une route HTTP sans lui faire porter un appel Google.
+ *
+ * ⚠️ **Trois lignes, pas une.** La dédup de l'ALLOCATION (`dedupeCandidates`) est par URL —
+ * deux raisons le même jour, c'est une mesure et un slot. La dédup de la PERSISTANCE est par
+ * `(url_normalized, due_date)` — trois dates futures ne sont pas trois fois la même dépense,
+ * ce sont trois rendez-vous distincts. Passer ces candidats par `allocate` en écraserait deux.
+ *
+ * Idempotence : elle vit dans la clé `(project_id, url_normalized, due_date)`, donc dans les
+ * DATES, pas dans le contenu. Rejouer la même publication ne crée rien ; **republier** (un
+ * `publishedAt` plus récent) pose bien de nouvelles échéances. C'est exactement ce que la clé
+ * de `schedulePostPublish` (`${contentId}:J+${offsetDays}`, sans `publishedAt`) ne sait pas
+ * faire — raison pour laquelle ce lot ne la réutilise pas.
+ */
+export async function scheduleIndexChecks(input: {
+	db: AppDb;
+	projectId: string;
+	url: string;
+	publishedAt: Date | string;
+	contentId?: string | null;
+	runId?: string | null;
+	/** Offsets de substitution (tests et outillage). Défaut : `POST_PUBLISH_OFFSETS_DAYS`. */
+	offsets?: readonly number[];
+}): Promise<ScheduleIndexChecksResult> {
+	const publishedAt =
+		typeof input.publishedAt === 'string' ? new Date(input.publishedAt) : input.publishedAt;
+	if (Number.isNaN(publishedAt.getTime())) {
+		return { scheduled: 0, dueDates: [], skipped: 'unnormalizable' };
+	}
+	const publishedDate = publishedAt.toISOString().slice(0, 10);
+
+	const selections = postPublishSelections({
+		url: input.url,
+		publishedDate,
+		offsets: input.offsets ?? POST_PUBLISH_OFFSETS_DAYS,
+		contentId: input.contentId ?? null
+	});
+	// URL non normalisable : elle ne pourrait jamais être comparée à sa propre mesure, donc
+	// l'échéance serait due pour toujours. On n'écrit pas de ligne morte.
+	if (selections.length === 0) return { scheduled: 0, dueDates: [], skipped: 'unnormalizable' };
+
+	const persisted = await persistSelections({
+		db: input.db,
+		projectId: input.projectId,
+		selections,
+		// `today` n'est ici qu'un défaut de `dueDate` ; chaque ligne porte la sienne.
+		today: publishedDate,
+		runId: input.runId ?? null
+	});
+
+	logger.info('échéances post-publication posées', {
+		projectId: input.projectId,
+		contentId: input.contentId ?? null,
+		url: selections[0].urlNormalized,
+		dueDates: selections.map((s) => s.dueDate)
+	});
+
+	return {
+		scheduled: persisted,
+		dueDates: selections.map((s) => s.dueDate as string),
+		skipped: null
+	};
+}
+
+export interface ManualSelectionResult {
+	/** Les URLs retenues, forme NORMALISÉE — celle à passer au collecteur. */
+	urls: string[];
+	selections: SelectedUrl[];
+	budget: number;
+	poolUsed: number;
+	poolAvailable: number;
+	guards: SelectionGuard[];
+	/** URLs écartées faute d'être normalisables (elles ne pourraient jamais être honorées). */
+	unnormalizable: string[];
+	/** URLs coupées par le budget — dites, jamais tues. */
+	truncated: string[];
+	/** Doublons d'URL dans l'entrée, fusionnés avant tout comptage. */
+	merged: number;
+	persisted: number;
+	dryRun: boolean;
+	skippedReason: string | null;
+}
+
+/**
+ * IDX-004 lot 2 — audit manuel BORNÉ (`scripts/inspect-urls.ts`).
+ *
+ * Le point de la fonction est le mot « borné » : une inspection à la main passe par
+ * **exactement le même budget** que la politique (`resolveBudget`, donc plafond projet, pool
+ * cross-projet, `jobCap`, `MAX_URLS_PER_JOB`). Sans ça, coller 500 URLs dans un terminal
+ * viderait le pool des six projets pour la journée, et les échéances J+3 du lendemain
+ * partiraient dans un `pool_exhausted` que personne n'aurait décidé.
+ *
+ * `manual` est de famille **urgente** (`familyForReason`) : dans une passe `due` de la même
+ * journée, elle passe donc devant l'échantillon — c'est voulu, on ne tape une URL à la main que
+ * quand on a une raison.
+ *
+ * L'ordre d'entrée est CONSERVÉ (aucun tri par famille : elles sont toutes `manual`). Ce qui
+ * est coupé est le bas de la liste que l'humain a écrite, pas un choix opaque.
+ */
+export async function selectManualUrls(input: {
+	db: AppDb;
+	projectId: string;
+	urls: readonly string[];
+	now: Date;
+	/** Plafond explicite de l'appel (`--limit`), soumis aux mêmes minima. */
+	budget?: number | null;
+	runId?: string | null;
+	dryRun?: boolean;
+	note?: string | null;
+}): Promise<ManualSelectionResult> {
+	const today = input.now.toISOString().slice(0, 10);
+	const config = await loadSelectionSettings(input.db);
+	const projectOverrides = await loadProjectSelectionOverrides(input.db, input.projectId);
+	const project = resolveProjectSelection(config, projectOverrides);
+	const poolUsed = await loadGlobalPoolUsed({ db: input.db, today });
+
+	const budgetRes = resolveBudget({
+		config,
+		projectDailyBudget: project.dailyBudget,
+		poolUsed,
+		// `due` : un audit manuel n'est pas une passe de routine, il a accès à la réserve
+		// urgente au même titre qu'une échéance. Il reste plafonné par tout le reste.
+		scope: 'due',
+		jobBudget: input.budget ?? null,
+		collectorCap: MAX_URLS_PER_JOB
+	});
+
+	const split = manualSelections({
+		urls: input.urls,
+		today,
+		budget: budgetRes.budget,
+		note: input.note ?? null
+	});
+	const { kept, truncated, unnormalizable, merged } = split;
+	const guards = [...budgetRes.guards];
+	if (truncated.length > 0 && !guards.includes('job_cap')) guards.push('job_cap');
+
+	let persisted = 0;
+	if (!input.dryRun && kept.length > 0) {
+		persisted = await persistSelections({
+			db: input.db,
+			projectId: input.projectId,
+			selections: kept,
+			today,
+			runId: input.runId ?? null
+		});
+	}
+
+	return {
+		urls: kept.map((k) => k.urlNormalized),
+		selections: kept,
+		budget: budgetRes.budget,
+		poolUsed,
+		poolAvailable: budgetRes.poolAvailable,
+		guards,
+		unnormalizable,
+		truncated,
+		merged,
+		persisted,
+		dryRun: input.dryRun === true,
+		skippedReason:
+			kept.length === 0
+				? `aucune URL retenue (${guards.join(', ') || 'entrée vide'})`
 				: null
 	};
 }

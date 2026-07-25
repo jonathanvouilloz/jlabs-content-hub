@@ -16,7 +16,9 @@ import {
 	isExpired,
 	isSampleDue,
 	isSelectionReason,
+	manualSelections,
 	matchesExclude,
+	postPublishSelections,
 	resolveBudget,
 	resolveProjectSelection,
 	resolveSelectionConfig,
@@ -480,5 +482,136 @@ describe('matchesExclude — les motifs de SÉLECTION, pas ceux de la soumission
 
 	it('un motif vide n’exclut pas tout — ce serait éteindre la sélection par accident', () => {
 		expect(matchesExclude('https://x.ch/a', [''])).toBe(false);
+	});
+});
+
+// ── Lot 2 : les producteurs d'intentions ────────────────────────────
+
+describe('postPublishSelections — trois rendez-vous, pas trois fois la même dépense', () => {
+	const OFFSETS = [3, 7, 28] as const;
+
+	it('pose une échéance par offset, datée depuis la PUBLICATION', () => {
+		const sel = postPublishSelections({
+			url: 'https://x.ch/article',
+			publishedDate: '2026-03-10',
+			offsets: OFFSETS,
+			contentId: 'ct_1'
+		});
+		// La base est la date de publication, jamais « aujourd'hui » : une transition rejouée
+		// une semaine plus tard doit rendre EXACTEMENT les mêmes échéances, sinon l'idempotence
+		// par `(url_normalized, due_date)` ne tient plus.
+		expect(sel.map((s) => s.dueDate)).toEqual(['2026-03-13', '2026-03-17', '2026-04-07']);
+		expect(sel.every((s) => s.reason === 'post_publish')).toBe(true);
+		expect(sel.every((s) => s.bucket === 'priority')).toBe(true);
+	});
+
+	it('trois lignes SURVIVENT à la dédup de la persistance (clé url + échéance)', () => {
+		const sel = postPublishSelections({
+			url: 'https://x.ch/article',
+			publishedDate: '2026-03-10',
+			offsets: OFFSETS
+		});
+		// La même clé que `persistSelections` : trois dates distinctes ⇒ trois lignes.
+		const keys = new Set(sel.map((s) => `${s.urlNormalized}|${s.dueDate}`));
+		expect(keys.size).toBe(3);
+		// …alors que la dédup de l'ALLOCATION, elle, n'en garderait qu'une. C'est précisément
+		// pourquoi ces candidats ne passent pas par `allocate`.
+		expect(dedupeCandidates(sel).kept).toHaveLength(1);
+	});
+
+	it('chaque échéance porte de quoi la justifier', () => {
+		const sel = postPublishSelections({
+			url: 'https://x.ch/article',
+			publishedDate: '2026-03-10',
+			offsets: OFFSETS,
+			contentId: 'ct_1'
+		});
+		expect(sel[0].reasonDetail).toEqual({
+			contentId: 'ct_1',
+			publishedAt: '2026-03-10',
+			offsetDays: 3
+		});
+	});
+
+	it('à échéances dues ensemble, le J+3 passe avant le J+28', () => {
+		const sel = postPublishSelections({
+			url: 'https://x.ch/article',
+			publishedDate: '2026-03-10',
+			offsets: OFFSETS
+		});
+		expect([...sel].sort(compareCandidates).map((s) => s.reasonDetail?.offsetDays)).toEqual([
+			3, 7, 28
+		]);
+	});
+
+	it('une URL non normalisable ne pose RIEN — une échéance jamais honorable serait éternelle', () => {
+		expect(
+			postPublishSelections({ url: '/relative', publishedDate: '2026-03-10', offsets: OFFSETS })
+		).toEqual([]);
+	});
+
+	it('une date de publication illisible ne pose RIEN', () => {
+		// Sinon `addDays` rendrait la chaîne inchangée : trois échéances identiques et fausses,
+		// dont deux perdues au `ON CONFLICT` — un J+28 qui se croit honoré à J+0.
+		expect(
+			postPublishSelections({ url: 'https://x.ch/a', publishedDate: 'jamais', offsets: OFFSETS })
+		).toEqual([]);
+	});
+
+	it('le fragment est normalisé — sinon la page paierait deux fois pour une mesure', () => {
+		const sel = postPublishSelections({
+			url: 'https://x.ch/article#top',
+			publishedDate: '2026-03-10',
+			offsets: [3]
+		});
+		expect(sel[0].urlNormalized).toBe('https://x.ch/article');
+	});
+});
+
+describe('manualSelections — un audit à la main reste BORNÉ', () => {
+	const urls = (n: number) => Array.from({ length: n }, (_, i) => `https://x.ch/p${i}`);
+
+	it('coupe au budget, et ce qui est coupé est le BAS de la liste écrite', () => {
+		const res = manualSelections({ urls: urls(50), today: '2026-03-10', budget: 5 });
+		expect(res.kept).toHaveLength(5);
+		expect(res.kept.map((k) => k.url)).toEqual(urls(5));
+		expect(res.truncated).toHaveLength(45);
+		expect(res.truncated[0]).toBe('https://x.ch/p5');
+	});
+
+	it('`0` veut dire ZÉRO, jamais « illimité »', () => {
+		// L'inverse de `job-limits.ts`. Lire 0 comme « pas de limite » ferait d'un pool épuisé
+		// une autorisation à inspecter les 500 URLs collées dans le terminal.
+		const res = manualSelections({ urls: urls(10), today: '2026-03-10', budget: 0 });
+		expect(res.kept).toEqual([]);
+		expect(res.truncated).toHaveLength(10);
+	});
+
+	it('les doublons sont fusionnés AVANT le comptage du budget', () => {
+		const res = manualSelections({
+			urls: ['https://x.ch/a', 'https://x.ch/a#top', 'https://x.ch/b'],
+			today: '2026-03-10',
+			budget: 3
+		});
+		expect(res.merged).toBe(1);
+		expect(res.kept.map((k) => k.urlNormalized)).toEqual(['https://x.ch/a', 'https://x.ch/b']);
+	});
+
+	it('les URLs non normalisables sont écartées et DITES, jamais comptées comme retenues', () => {
+		const res = manualSelections({
+			urls: ['/relative', 'https://x.ch/a'],
+			today: '2026-03-10',
+			budget: 5
+		});
+		expect(res.unnormalizable).toEqual(['/relative']);
+		expect(res.kept).toHaveLength(1);
+	});
+
+	it('la raison `manual` est de famille URGENTE — on ne tape pas une URL à la main sans motif', () => {
+		const res = manualSelections({ urls: urls(1), today: '2026-03-10', budget: 1, note: 'audit' });
+		expect(familyForReason(res.kept[0].reason)).toBe('urgent');
+		expect(res.kept[0].reasonDetail).toEqual({ note: 'audit', requestedAt: '2026-03-10' });
+		// Due le jour même : un audit manuel n'attend pas.
+		expect(res.kept[0].dueDate).toBe('2026-03-10');
 	});
 });

@@ -1,9 +1,10 @@
 /**
  * IDX-004 — Politique de sélection d'inspection : le JUGEMENT (pur).
  *
- * Module PUR (zéro import db/`$env`/réseau), colocalisé avec son sélecteur comme
- * `url-inspection-state.ts` l'est avec son collecteur. `index-selection.ts` lit la base et
- * persiste ; ici on décide **quelles URLs méritent le quota, dans quel ordre, et jusqu'où**.
+ * Module PUR (zéro import db/`$env`/réseau — le seul est `normalizeUrl`, lui-même pur),
+ * colocalisé avec son sélecteur comme `url-inspection-state.ts` l'est avec son collecteur.
+ * `index-selection.ts` lit la base et persiste ; ici on décide **quelles URLs méritent le
+ * quota, dans quel ordre, et jusqu'où**.
  *
  * IDX-002 s'était explicitement interdit de choisir ses URLs (« installer ici une règle
  * implicite obligerait IDX-004 à la défaire »). C'est ce module qui choisit.
@@ -31,6 +32,10 @@
  * Une valeur illisible ou négative retombe sur le défaut du code ; `0` est une valeur VALIDE
  * qui veut dire « aucune inspection ».
  */
+// `normalizeUrl` est la SEULE porte de normalisation (IDX-001) : la réimplémenter ici ferait
+// diverger la forme inscrite au registre de celle envoyée à Google, et la jointure « honorée »
+// ne retrouverait jamais sa mesure. Le module reste pur (sitemap-state n'importe rien).
+import { normalizeUrl } from './sitemap-state.js';
 
 // ── Version de la politique ─────────────────────────────────────────
 
@@ -588,4 +593,115 @@ export function isDue(input: { dueDate: string; today: string }): boolean {
 export function matchesExclude(url: string, patterns: readonly string[]): boolean {
 	if (patterns.length === 0) return false;
 	return patterns.some((p) => p !== '' && url.includes(p));
+}
+
+// ── Producteurs d'intentions (lot 2) ────────────────────────────────
+
+/**
+ * IDX-004 lot 2 — les échéances d'une publication (J+3, J+7, J+28).
+ *
+ * ⚠️ **Ces candidats ne passent PAS par `allocate`, et c'est structurel.** `dedupeCandidates`
+ * fusionne par URL : trois échéances de la même page y deviendraient une seule ligne. La règle
+ * « une URL, un slot » vaut pour une JOURNÉE — deux raisons le même jour, c'est une mesure et
+ * un appel. Trois dates futures ne sont pas trois fois la même dépense, ce sont trois
+ * rendez-vous distincts, et c'est la clé `(url_normalized, due_date)` qui les sépare.
+ *
+ * Rend `[]` si l'URL n'est pas normalisable : une échéance sur une URL qu'on ne sait pas
+ * comparer à sa propre mesure serait due pour toujours et jamais honorable.
+ */
+export function postPublishSelections(input: {
+	url: string;
+	/** Date de publication `YYYY-MM-DD` — la BASE des offsets, jamais « aujourd'hui ». */
+	publishedDate: string;
+	offsets: readonly number[];
+	contentId?: string | null;
+}): SelectedUrl[] {
+	const normalized = normalizeUrl(input.url);
+	if (!normalized.ok) return [];
+	// Date illisible : `addDays` rendrait la chaîne inchangée, donc trois échéances IDENTIQUES
+	// et fausses (dont deux perdues au `ON CONFLICT`). Mieux vaut ne rien poser.
+	if (daysBetween(input.publishedDate, input.publishedDate) === null) return [];
+
+	return input.offsets.map((offsetDays, i) => ({
+		url: input.url,
+		urlNormalized: normalized.normalized,
+		reason: 'post_publish' as const,
+		reasonDetail: {
+			contentId: input.contentId ?? null,
+			publishedAt: input.publishedDate,
+			offsetDays
+		},
+		// Poids décroissant avec l'offset : à échéances égales, le J+3 passe avant le J+28.
+		weight: -offsetDays,
+		dueDate: addDays(input.publishedDate, offsetDays),
+		bucket: 'priority' as const,
+		family: 'urgent' as const,
+		rank: i,
+		alsoBecause: []
+	}));
+}
+
+export interface ManualSelectionSplit {
+	kept: SelectedUrl[];
+	/** Coupées par le budget — le BAS de la liste écrite par l'humain, jamais un choix opaque. */
+	truncated: string[];
+	/** Non normalisables : elles ne pourraient jamais être comparées à leur propre mesure. */
+	unnormalizable: string[];
+	/** Doublons d'URL dans l'entrée, fusionnés avant tout comptage. */
+	merged: number;
+}
+
+/**
+ * IDX-004 lot 2 — l'entrée d'un audit manuel, ramenée à ce que le budget autorise.
+ *
+ * L'ORDRE D'ENTRÉE EST CONSERVÉ : pas de tri par famille (elles sont toutes `manual`), pas de
+ * poids. Ce qui est coupé est donc la fin de la liste que l'opérateur a écrite — un tri
+ * réordonnerait sa priorité à sa place, puis couperait ailleurs qu'il ne croit.
+ *
+ * `budget` est appliqué tel quel, `0` compris : ici comme partout dans ce module, **`0` veut
+ * dire zéro**, jamais « illimité ».
+ */
+export function manualSelections(input: {
+	urls: readonly string[];
+	today: string;
+	budget: number;
+	note?: string | null;
+}): ManualSelectionSplit {
+	const unnormalizable: string[] = [];
+	const seen = new Set<string>();
+	const candidates: SelectedUrl[] = [];
+	let merged = 0;
+
+	for (const raw of input.urls) {
+		const normalized = normalizeUrl(raw);
+		if (!normalized.ok) {
+			unnormalizable.push(raw);
+			continue;
+		}
+		if (seen.has(normalized.normalized)) {
+			merged += 1;
+			continue;
+		}
+		seen.add(normalized.normalized);
+		candidates.push({
+			url: raw,
+			urlNormalized: normalized.normalized,
+			reason: 'manual',
+			reasonDetail: { note: input.note ?? null, requestedAt: input.today },
+			weight: 0,
+			dueDate: input.today,
+			bucket: 'priority',
+			family: 'urgent',
+			rank: candidates.length,
+			alsoBecause: []
+		});
+	}
+
+	const budget = Math.max(0, Math.floor(input.budget));
+	return {
+		kept: candidates.slice(0, budget),
+		truncated: candidates.slice(budget).map((c) => c.url),
+		unnormalizable,
+		merged
+	};
 }

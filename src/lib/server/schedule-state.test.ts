@@ -347,7 +347,7 @@ describe('SCHEDULE_CATALOG', () => {
 		expect(Object.keys(SCHEDULE_CATALOG).sort()).toEqual([...SCHEDULE_CADENCES].sort());
 	});
 
-	it('hebdo = collecter, détecter, proposer ; quotidien = expiration des veilles', () => {
+	it('hebdo = collecter, détecter, proposer ; quotidien = veilles + échéances d’indexation', () => {
 		// GSC-002 — la chaîne commence par la COLLECTE. Sans elle, le détecteur
 		// travaillait sur des observations figées au backfill du 2026-07-21 et
 		// vieillissait d'une semaine chaque semaine, en silence.
@@ -362,7 +362,36 @@ describe('SCHEDULE_CATALOG', () => {
 			'detect:index_transition',
 			'propose:actions'
 		]);
-		expect(catalogFor('daily').map((e) => e.jobType)).toEqual(['findings:lifecycle']);
+		// IDX-004 lot 2 — la passe quotidienne des échéances rejoint le quotidien.
+		expect(catalogFor('daily').map((e) => e.jobType)).toEqual([
+			'findings:lifecycle',
+			'collect:url_inspection',
+			'detect:index_transition'
+		]);
+	});
+
+	it('IDX-004 lot 2 — la passe quotidienne n’inspecte QUE les échéances', () => {
+		// `scope: 'due'` est ce qui fait de cette passe une réserve que la configuration ne
+		// peut pas désarmer : ni routine ni échantillon n'y entrent, quel que soit le réglage.
+		// Un `scope: 'full'` glissé ici la transformerait en second run hebdo quotidien —
+		// six projets × le budget complet, tous les jours.
+		const daily = catalogFor('daily').find((e) => e.jobType === 'collect:url_inspection')!;
+		expect(daily.payload).toEqual({ mode: 'policy', scope: 'due' });
+		expect(daily.payload).not.toHaveProperty('urls');
+	});
+
+	it('IDX-004 lot 2 — la passe quotidienne ne dépend de RIEN, et sa détection en dépend', () => {
+		// Aucun prérequis : le canal `due` ne lit ni l'inventaire sitemap ni les clics. Une
+		// arête vers un type absent de la cadence serait de toute façon rejetée par
+		// `validateCatalogGraph` — mais l'invariant est de FOND, pas mécanique.
+		const inspection = catalogFor('daily').find((e) => e.jobType === 'collect:url_inspection')!;
+		expect(inspection.dependsOn).toBeUndefined();
+		// Et l'arête vers le détecteur reste OBLIGATOIRE (défaut `required` absent ⇒ true),
+		// pour la même raison qu'en hebdo : détecter sur une inspection périmée est le bug
+		// que GSC-002 a fermé côté Search Analytics.
+		const detector = catalogFor('daily').find((e) => e.jobType === 'detect:index_transition')!;
+		expect(detector.dependsOn).toEqual([{ jobType: 'collect:url_inspection' }]);
+		expect(detector.priority).toBeLessThan(inspection.priority);
 	});
 
 	it('IDX-001/004 — l’inventaire sitemap ne dépend de RIEN, et son seul dépendant l’a déclaré OPTIONNEL', () => {

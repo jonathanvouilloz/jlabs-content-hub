@@ -680,17 +680,16 @@ Acceptation :
 
 ## IDX-004 — Politique de sélection et quotas d'inspection
 
-**Priorité :** P1 · **Taille :** M · **État :** **EN COURS — lot 1 (noyau) DONE le 2026-07-25**, lot 2 restant · **Dépendances :** IDX-001, IDX-002, JOB-006
+**Priorité :** P1 · **Taille :** M · **État :** **DONE le 2026-07-25** (lot 1 noyau + lot 2 producteurs) · **Dépendances :** IDX-001, IDX-002, JOB-006
 
 Travail :
 
 - ~~prioriser pages stratégiques, nouvelles, modifiées, findings et échantillon tournant~~ (lot 1) ;
 - ~~réserver du quota aux vérifications urgentes~~ (lot 1 — ordre + canal `scope: 'due'` + réserve cross-projet) ;
-- planifier J+3, J+7 et J+28 → **lot 2** : le mécanisme (`due_date`) existe et est prouvé, mais rien
-  ne pose encore de lignes `post_publish` (`scheduleIndexChecks` + appel depuis la route de
-  publication + cadence quotidienne `scope: 'due'`) ;
-- permettre audit manuel borné → **lot 2** : `scripts/inspect-urls.ts`, dry-run par défaut, soumis
-  au même budget que la politique.
+- ~~planifier J+3, J+7 et J+28~~ (lot 2 — `scheduleIndexChecks` appelée par la route de publication,
+  cadence quotidienne `scope: 'due'` + `detect:index_transition` en arête obligatoire) ;
+- ~~permettre audit manuel borné~~ (lot 2 — `scripts/inspect-urls.ts`, **dry-run par défaut**, soumis
+  au même budget que la politique).
 
 Acceptation :
 

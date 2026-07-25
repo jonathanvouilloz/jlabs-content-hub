@@ -440,7 +440,33 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// portée par un handler.
 	hourly: [],
 	// Les veilles doivent expirer même une semaine sans détection (FIND-003).
-	daily: [{ jobType: 'findings:lifecycle', priority: 5 }],
+	//
+	// IDX-004 lot 2 — la passe QUOTIDIENNE des échéances. `scope: 'due'` ne lit que
+	// `index_selection` : ni inventaire sitemap, ni clics (`collectCandidates` sort avant),
+	// donc AUCUN prérequis ici — ni ne le pourrait, une arête vers un type absent de la
+	// cadence étant rejetée par `validateCatalogGraph`. C'est aussi ce qui en fait une réserve
+	// que la configuration ne peut pas désarmer : routine et échantillon n'y entrent jamais.
+	//
+	// Sans elle, les J+3/J+7/J+28 posés par `scheduleIndexChecks` à la publication resteraient
+	// dus jusqu'au lundi suivant, et une échéance J+3 pourrait être honorée à J+9 — ce qui
+	// vide de son sens l'idée même de vérifier tôt.
+	//
+	// L'arête vers le détecteur est OBLIGATOIRE, comme en hebdo : détecter sur une inspection
+	// périmée est exactement le bug que GSC-002 a fermé côté Search Analytics. Un « toujours
+	// pas indexé à J+3 » devient donc un finding le jour même, au lieu d'attendre le run hebdo.
+	daily: [
+		{ jobType: 'findings:lifecycle', priority: 5 },
+		{
+			jobType: 'collect:url_inspection',
+			priority: 9,
+			payload: { mode: 'policy', scope: 'due' }
+		},
+		{
+			jobType: 'detect:index_transition',
+			priority: 8,
+			dependsOn: [{ jobType: 'collect:url_inspection' }]
+		}
+	],
 	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de
 	// propositions.
 	//

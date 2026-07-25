@@ -4,6 +4,7 @@ import { contents, indexingCredentials, statusHistory } from '$lib/server/db/sch
 import { createId } from '$lib/server/utils.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { publishUrl } from '$lib/server/indexing.js';
+import { scheduleIndexChecks } from '$lib/server/collectors/index-selection.js';
 import { eq } from 'drizzle-orm';
 
 // Statuts canoniques du hub + états de la machine du pipeline SEO autopilot.
@@ -48,6 +49,10 @@ export const PATCH: RequestHandler = async (event) => {
 	if (status === 'published' && !content.publishedAt) {
 		updates.publishedAt = new Date().toISOString();
 	}
+	// IDX-004 lot 2 — la MÊME valeur sert à écrire la ligne et à dater les échéances J+3/7/28.
+	// Un second `new Date()` plus bas les ferait diverger d'un jour à la frontière d'UTC, et la
+	// jointure « honorée » (observed_date >= due_date) deviendrait fausse pour toujours.
+	const publishedAt = (updates.publishedAt as string | undefined) ?? content.publishedAt;
 	if (status === 'published' && !content.plannedDate) {
 		updates.plannedDate = new Date().toISOString().slice(0, 10);
 	}
@@ -79,6 +84,34 @@ export const PATCH: RequestHandler = async (event) => {
 				source: 'auto-publish'
 				// pas d'eligibility : contenu ordinaire → garde IDX-008 le refuse et l'audite
 			}).catch(() => { /* fire-and-forget, erreurs loggees en DB */ });
+		}
+
+		// IDX-004 lot 2 — vérifications d'indexation différées (J+3 / J+7 / J+28).
+		//
+		// PAS de condition sur `autoSubmitOnPublish` : ce drapeau gouverne la SOUMISSION à
+		// l'Indexing API. Ne pas vouloir pousser une URL à Google ne veut pas dire ne pas
+		// vouloir SAVOIR si elle est indexée — souvent l'inverse (même raison qui a écarté
+		// `exclude_patterns` de la sélection au lot 1).
+		//
+		// Limité au type `article` : seul lui a une page sur le site du client. Un post GMB ou
+		// LinkedIn paierait du quota d'inspection pour une URL qui n'existe pas.
+		//
+		// `await`, contrairement à `publishUrl` : c'est une écriture LOCALE, sans réseau ni
+		// quota — la laisser filer masquerait une erreur de base. Mais sous garde : planifier
+		// est le corollaire de publier, jamais sa condition.
+		if (content.type === 'article' && cred?.publicUrlTemplate && content.slug && publishedAt) {
+			const publicUrl = cred.publicUrlTemplate.replace('{slug}', content.slug);
+			try {
+				await scheduleIndexChecks({
+					db,
+					projectId: content.projectId,
+					url: publicUrl,
+					publishedAt,
+					contentId: event.params.id
+				});
+			} catch (err) {
+				console.error('[idx-004] échéances post-publication non posées', err);
+			}
 		}
 	}
 
