@@ -468,20 +468,51 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// seulement au tick d'APRÈS. Attendu — à ne pas diagnostiquer comme un job « qui
 	// ne part pas ».
 	// IDX-001 — `collect:sitemap` rejoint le run hebdo (branche `fetch_sitemap` du graphe
-	// SPEC §8.2). **Aucune dépendance** avec la collecte GSC : deux sources indépendantes, dont
-	// une seule consomme du quota Search Analytics. Les lier ferait sauter l'inventaire sitemap
-	// à cause d'un 429 GSC — alors que le XML, lui, aurait été parfaitement fetchable.
-	// Il ne préfixe rien non plus : la détection actuelle (`keyword_opportunity`) ne lit pas
-	// l'inventaire. Le jour où un détecteur d'indexation arrivera (IDX-005), il déclarera sa
-	// propre arête vers ce type.
+	// SPEC §8.2). **Aucune dépendance ENTRANTE** : deux sources indépendantes, dont une seule
+	// consomme du quota Search Analytics. Les lier ferait sauter l'inventaire sitemap à cause
+	// d'un 429 GSC — alors que le XML, lui, aurait été parfaitement fetchable.
+	//
+	// IDX-004 — la branche d'indexation se referme : `collect:url_inspection` puis
+	// `detect:index_transition`. Trois choix y sont load-bearing :
+	//
+	//   1. Le payload porte une INTENTION (`mode: 'policy'`), pas une liste d'URLs. Le payload
+	//      du catalogue est un littéral statique (`JSON.stringify(entry.payload)`), et une
+	//      sélection calculée au plan le serait AVANT que `collect:sitemap` du même run ait
+	//      écrit l'inventaire du jour — donc avec `new`/`changed` structurellement vides.
+	//   2. Les deux prérequis de l'inspection sont **OPTIONNELS** : ils ordonnent sans bloquer.
+	//      La sélection VEUT l'inventaire du jour (`new`/`changed`) et les clics (`strategic`),
+	//      mais un sitemap 404 ou un 429 Search Analytics ne doit pas priver le projet de
+	//      l'inspection de ses findings et de ses échéances dues. ⚠️ Optionnel ne veut pas dire
+	//      sans effet : un prérequis encore `queued`/`running` fait ATTENDRE son dépendant. Un
+	//      `collect:sitemap` lent décale l'inspection d'un tick, il ne l'annule pas.
+	//   3. L'arête vers le détecteur est **OBLIGATOIRE** (décision produit) : détecter sur une
+	//      inspection périmée est exactement le bug que GSC-002 a fermé côté Search Analytics.
+	//
+	// ⚠️ La branche d'indexation passe elle aussi à la PROFONDEUR 3
+	// (`sitemap → url_inspection → index_transition`) : un skip s'y propage avec le même tour
+	// de retard que sur la branche GSC.
 	weekly: [
 		{ jobType: 'collect:gsc_query_page', priority: 12 },
 		{ jobType: 'collect:sitemap', priority: 11 },
+		{
+			jobType: 'collect:url_inspection',
+			priority: 10,
+			payload: { mode: 'policy', scope: 'full' },
+			dependsOn: [
+				{ jobType: 'collect:sitemap', required: false },
+				{ jobType: 'collect:gsc_query_page', required: false }
+			]
+		},
 		{
 			jobType: 'detect:keyword_opportunity',
 			priority: 10,
 			payload: { weeks: 4 },
 			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
+		},
+		{
+			jobType: 'detect:index_transition',
+			priority: 9,
+			dependsOn: [{ jobType: 'collect:url_inspection' }]
 		},
 		{ jobType: 'propose:actions', priority: 8, dependsOn: [{ jobType: 'detect:keyword_opportunity' }] }
 	],

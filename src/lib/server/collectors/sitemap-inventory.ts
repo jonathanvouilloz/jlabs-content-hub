@@ -248,6 +248,96 @@ export async function loadPreviousInventory(input: {
 	};
 }
 
+// ── Lectures d'inventaire pour la sélection (IDX-004) ───────────────
+
+/**
+ * Une ligne d'inventaire enrichie de ce dont la SÉLECTION a besoin en plus du diff.
+ *
+ * `diffInventories` ne compare que trois champs, mais IDX-004 doit aussi savoir quelle forme
+ * le site déclare (`url`, la trace) et si l'entrée est une alternate — IDX-001 pose qu'« une
+ * alternate n'est pas une page nouvelle », et la sélection doit respecter la même règle sous
+ * peine d'annoncer autant de pages neuves que de langues au premier run d'un site multilingue.
+ */
+export interface InventoryUrlRow extends InventoryRow {
+	url: string;
+	isAlternate: boolean;
+}
+
+/** Les lignes d'une date exacte. Égalité stricte, jamais une liste paramétrée (driver Neon). */
+async function selectInventoryRows(
+	db: AppDb,
+	projectId: string,
+	date: string
+): Promise<InventoryUrlRow[]> {
+	const rows = await db
+		.select({
+			url: sitemapUrlObservations.url,
+			urlNormalized: sitemapUrlObservations.urlNormalized,
+			lastmod: sitemapUrlObservations.lastmod,
+			expectedCanonical: sitemapUrlObservations.expectedCanonical,
+			isAlternate: sitemapUrlObservations.isAlternate
+		})
+		.from(sitemapUrlObservations)
+		.where(
+			and(
+				eq(sitemapUrlObservations.projectId, projectId),
+				eq(sitemapUrlObservations.observedDate, date)
+			)
+		);
+	return rows.map((r) => ({
+		url: r.url,
+		urlNormalized: r.urlNormalized,
+		lastmod: r.lastmod,
+		expectedCanonical: r.expectedCanonical ?? r.urlNormalized,
+		isAlternate: r.isAlternate
+	}));
+}
+
+/**
+ * L'inventaire d'une date EXACTE.
+ *
+ * `loadPreviousInventory` ne sait rendre que « la dernière date strictement antérieure », ce
+ * qui suffit au diff mais pas à IDX-004 : rejouer une sélection contre un snapshot connu
+ * suppose de pouvoir demander ce snapshot-là. Une date sans inventaire rend une liste vide —
+ * ce n'est pas une erreur, c'est un fait (le collecteur n'a pas tourné ce jour-là).
+ */
+export async function loadInventoryAt(input: {
+	db: AppDb;
+	projectId: string;
+	date: string;
+}): Promise<{ date: string | null; rows: InventoryUrlRow[] }> {
+	const rows = await selectInventoryRows(input.db, input.projectId, input.date);
+	return { date: rows.length > 0 ? input.date : null, rows };
+}
+
+/**
+ * Le dernier inventaire disponible À OU AVANT `onOrBefore`.
+ *
+ * C'est la lecture dont la sélection a besoin, et elle diffère de `loadPreviousInventory` sur
+ * un point qui compte : la passe de sélection tourne APRÈS `collect:sitemap` du même jour, et
+ * doit voir l'inventaire du jour. Un « strictement antérieur » la ferait travailler sur celui
+ * de la semaine passée, donc ignorer les pages parues aujourd'hui — exactement ce que la
+ * raison `new` existe pour attraper.
+ *
+ * Rend `{ date: null, rows: [] }` quand aucun inventaire n'existe : un projet dont le sitemap
+ * n'a jamais été collecté n'a pas un inventaire vide, il n'en a pas — et l'appelant doit
+ * pouvoir faire la différence.
+ */
+export async function loadLatestInventory(input: {
+	db: AppDb;
+	projectId: string;
+	onOrBefore: string;
+}): Promise<{ date: string | null; rows: InventoryUrlRow[] }> {
+	const dateRows = await input.db
+		.selectDistinct({ observedDate: sitemapUrlObservations.observedDate })
+		.from(sitemapUrlObservations)
+		.where(eq(sitemapUrlObservations.projectId, input.projectId))
+		.orderBy(desc(sitemapUrlObservations.observedDate));
+	const latest = dateRows.map((r) => r.observedDate).find((d) => d <= input.onOrBefore) ?? null;
+	if (!latest) return { date: null, rows: [] };
+	return { date: latest, rows: await selectInventoryRows(input.db, input.projectId, latest) };
+}
+
 // ── Le collecteur ───────────────────────────────────────────────────
 
 /**

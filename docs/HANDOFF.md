@@ -6,9 +6,11 @@
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
 
 ## Reprendre ici
-E00 sur `feat/cockpit` — **DASH-002, IDX-001, IDX-002 et IDX-005 livrés**. Prochain : **IDX-004**
-(sélection/quotas d'inspection) — c'est lui qui rend IDX-005 vivant (`index_observations` = 0 ligne)
-et qui posera l'arête obligatoire `collect:url_inspection → detect:index_transition` au catalogue
-hebdo. Sinon **DASH-003** (cockpit projet), encore bloqué par DASH-001 seul.
+E00 sur `feat/cockpit` — **DASH-002, IDX-001, IDX-002, IDX-005 et IDX-004 lot 1 livrés**. La
+branche d'indexation du graphe hebdo est fermée (`sitemap` → `url_inspection` → `index_transition`,
+arête finale obligatoire) et `index_selection` (59ᵉ table) porte les décisions de dépense de quota.
+Prochain : **IDX-004 lot 2** — cadence quotidienne `scope: 'due'`, `scheduleIndexChecks` appelé
+depuis `src/routes/api/content/[id]/status/+server.ts` (J+3/J+7/J+28), et CLI d'audit borné
+`scripts/inspect-urls.ts`. Sinon **DASH-003** (cockpit projet), encore bloqué par DASH-001 seul.
 Détail, pièges et Carte du code → le fichier feature.
-Commit : `81cd5a2` [hub] add: IDX-005 détecteur de transitions d'indexation
+Commit : `(à venir)` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection

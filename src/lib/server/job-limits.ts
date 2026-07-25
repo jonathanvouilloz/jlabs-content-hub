@@ -33,6 +33,16 @@
  * prévention est portée par le refroidissement. Le compte fin d'appels viendra avec les
  * collecteurs E03 — c'est-à-dire quand quelque chose pourra réellement l'écrire, et pas
  * avant (le piège d'AGT-000 : un module complet que personne n'appelle).
+ *
+ * **IDX-004 a apporté ce compte fin, et l'a mis AILLEURS — délibérément.** L'inspection
+ * d'URLs est le seul cas où 1 job = exactement N appels connus d'avance, donc le seul où un
+ * compte exact soit possible ; il vit dans `collectors/index-selection.ts` (clé
+ * `system_settings` `indexing.selection`), pas ici. Le convertir en garde de réclamation
+ * exigerait une table `provider_usage` écrite par tous les collecteurs — l'option que
+ * DECISIONS.md a rejetée le 2026-07-23 (« une table vide qui promet une précision qu'elle
+ * n'a pas »). Les deux couches ne se recouvrent pas : ici un compte de JOBS à la porte de la
+ * file, là un compte d'APPELS au moment de décider quoi inspecter. **Ce budget-ci reste un
+ * compte de jobs et le restera.**
  */
 
 // ── Providers ───────────────────────────────────────────────────────

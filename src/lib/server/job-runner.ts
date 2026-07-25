@@ -80,6 +80,10 @@ import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
 import { collectUrlInspection } from './collectors/url-inspection.js';
+import {
+	planInspectionSelection,
+	type SelectionPlan
+} from './collectors/index-selection.js';
 import { loadGscLatencyDays } from './gsc-settings.js';
 import { expireSnoozes } from './findings.js';
 
@@ -116,11 +120,14 @@ export const JOB_TYPE_COLLECT_GSC_QUERY_PAGE = 'collect:gsc_query_page';
 export const JOB_TYPE_COLLECT_SITEMAP = 'collect:sitemap';
 
 /**
- * IDX-002 — inspection d'URLs. **Volontairement ABSENT du catalogue hebdo** : sans IDX-004,
- * personne ne sait quelles URLs méritent le quota, et un job planifié avec une liste vide
- * tournerait pour rien chaque lundi. Il est exécutable dès maintenant (à la main, ou enfilé par
- * un appelant qui sait ce qu'il veut inspecter) — même forme que `post_publish:check`, déclaré
- * avant son handler.
+ * IDX-002 — inspection d'URLs. **Au catalogue hebdo depuis IDX-004**, en `mode: 'policy'` :
+ * c'est la politique de sélection qui décide quelles URLs méritent le quota, à l'EXÉCUTION du
+ * job et non à sa planification (le `payload` du catalogue est un littéral statique, et une
+ * sélection calculée au plan serait faite avant que `collect:sitemap` ait écrit l'inventaire
+ * du jour — donc avec `new`/`changed` structurellement vides).
+ *
+ * ⚠️ Le mode `explicit` (défaut, URLs au payload) reste le chemin d'IDX-002, inchangé : c'est
+ * lui qu'utilisent les preuves et tout appelant qui sait déjà ce qu'il veut inspecter.
  */
 export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
 
@@ -128,11 +135,15 @@ export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
 
 /**
- * IDX-005 — détecteur de transitions d'indexation. **Volontairement ABSENT du catalogue hebdo**,
- * pour la même raison que `collect:url_inspection` : sans sélection d'URLs (IDX-004), il tournerait
- * chaque lundi sur une table vide. Il y entrera AVEC IDX-004, en arête **obligatoire**
- * `collect:url_inspection → detect:index_transition` — détecter sur une inspection périmée serait
- * exactement le bug que GSC-002 a fermé côté Search Analytics.
+ * IDX-005 — détecteur de transitions d'indexation. **Au catalogue hebdo depuis IDX-004**, en
+ * arête **obligatoire** `collect:url_inspection → detect:index_transition` : détecter sur une
+ * inspection périmée serait exactement le bug que GSC-002 a fermé côté Search Analytics.
+ *
+ * ⚠️ L'arête garantit l'ORDRE, pas la FRAÎCHEUR. Une inspection qui n'a rien eu à faire réussit
+ * (elle rend `succeeded` avec zéro URL), donc l'arête est satisfaite et le détecteur tourne sur
+ * ce que sa fenêtre contient déjà. Ce n'est pas un bug — IDX-005 borne sa portée aux URLs
+ * réellement observées (`scope`) — mais ne pas le lire comme « le détecteur ne voit jamais du
+ * périmé ».
  */
 export const JOB_TYPE_DETECT_INDEX_TRANSITION = 'detect:index_transition';
 
@@ -224,38 +235,88 @@ export function defaultHandlers(): Map<string, JobHandler> {
 			JOB_TYPE_COLLECT_URL_INSPECTION,
 			async ({ db, job, signal }) => {
 				const payload = parsePayload(job.payloadJson);
-				// Les URLs viennent du PAYLOAD : ce handler ne les choisit pas (cf. IDX-004).
-				// Une liste absente n'est pas une erreur — c'est un job qu'on a enfilé trop tôt,
-				// et le dire vaut mieux que d'inventer une sélection.
-				const urls = Array.isArray(payload.urls)
+				const projectId = (payload.projectId as string) ?? job.projectId;
+
+				// IDX-004 — deux modes, et le DÉFAUT porte la non-régression.
+				// `mode` absent ⇒ `explicit` ⇒ le chemin d'IDX-002, mot pour mot : les URLs
+				// viennent du payload, ce handler ne choisit rien. Faire dépendre l'ancien
+				// comportement d'une condition plutôt que du défaut l'exposerait au premier
+				// payload mal formé.
+				const mode = payload.mode === 'policy' ? 'policy' : 'explicit';
+
+				// UNE SEULE référence de temps pour la sélection ET la collecte. Sans elle, un
+				// job démarré à 23:59:58 UTC inscrirait sa sélection au jour J et son
+				// observation au jour J+1 : la jointure « honorée » (`observed_date >= due_date`)
+				// serait fausse pour toujours, et l'URL reviendrait à chaque passe.
+				const now = new Date();
+
+				let urls = Array.isArray(payload.urls)
 					? payload.urls.filter((u): u is string => typeof u === 'string')
 					: [];
+				let plan: SelectionPlan | null = null;
+
+				if (mode === 'policy') {
+					plan = await planInspectionSelection({
+						db,
+						projectId,
+						now,
+						// Défaut PRUDENT : un job forgé sans `scope` honore les échéances et
+						// s'arrête, il ne peut pas déclencher un tirage complet.
+						scope: payload.scope === 'full' ? 'full' : 'due',
+						budget: typeof payload.budget === 'number' ? payload.budget : null,
+						runId: job.runId,
+						signal
+					});
+					urls = plan.urls;
+				}
+
+				// Une liste vide n'est pas une erreur. Mais le silence se DIT : un run qui n'a
+				// rien pu juger ne doit pas se lire comme un run qui n'a rien trouvé.
 				if (urls.length === 0) {
 					logger.info('inspection sans URL : rien à faire', {
 						jobId: job.id,
 						projectId: job.projectId,
-						hint: 'la politique de sélection est le sujet d’IDX-004'
+						mode,
+						reason: plan?.skippedReason ?? 'aucune URL au payload',
+						guards: plan?.guards ?? [],
+						expired: plan?.expired ?? 0
 					});
 					return;
 				}
+
 				const res = await collectUrlInspection({
-					projectId: (payload.projectId as string) ?? job.projectId,
+					projectId,
 					urls,
 					cap: typeof payload.cap === 'number' ? payload.cap : undefined,
 					runId: job.runId,
 					client: db,
+					now,
 					signal
 				});
 				logger.info('inspection d’URLs terminée', {
 					jobId: job.id,
 					projectId: job.projectId,
+					mode,
 					siteUrl: res.siteUrl,
 					observedDate: res.observedDate,
 					inspected: res.inspected.length,
 					// Un trou nommé remonte comme il est persisté : ni succès, ni panne.
 					unreadable: res.unreadable.length,
 					truncated: res.truncated,
-					dropped: res.dropped
+					dropped: res.dropped,
+					// « au plus », jamais « il reste » : `poolUsed` est une borne inférieure.
+					...(plan
+						? {
+								budget: plan.budget,
+								poolAvailableAtMost: plan.poolAvailable,
+								byReason: plan.byReason,
+								byBucket: plan.byBucket,
+								selectionDropped: plan.dropped,
+								selectionMerged: plan.merged,
+								expired: plan.expired,
+								guards: plan.guards
+							}
+						: {})
 				});
 			}
 		],

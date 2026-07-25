@@ -271,6 +271,21 @@ export const RETENTION_DEFAULTS: RetentionDefault[] = [
 		description: 'Audit des actions externes / agent runs — sans limite ; suppression = L4.'
 	},
 	{
+		// IDX-004 — le journal des décisions de DÉPENSE DE QUOTA. Catégorie `audit` et non
+		// `detail` : « pourquoi cette page a-t-elle coûté un appel le 12 mars » est une
+		// question d'audit, pas une mesure qu'on agrège. Purger ce registre effacerait
+		// aussi la seule trace des inspections dues et jamais honorées.
+		dataType: 'index_selection',
+		category: 'audit',
+		retentionDays: null,
+		aggregateBeforePurge: false,
+		requiresL4: true,
+		protected: true,
+		sourceTable: 'index_selection',
+		timestampColumn: 'due_date',
+		description: 'Décisions de sélection d’inspection — sans limite ; suppression = L4.'
+	},
+	{
 		dataType: 'report',
 		category: 'report',
 		retentionDays: null,

@@ -918,6 +918,58 @@ export const sitemapUrlObservations = seostats.table(
 	]
 );
 
+// IDX-004 — Le registre des DÉCISIONS de sélection d'inspection.
+//
+// ⚠️ TABLE OPTIMISTE : une ligne est une INTENTION, jamais une preuve d'inspection. Elle est
+// écrite AVANT que Google réponde — délibérément, sinon un 429 au 3ᵉ appel ferait perdre les
+// intentions suivantes et rien ne serait replanifié. Tout comptage de FAIT passe donc par la
+// jointure :
+//     honorée ⇔ ∃ index_observations(project_id, url = url_normalized, observed_date >= due_date)
+// Lire cette table seule pour compter « pages inspectées cette semaine » compterait des
+// intentions, pas des mesures.
+//
+// Aucune colonne de statut, volontairement : un `status` pending/done/failed serait un second
+// état persistant dont personne n'est propriétaire du retour (motif du `health_status` rejeté
+// par JOB-006). Le résultat se DÉRIVE de `index_observations`, qui est le fait.
+//
+// Le grain est le JOUR, comme les deux tables d'observations ci-dessus. C'est aussi ce qui
+// porte J+3/J+7/J+28 : une ligne à `due_date = publication + 28 j` EST le rappel J+28, sans
+// job, sans horloge, sans worker.
+export const indexSelection = seostats.table(
+	'index_selection',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		/** Le run qui a décidé. `null` pour une échéance posée hors run (J+N à la publication). */
+		runId: text('run_id').references(() => monitoringRuns.id),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		/** Jour à partir duquel cette inspection est due. Porte l'unique avec `url_normalized`. */
+		dueDate: text('due_date').notNull(),
+		/** Forme SOURCE (`<loc>`, `page` GSC, `entity_key` du finding). Trace, jamais envoyée. */
+		url: text('url').notNull(),
+		/** Forme comparée ET envoyée à Google — porte l'unique. Voir l'avertissement du SQL. */
+		urlNormalized: text('url_normalized').notNull(),
+		/** Vocabulaire FERMÉ (`SELECTION_REASONS`) : c'est l'acceptation « expose sa raison ». */
+		reason: text('reason').notNull(),
+		/** La PREUVE de la raison (`clicks`, `findingId`, `offsetDays`…). JSON borné. */
+		reasonDetail: text('reason_detail'),
+		/** `priority` | `sample` — c'est LUI que l'acceptation « pas tout l'échantillon » audite. */
+		bucket: text('bucket').notNull().default('priority'),
+		/** Rang dans la sélection ordonnée : rend la troncature lisible et deux runs comparables. */
+		rank: integer('rank').notNull().default(0),
+		/** `index_selection@1` — même discipline que `findings.detector_version`. */
+		selectorVersion: text('selector_version').notNull(),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('index_selection_unique').on(table.projectId, table.urlNormalized, table.dueDate),
+		index('idx_index_selection_project_due').on(table.projectId, table.dueDate),
+		index('idx_index_selection_project_url').on(table.projectId, table.urlNormalized)
+	]
+);
+
 // 5. Analytics page (Plausible, ← collecteur à venir). Période.
 export const plausiblePageObservations = seostats.table(
 	'plausible_page_observations',

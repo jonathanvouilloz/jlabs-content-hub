@@ -4,6 +4,150 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (IDX-004 lot 1 — le quota cesse d'être dépensé sans que personne l'ait décidé)
+
+**Fait :** IDX-004, **lot 1 (noyau)**. IDX-002 savait inspecter et IDX-005 savait juger, mais
+**personne ne choisissait les URLs** : `index_observations` était à **0 ligne**, donc IDX-005
+entièrement inerte, et les deux types de job restaient hors catalogue. Ce lot ferme la branche
+d'indexation du graphe hebdo. **Un DDL additif** (`index_selection`, table **vide** à la
+création) : 58 → **59 tables `seostats`**, l'écart étant exactement celle-là.
+
+- **Deux acceptations sur trois sont INDÉRIVABLES, et c'est ce qui justifie la table.** « Chaque
+  sélection expose sa raison » : la raison est fonction de l'état **au moment du choix** (diff
+  sitemap, findings actifs, clics 28 j) — rejouer la politique une semaine plus tard rend une
+  autre raison, et « nouvelle page » n'est vrai qu'une fois. « Une inspection manquée est
+  replanifiée sans duplication » : « manquée » veut dire **sélectionnée mais non observée**, et
+  sans trace de l'intention une URL dont le quota a été payé sans rien produire (429 au 3ᵉ appel,
+  bail perdu, réponse illisible) est **totalement invisible**. La 1ʳᵉ, elle, est bien une fonction
+  pure — elle vit dans le module et rien d'autre.
+- **La table stocke la DÉCISION, jamais le résultat.** Aucune colonne `status` : ce serait un
+  second état persistant dont personne n'est propriétaire du retour (motif du `health_status`
+  rejeté par JOB-006). Honorée se **dérive** : `∃ index_observations(projet, url = url_normalized,
+  observed_date >= due_date)`. Le `>=` porte toute la sémantique J+N — **prouvé** : une inspection
+  à J+4 n'honore pas une échéance J+7, une à J+7 l'honore.
+- **LE point du lot : la sélection est persistée AVANT que la collecte parte.** C'est l'inverse de
+  l'intuition et c'est délibéré — un 429 au 3ᵉ appel sur 10 laisse alors **7 intentions dues**,
+  reprises au run suivant **sans écrire une seule ligne de plus** (`count(*)` 10 → 10). **Et la
+  contre-épreuve MESURE le faux signal** : la même scène avec les intentions effacées (l'état
+  qu'aurait laissé un code persistant *après*) rend **0 échéance due** — les 7 URLs payées
+  deviennent invisibles, et la reprise ne les retrouve que **par hasard**, via l'échantillon.
+- **« Réserver du quota aux vérifications urgentes » est un ORDRE et un CANAL, pas un
+  pourcentage.** J'ai commencé par un `urgentReservePct` et je l'ai **supprimé** : l'urgent étant
+  servi en premier et sans plafond propre, un pourcentage ne peut que **dégrader** une garantie
+  déjà totale, et il ajoute un réglage qu'on peut mettre à zéro. Restent trois mécaniques
+  structurelles : l'ordre des familles, le canal `scope: 'due'` (que la configuration ne peut pas
+  désarmer), et `poolUrgentReserve` — **cross-projet**, pour que le projet qui tire le lundi ne
+  prive pas les cinq autres. Prouvé : à pool presque plein, `full` obtient **0** et le **dit**
+  (`urgent_reserve`), `due` obtient son échéance.
+- **La garde d'échantillon n'est pas désactivable par réglage.** `samplePctMax` est clampé à
+  `MAX_SAMPLE_PCT = 60`, donc `floor(budget × pct/100) < budget` pour tout budget ≥ 1 : l'échantillon
+  ne peut **jamais** prendre le dernier slot. Mesuré **en SQL sur `bucket`**, pas sur la valeur de
+  retour : 200 candidats, budget 40 → **16 lignes**, et un réglage forgé à **100 % rend 24, pas 40**.
+- **⚠️ `0` veut dire ZÉRO ici, l'inverse de `job-limits.ts`** (où `0` = pas de limite). JOB-006
+  gouverne une concurrence interne ; ici les plafonds gouvernent un **quota externe payant**, et
+  lire `0` comme « illimité » brûlerait le pool en un job. Une valeur illisible ou négative retombe
+  au défaut ; `0` est **valide** et veut dire « aucune inspection ».
+- **Le pool consommé est une BORNE INFÉRIEURE, pas une mesure.** `count(index_observations WHERE
+  observed_date = today)` ne compte ni les appels échoués, ni les réponses illisibles (qui
+  n'écrivent rien par construction, IDX-002), ni ceux du skill `/seo-index-diagnose` et de la route
+  legacy `seo-data` — qui tapent le **même** service account. D'où `dailyPoolTotal = 800` et non
+  2 000 : la marge absorbe le sous-comptage. Le libellé est « au plus N », jamais « il reste N ».
+- **La sélection se calcule à l'EXÉCUTION, pas au plan.** `scheduler.ts:341` fait
+  `JSON.stringify(entry.payload)` : le catalogue est un **littéral**. Et une sélection calculée au
+  plan le serait **avant** que `collect:sitemap` du même run ait écrit l'inventaire du jour — donc
+  avec `new`/`changed` structurellement vides. Le payload porte une **intention**
+  (`{ mode: 'policy', scope: 'full' }`), 40 octets.
+- **La non-régression IDX-002 est portée par le DÉFAUT, pas par une condition.** `mode` absent ⇒
+  `explicit` ⇒ le chemin d'avant, mot pour mot. Prouvé : un payload sans `mode` n'écrit **aucune**
+  ligne de sélection.
+- **Un seul `now` pour la sélection ET la collecte.** `collectUrlInspection` acceptait déjà `now`
+  mais le handler ne le passait pas : un job démarré à 23:59:58 UTC aurait inscrit sa sélection au
+  jour J et son observation au jour J+1, et la jointure « honorée » aurait été fausse **pour
+  toujours**.
+- **La forme envoyée à Google est la forme NORMALISÉE.** Sans ça, `…/page` (sitemap) et
+  `…/page#top` (GSC) paieraient deux slots pour une page et produiraient **deux séries de longueur
+  1**, trop courtes pour que `confirmTransition` (IDX-005) conclue jamais. La table est à 0 ligne :
+  c'était maintenant ou jamais.
+- **Les prérequis de l'inspection sont OPTIONNELS, celui du détecteur est OBLIGATOIRE.** Un sitemap
+  404 ou un 429 Search Analytics ne doit pas priver le projet de l'inspection de ses findings et de
+  ses échéances ; en revanche détecter sur une inspection périmée est le bug exact que GSC-002 a
+  fermé côté Search Analytics. Le test IDX-001 « ne dépend de rien et ne bloque rien » a été
+  **réécrit, pas supprimé** : l'invariant qui survit est « aucune dépendance entrante » **et** « son
+  seul dépendant l'a déclaré optionnel ».
+- **`strategicPages` n'est PAS redéclarée** : le sélecteur lit `decideStrategic` + `loadClicksByUrl`
+  + `loadProjectTransitionOverrides`, les **mêmes** qu'IDX-005. Sinon une page serait « stratégique
+  pour le détecteur » sans l'être « pour le sélecteur », et on protégerait une page qu'on
+  n'inspecte jamais.
+- **`indexing_credentials.exclude_patterns` n'est PAS réutilisé** : il gouverne la *soumission*
+  Indexing API. Exclure une page de la soumission ne veut pas dire qu'on ne veut pas *savoir* si
+  elle est indexée — souvent l'inverse.
+- Vérif : `npm run test` = **875/875** (+66 : 59 `index-selection-state` + 4 rétention + 3
+  catalogue) · `npm run check` = **0 err / 42 warn** (baseline) · **DDL appliqué sur Neon**
+  (1 table + 3 index, 13/13 colonnes, **0 ligne** à la création), **réappliqué** = idempotent ·
+  introspection = **59 tables `seostats`**, écart = cette table et rien d'autre ·
+  **`scripts/idx-004-selection-proof.ts` = 42/42 vertes sur Neon**, **rejouée**, base rendue à
+  l'identique (**0 sélection, 0 index_obs, 0 sitemap_obs, 13 findings, 17 events, 0 réglage** avant
+  comme après) · **zéro appel Google, zéro quota consommé** · non-régression :
+  `idx-005-transition-proof`, `idx-002-inspection-proof --skip-real`, `idx-001-sitemap-proof`,
+  `job-006-limits-proof`, `job-004-dag-proof`, `dash-002-home-proof`, `dash-005-inbox-proof`,
+  `gsc-004-windows-proof` — **0 échec chacune**.
+
+**Acceptations couvertes.** (1) « le quota ne peut pas être consommé entièrement par
+l'échantillon » : 200 candidats d'échantillon et un budget de 40 → **16 lignes `bucket='sample'`
+en base**, jamais 40 ; un réglage forgé à 100 % rend **24** ; le plafond atteint se dit
+(`sample_capped`) ; (2) « chaque sélection expose sa raison » : chaque ligne porte une raison du
+**vocabulaire fermé** et le détail qui la **prouve** — `finding` cite son `findingId`, `new` cite
+le snapshot d'origine, `changed` cite le `lastmod` **avant et après**, `sample` cite la dernière
+observation ; (3) « une inspection manquée est replanifiée sans duplication » : collecte
+interrompue après 3/10 → **7 dues, exactement les 7 non observées**, reprises au run suivant avec
+`count(*)` **inchangé**, et les 3 honorées ne reviennent pas.
+
+**Prochain :** **IDX-004 lot 2** — cadence quotidienne `scope: 'due'`, `scheduleIndexChecks`
+appelé depuis la route de publication (J+3/J+7/J+28), CLI d'audit borné `scripts/inspect-urls.ts`.
+Puis **DASH-003** (cockpit projet), toujours bloqué par DASH-001 seul.
+
+**Pièges :**
+- **`0` = ZÉRO dans `index-selection-state.ts`, `0` = illimité dans `job-limits.ts`.** Copier
+  l'idiome `budget > 0 && used >= budget` de JOB-006 ferait d'un budget à 0 un budget **infini**.
+- **`index_selection` est OPTIMISTE** : une ligne est une **intention**, jamais une preuve
+  d'inspection. Tout comptage de fait passe par la jointure à `index_observations`. Lire la table
+  seule pour compter « pages inspectées cette semaine » compterait des intentions.
+- **Un prérequis OPTIONNEL fait quand même ATTENDRE** (`classifyDependencyGate` retient tant qu'il
+  est `queued`/`running`). Un `collect:sitemap` lent **décale** l'inspection d'un tick, il ne
+  l'annule pas. Ne pas diagnostiquer ça comme « le job ne part pas ».
+- **La branche d'indexation passe à la PROFONDEUR 3** — la propagation d'un `skip` y prend un tick
+  de plus, comme sur la branche GSC.
+- **`collect:url_inspection` réussit à zéro URL**, donc l'arête obligatoire garantit **l'ordre, pas
+  la fraîcheur**. Ce n'est pas un bug (IDX-005 borne sa portée aux URLs réellement observées) mais
+  ne pas la lire comme « le détecteur ne voit jamais du périmé ».
+- **`DELAY_MS = 150` pèse sur le budget de drain** : 6 projets × 40 URLs = 36 s de pause pure dans
+  un `DRAIN_BUDGET_MS` de 240 s. C'est la raison du défaut prudent ; monter
+  `dailyBudgetPerProject` à 200 approcherait le plafond.
+- **Une preuve interrompue saute son `finally`** : vérifier alors les `due_date`/`observed_date`
+  **2018-11-%** de `index_selection`, `index_observations` et `sitemap_url_observations`, les
+  findings/`finding_events` dont `entity_key` commence par `https://sentinelle-idx004.test`
+  (**enfants d'abord**), **et la clé `indexing.selection` de `system_settings`** (la preuve la
+  sauvegarde et la restaure).
+- **`strategic` n'est pas couvert par la preuve Neon** (il demande des clics GSC réels ou une
+  déclaration projet), `manual`/`post_publish` non plus (pas de producteur avant le lot 2). Le
+  runner le **dit** plutôt que de laisser croire à une couverture complète.
+- Réveillé, **non corrigé** : `schedulePostPublish` ne peut pas reprogrammer une republication (sa
+  clé d'idempotence est `` `${contentId}:J+${offsetDays}` ``, **sans `publishedAt`**, alors que son
+  commentaire affirme le contraire) — c'est l'argument décisif qui a fait rejeter le réemploi de
+  `post_publish:check` · `providerWindowBudget` compte des **jobs**, pas des appels (dette JOB-006
+  confirmée, justification renforcée dans l'en-tête).
+- **Au 1er tick hebdo, `barberconcept` écrira ses 50 findings — décision de Jonathan : laisser
+  partir.** Le point cesse d'être « en attente » et devient une note d'exploitation.
+- Toujours en suspens hors IDX-004 : purge destructive (DATA-008 `--execute`) · **CONTRACT différé**
+  · double écriture legacy GSC (meurt avec GSC-003) · `gsc-002` non rejoué (quota) · `indexing.ts`
+  reste dette datée · aucun écran ne lit `indexing-read.ts` **ni `index_selection`** (DASH-003) ·
+  `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant
+  que ce n'est pas déployé**.
+
+**Commit :** `(à venir)` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection
+
+---
+
 ## Etat session 2026-07-25 (IDX-005 — « je ne l'ai pas regardée » cesse de se lire « elle est guérie »)
 
 **Fait :** IDX-005, enchaîné à IDX-002. `index_observations` portait des états depuis IDX-002, et

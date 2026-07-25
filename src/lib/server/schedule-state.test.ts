@@ -353,27 +353,60 @@ describe('SCHEDULE_CATALOG', () => {
 		// vieillissait d'une semaine chaque semaine, en silence.
 		// IDX-001 — l'inventaire sitemap rejoint le run (branche `fetch_sitemap` du graphe
 		// SPEC §8.2), en PARALLÈLE de la collecte GSC et sans dépendance avec elle.
+		// IDX-004 — la branche d'indexation se referme : inspection puis détection.
 		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual([
 			'collect:gsc_query_page',
 			'collect:sitemap',
+			'collect:url_inspection',
 			'detect:keyword_opportunity',
+			'detect:index_transition',
 			'propose:actions'
 		]);
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual(['findings:lifecycle']);
 	});
 
-	it('IDX-001 — l’inventaire sitemap ne dépend de RIEN et ne bloque RIEN', () => {
+	it('IDX-001/004 — l’inventaire sitemap ne dépend de RIEN, et son seul dépendant l’a déclaré OPTIONNEL', () => {
 		const sitemap = catalogFor('weekly').find((e) => e.jobType === 'collect:sitemap')!;
-		// Aucune dépendance entrante : le XML est fetchable même quand Search Analytics
+		// Aucune dépendance ENTRANTE : le XML est fetchable même quand Search Analytics
 		// rend 429. Le lier à la collecte GSC ferait sauter l'inventaire pour un quota
-		// qu'il ne consomme pas.
+		// qu'il ne consomme pas. C'est l'invariant d'origine, et il survit à IDX-004.
 		expect(sitemap.dependsOn).toBeUndefined();
-		// Et aucun dépendant : la détection actuelle (`keyword_opportunity`) ne lit pas
-		// l'inventaire. IDX-005 déclarera sa propre arête le jour où il existera.
+		// IDX-004 lui donne un dépendant — mais OPTIONNEL. C'est la moitié de l'invariant
+		// qui protège la chaîne : un sitemap mort ne doit pas priver le projet de
+		// l'inspection de ses findings et de ses échéances dues. Un `required: true`
+		// glissé ici rendrait un 404 de sitemap capable de tuer toute l'indexation.
 		const dependents = catalogFor('weekly').filter((e) =>
 			(e.dependsOn ?? []).some((d) => d.jobType === 'collect:sitemap')
 		);
-		expect(dependents).toEqual([]);
+		expect(dependents.map((e) => e.jobType)).toEqual(['collect:url_inspection']);
+		for (const dep of dependents) {
+			const edge = dep.dependsOn!.find((d) => d.jobType === 'collect:sitemap')!;
+			expect(edge.required).toBe(false);
+		}
+	});
+
+	it('IDX-004 — la collecte GSC est elle aussi un prérequis OPTIONNEL de l’inspection', () => {
+		// `strategic` vient des clics GSC. Les vouloir ne justifie pas d'abandonner
+		// l'inspection quand Search Analytics rend 429 : les échéances et les findings,
+		// eux, n'ont pas besoin de GSC.
+		const inspection = catalogFor('weekly').find((e) => e.jobType === 'collect:url_inspection')!;
+		const edge = inspection.dependsOn!.find((d) => d.jobType === 'collect:gsc_query_page')!;
+		expect(edge.required).toBe(false);
+	});
+
+	it('IDX-004 — l’arête vers le détecteur d’indexation est OBLIGATOIRE', () => {
+		// Détecter sur une inspection périmée est le bug exact que GSC-002 a fermé côté
+		// Search Analytics. Ici le défaut (`required` absent ⇒ true) porte la garantie.
+		const detector = catalogFor('weekly').find((e) => e.jobType === 'detect:index_transition')!;
+		expect(detector.dependsOn).toEqual([{ jobType: 'collect:url_inspection' }]);
+	});
+
+	it('IDX-004 — l’inspection porte une INTENTION, jamais une liste d’URLs', () => {
+		// Le payload du catalogue est un littéral statique : une sélection calculée au plan
+		// serait faite avant que `collect:sitemap` ait écrit l'inventaire du jour.
+		const inspection = catalogFor('weekly').find((e) => e.jobType === 'collect:url_inspection')!;
+		expect(inspection.payload).toEqual({ mode: 'policy', scope: 'full' });
+		expect(inspection.payload).not.toHaveProperty('urls');
 	});
 
 	it('la production de propositions est servie APRÈS la détection (priority DESC)', () => {

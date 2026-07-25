@@ -9,6 +9,7 @@ import {
 	derivePeriod,
 	canonicalDimensions,
 	RETENTION_CATEGORIES,
+	RETENTION_DEFAULTS,
 	AGGREGATE_GRAINS,
 	PURGE_RUN_STATUSES,
 	type RetentionPolicyShape
@@ -19,6 +20,31 @@ describe('vocabulaire SPEC §7.11', () => {
 		expect(RETENTION_CATEGORIES).toEqual(['detail', 'aggregate', 'audit', 'report', 'debug']);
 		expect(AGGREGATE_GRAINS).toEqual(['week', 'month', 'year']);
 		expect(PURGE_RUN_STATUSES).toContain('aborted');
+	});
+});
+
+describe('IDX-004 — le registre de sélection est de l’AUDIT, pas du détail', () => {
+	const entry = RETENTION_DEFAULTS.find((d) => d.dataType === 'index_selection');
+
+	it('il est déclaré, sinon la purge le traiterait comme une table inconnue', () => {
+		expect(entry).toBeDefined();
+		expect(entry!.sourceTable).toBe('index_selection');
+	});
+
+	it('catégorie `audit` : « pourquoi cette page a coûté un appel » n’est pas une mesure', () => {
+		expect(entry!.category).toBe('audit');
+		// Donc suppression = L4, comme les décisions et l'audit des actions externes.
+		expect(entry!.requiresL4).toBe(true);
+		expect(entry!.protected).toBe(true);
+	});
+
+	it('sans limite, et jamais agrégé : purger effacerait la trace des inspections jamais honorées', () => {
+		expect(entry!.retentionDays).toBeNull();
+		expect(entry!.aggregateBeforePurge).toBe(false);
+	});
+
+	it('daté par `due_date` — le grain jour, comme les observations qu’il rejoint', () => {
+		expect(entry!.timestampColumn).toBe('due_date');
 	});
 });
 
