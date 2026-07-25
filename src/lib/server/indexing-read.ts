@@ -128,6 +128,61 @@ export async function loadIndexHistory(input: {
 }
 
 /**
+ * IDX-005 — L'historique de TOUTES les URLs sur une fenêtre bornée.
+ *
+ * Ni `loadIndexHistory` (une seule URL) ni `loadLatestIndexStates` (le dernier état) ne peuvent
+ * nourrir une comparaison d'états consécutifs à l'échelle d'un projet : le détecteur de transitions
+ * a besoin de la SÉRIE. La lire ici, à côté des deux autres, garde `indexing-read.ts` comme unique
+ * porte de lecture de l'indexation — un détecteur qui écrirait son propre SQL finirait par
+ * diverger de l'écran qui affiche le même état.
+ *
+ * `since` n'est pas un confort : sans borne, la série d'un projet ancien grossirait indéfiniment et
+ * un état vieux de deux ans pèserait autant qu'hier dans la décision. `limit` borne le reste.
+ *
+ * L'ordre `(url, observed_date)` est rendu par SQL **et** re-imposé par `buildStateSeries` : la
+ * fonction pure ne doit dépendre d'aucune promesse de la requête pour rester rejouable.
+ */
+export async function loadIndexSeries(input: {
+	db: AppDb;
+	projectId: string;
+	/** Borne basse d'`observed_date` (`YYYY-MM-DD`). */
+	since?: string | null;
+	urls?: readonly string[];
+	limit?: number;
+}): Promise<(IndexStateRow & { observationId: string })[]> {
+	const filters = [eq(indexObservations.projectId, input.projectId)];
+	if (input.since) filters.push(gte(indexObservations.observedDate, input.since));
+	if (input.urls && input.urls.length > 0) {
+		filters.push(inArray(indexObservations.url, [...input.urls]));
+	}
+
+	const rows = await input.db
+		.select({
+			observationId: indexObservations.id,
+			url: indexObservations.url,
+			observedDate: indexObservations.observedDate,
+			verdict: indexObservations.verdict,
+			coverageState: indexObservations.coverageState,
+			indexingState: indexObservations.indexingState,
+			robotsState: indexObservations.robotsState,
+			googleCanonical: indexObservations.googleCanonical,
+			userCanonical: indexObservations.userCanonical,
+			lastCrawlAt: indexObservations.lastCrawlAt
+		})
+		.from(indexObservations)
+		.where(and(...filters))
+		.orderBy(indexObservations.url, indexObservations.observedDate)
+		.limit(Math.max(1, Math.floor(input.limit ?? 20000)));
+
+	return rows.map((r) => ({
+		...r,
+		indexedClass: classifyCoverage(r.coverageState),
+		canonicalMismatch:
+			r.googleCanonical && r.userCanonical ? r.googleCanonical !== r.userCanonical : null
+	}));
+}
+
+/**
  * Répartition par classe d'indexation, cross-projet — de quoi alimenter un compteur d'accueil.
  *
  * L'agrégation se fait EN MÉMOIRE sur les derniers états, et non en SQL sur `coverage_state` :

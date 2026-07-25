@@ -42,6 +42,12 @@ describe('providerForJobType', () => {
 		expect(providerForJobType('findings:lifecycle')).toBe('none');
 	});
 
+	it('IDX-005 — le détecteur de transitions relit des observations déjà payées, donc `none`', () => {
+		// Le classer `gsc` le mettrait au repos avec la cohorte au premier 429 : il attendrait un
+		// quota dont il n'a pas besoin, sur des lignes déjà en base.
+		expect(providerForJobType('detect:index_transition')).toBe('none');
+	});
+
 	it('`post_publish:check` est déjà déclaré GSC (E03 n’aura qu’un handler à poser)', () => {
 		expect(providerForJobType('post_publish:check')).toBe('gsc');
 	});
@@ -68,6 +74,7 @@ describe('providerForJobType', () => {
 		]);
 		expect(jobTypesForProvider('dataforseo')).toEqual([]);
 		expect(jobTypesForProvider('none')).toContain('detect:keyword_opportunity');
+		expect(jobTypesForProvider('none')).toContain('detect:index_transition');
 	});
 });
 

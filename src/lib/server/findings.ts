@@ -480,6 +480,20 @@ export interface ReconcileDetectionInput {
 	 * « guéris » des findings simplement non réécrits — c'est l'invariant n°1.
 	 */
 	closure: Set<string>;
+	/**
+	 * IDX-005 — PORTÉE d'autorité du run, quand elle est plus étroite que le projet.
+	 *
+	 * Un détecteur GSC est autoritaire sur tout son projet : chaque requête est réobservée chaque
+	 * semaine, donc une absence de la closure est une vraie absence de signal. Un détecteur
+	 * d'indexation ne l'est PAS : l'inspection coûte du quota et ne couvre qu'une sélection d'URLs
+	 * (IDX-004). Une page simplement non ré-inspectée serait absente de la closure — et
+	 * **auto-résolue au bout de deux runs**, alors que rien ne prouve qu'elle est réparée.
+	 *
+	 * Quand `scope` est fourni, seuls les fingerprints qu'il contient sont éligibles au comptage
+	 * d'absence ; les autres sont laissés strictement intacts et comptés dans `outOfScope`. Absent,
+	 * le comportement est inchangé (tout le type du projet est dans la portée).
+	 */
+	scope?: Set<string> | null;
 	detectorVersion?: string | null;
 	runId?: string | null;
 	config?: Partial<LifecycleConfig> | null;
@@ -494,6 +508,12 @@ export interface ReconcileDetectionResult {
 	missed: number;
 	/** Intouchés par décision : en veille, ou dismissés à vie. */
 	held: number;
+	/**
+	 * Hors portée du run : ni redétectés, ni comptés absents — le run n'avait tout simplement rien
+	 * à en dire. Compteur DISTINCT de `held`, qui signifie « une décision les protège » : confondre
+	 * les deux ferait lire « 12 maintenus par décision » là où personne n'a rien décidé.
+	 */
+	outOfScope: number;
 }
 
 /**
@@ -515,7 +535,13 @@ export async function reconcileDetectionRun(
 ): Promise<ReconcileDetectionResult> {
 	const db = await resolveDb(client);
 	const config = resolveLifecycleConfig(input.config);
-	const result: ReconcileDetectionResult = { reopened: 0, autoResolved: 0, missed: 0, held: 0 };
+	const result: ReconcileDetectionResult = {
+		reopened: 0,
+		autoResolved: 0,
+		missed: 0,
+		held: 0,
+		outOfScope: 0
+	};
 
 	const rows = await db
 		.select({
@@ -553,6 +579,14 @@ export async function reconcileDetectionRun(
 			} else if (decision === 'hold') {
 				result.held += 1;
 			}
+			continue;
+		}
+
+		// Hors portée : le run n'a rien observé de cette entité, donc son absence de la closure
+		// ne dit RIEN. On ne touche même pas `consecutive_misses` — l'incrémenter reviendrait à
+		// compter comme preuve de guérison ce qui n'est qu'un manque de mesure.
+		if (input.scope && !input.scope.has(row.fingerprint)) {
+			result.outOfScope += 1;
 			continue;
 		}
 

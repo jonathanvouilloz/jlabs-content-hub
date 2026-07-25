@@ -110,8 +110,17 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   `toGscApiError` donc 7 classes JOB-003 exactes, dont 403 `rateLimitExceeded` → `quota` ; rerun du
   jour rafraîchit, jour antérieur intact → historique ; lecture `indexing-read.ts` **sans réseau** ;
   `excluded` distingué de `not_indexed` ; chaîne réelle démontrée sur `sc-domain:barberconcept.ch`).
-  · test **766/766**. Prochain : **IDX-004** (sélection/quotas, débloqué), **IDX-005** (transitions
-  d'indexation, débloqué) ou **DASH-003** (cockpit projet).
+  · test **766/766**. Puis **IDX-005** (détecteur de transitions, **zéro DDL** — une transition stable
+  ne parle **qu'une fois** (fingerprint `(type, page, url)`, 3 runs = 1 `created`) ; une fluctuation
+  isolée est **écrite mais plafonnée** (`pending`, confiance 40, `medium`, jamais notifiable) et la
+  confirmation la fait monter sur le **même** finding ; **`unknown` n'est pas un état** et
+  `indexed → noindex` n'est **pas** une désindexation ; et surtout `reconcileDetectionRun` gagne un
+  **`scope`** — ce détecteur n'est autoritaire que sur **ce qui a été ré-inspecté**, sinon une page
+  non regardée serait « guérie » en deux runs, faux signal que la contre-épreuve **mesure**. §14.3 :
+  le **signal** (`notifyImmediately`), pas le canal — TEL-002 reste BLOCKED) · test **809/809**.
+  ⚠️ **Inerte tant qu'IDX-004 n'alimente pas l'inspection** (`index_observations` = 0 ligne) — piège
+  AGT-000 nommé et daté. Prochain : **IDX-004** (sélection/quotas — il rend IDX-005 vivant et posera
+  l'arête obligatoire au catalogue hebdo) ou **DASH-003** (cockpit projet, débloqué côté IDX-005).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

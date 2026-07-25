@@ -75,6 +75,7 @@ import {
 import { coolDownQuotaLimitedJobs, loadLimitsContext } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
+import { runIndexTransitionDetector } from './detectors/index-transition.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
@@ -125,6 +126,15 @@ export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
+
+/**
+ * IDX-005 — détecteur de transitions d'indexation. **Volontairement ABSENT du catalogue hebdo**,
+ * pour la même raison que `collect:url_inspection` : sans sélection d'URLs (IDX-004), il tournerait
+ * chaque lundi sur une table vide. Il y entrera AVEC IDX-004, en arête **obligatoire**
+ * `collect:url_inspection → detect:index_transition` — détecter sur une inspection périmée serait
+ * exactement le bug que GSC-002 a fermé côté Search Analytics.
+ */
+export const JOB_TYPE_DETECT_INDEX_TRANSITION = 'detect:index_transition';
 
 /**
  * FIND-003 — expiration des veilles. Job À PART du détecteur : une veille doit
@@ -270,7 +280,37 @@ export function defaultHandlers(): Map<string, JobHandler> {
 			}
 		],
 		[
-			JOB_TYPE_FINDINGS_LIFECYCLE,
+			JOB_TYPE_DETECT_INDEX_TRANSITION,
+				async ({ db, job }) => {
+					const payload = parsePayload(job.payloadJson);
+					const res = await runIndexTransitionDetector({
+						db,
+						projectId: (payload.projectId as string) ?? job.projectId,
+						lookbackDays:
+							typeof payload.lookbackDays === 'number' ? payload.lookbackDays : undefined,
+						runId: job.runId
+					});
+					logger.info('détection d’indexation terminée', {
+						jobId: job.id,
+						projectId: job.projectId,
+						detector: res.detectorVersion,
+						urlsExamined: res.urlsExamined,
+						created: res.counts.created,
+						refreshed: res.counts.refreshed,
+						// Ce qui attend confirmation se DIT : un finding plafonné à `medium` n'est pas un
+						// problème mineur, c'est un problème pas encore prouvé.
+						pending: res.pending,
+						notifiable: res.notifiable,
+						truncated: res.truncated,
+						// Sans IDX-004, ce compteur vaut à peu près tout le stock. Le taire ferait lire un
+						// run qui n'a rien pu juger comme un run qui n'a rien trouvé.
+						outOfScope: res.lifecycle.outOfScope,
+						skippedReason: res.skippedReason
+					});
+				}
+			],
+			[
+				JOB_TYPE_FINDINGS_LIFECYCLE,
 			async ({ db, job }) => {
 				const payload = parsePayload(job.payloadJson);
 				const res = await expireSnoozes(

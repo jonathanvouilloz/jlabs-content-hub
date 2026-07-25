@@ -4,6 +4,115 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (IDX-005 — « je ne l'ai pas regardée » cesse de se lire « elle est guérie »)
+
+**Fait :** IDX-005, enchaîné à IDX-002. `index_observations` portait des états depuis IDX-002, et
+**rien ne les comparait dans le temps** : une page passée d'`indexed` à `not indexed` ne produisait
+aucun finding — la douleur jokiSEO d'origine, celle pour laquelle tout le canon d'observations existe.
+**Zéro DDL** : `findings` portait déjà `consecutive_misses`, `evidence_json`, `confidence_score` ;
+la confirmation se **dérive** de la série à chaque run. **58 tables `seostats`**, `schema.ts` intact
+(`git status` vide), introspection à l'appui.
+
+- **LE piège du lot, et il vient de la nature même de l'inspection : ce détecteur n'est PAS
+  autoritaire sur son projet.** `reconcileDetectionRun` balayait tous les findings d'un type et
+  traitait toute absence de la closure comme une absence de signal — juste pour GSC, où chaque
+  requête est réobservée chaque semaine. Ici l'inspection coûte du quota et ne couvre qu'une
+  **sélection** d'URLs (IDX-004) : une page simplement non ré-inspectée serait absente de la closure
+  et **auto-résolue en deux runs**, alors que rien ne prouve qu'elle est réparée. D'où le champ
+  optionnel **`scope`** — hors portée, le finding est laissé **strictement intact**,
+  `consecutive_misses` compris (l'incrémenter compterait un manque de mesure comme une preuve de
+  guérison). Compteur **`outOfScope`** distinct de `held` : confondre les deux ferait lire « maintenu
+  par décision » là où personne n'a rien décidé. Sans le champ, comportement **inchangé** —
+  `keyword-opportunity.ts` n'est pas touché.
+- **Et la contre-épreuve MESURE le faux signal**, elle ne l'invoque pas : la même scène rejouée
+  **sans** `scope` fait passer une page jamais ré-inspectée de `open` à **`resolved`**. C'est
+  exactement ce que la garde empêche d'écrire.
+- **`unknown` n'est PAS un état** — la doctrine d'IDX-002 portée à la série temporelle. Une
+  inspection illisible ne rompt pas un streak de `not_indexed` **et** ne le confirme pas. Sans la
+  première moitié, une seule erreur de lecture repousserait indéfiniment la confirmation d'une vraie
+  désindexation ; sans la seconde, un trou vaudrait preuve. Elle baisse la confiance, c'est tout.
+- **`excluded` n'est pas `not_indexed`, et `indexed → excluded` n'est PAS une désindexation.**
+  « Excluded by 'noindex' tag » est une décision du site qu'on respecte : aucun finding. C'est
+  précisément pour ce détecteur qu'IDX-002 avait séparé les deux classes — la distinction cesse ici
+  d'être théorique.
+- **Une transition stable ne parle QU'UNE fois.** Le fingerprint est `(type, page, url)` : ni date,
+  ni compteur, ni statut de confirmation. Trois runs sur la même désindexation → **1 finding, 1 seul
+  `created`**, `occurrence_count` à 3. Le titre est stable pour la même raison (il est réécrit à
+  chaque upsert : y glisser une valeur mouvante ferait bouger la ligne d'inbox chaque semaine pour un
+  problème qui, lui, n'a pas bougé).
+- **Une fluctuation isolée est ÉCRITE, pas cachée — mais plafonnée.** Une bascule unique donne
+  `pending` : confiance 40, sévérité **plafonnée à `medium` même sur page stratégique**, et
+  **jamais notifiable**. La 2ᵉ observation consécutive confirme : confiance 90, sévérité `critical`,
+  `aggravated` journalisé, **même finding**. Taire le fait aurait été l'autre erreur.
+- **« Page stratégique » est DÉRIVÉE (clics GSC) et surchargeable, jamais devinée.** Un projet sans
+  donnée ni déclaration n'a **aucune** page stratégique — état à part, jamais « toutes » : le défaut
+  permissif ferait de chaque désindexation une urgence critique, et l'alerte qui crie toujours n'est
+  plus lue. Les deux côtés passent par `normalizeUrl` (IDX-001), sinon la déclaration ne rejoindrait
+  jamais la mesure.
+- **Le SIGNAL, pas le canal (décision de Jonathan).** §14.3 veut notifier une désindexation
+  confirmée de page stratégique ; **TEL-002 est BLOCKED**. Câbler `sendCriticalError` ici aurait
+  installé un second chemin de notification, avec sa propre déduplication, à défaire au branchement
+  du vrai canal. Le drapeau `notifyImmediately` vit dans les preuves : interrogeable en base, le
+  canal viendra le lire.
+- **Trois types, une réconciliation PAR type.** `index_drop` (tombée d'`indexed`, quelle que soit la
+  nuance de coverage — c'est la perte qui compte), `crawled_not_indexed`, `discovered_not_indexed`.
+  Mélanger les closures ferait passer pour absente une page dont le problème a simplement **changé de
+  nature**. Un `not_indexed` de nature `other` jamais indexé (404, « unknown to Google ») ne reçoit
+  **aucun** type : §10.4 ne lui en donne pas, on n'en invente pas.
+- Vérif : `npm run test` = **809/809** (+43 : 42 `index-transition-state` + 1 `job-limits`) ·
+  `npm run check` = **0 err / 42 warn** (baseline) · **aucun DDL**, `schema.ts` inchangé,
+  introspection **58 tables `seostats`** (+1 `core`) · **`scripts/idx-005-transition-proof.ts` =
+  31/31 vertes sur Neon**, **rejouée 3×**, base rendue à l'identique (**13 findings, 17 events, 0
+  index_obs** avant comme après) · non-régression : `idx-002-inspection-proof --skip-real`,
+  `idx-001-sitemap-proof`, `find-003-lifecycle-proof`, `dash-005-inbox-proof`,
+  `agt-000-proposer-proof`, `job-006-limits-proof`, `job-004-dag-proof`, `dash-002-home-proof`,
+  `gsc-004-windows-proof` — **0 échec chacune**.
+
+**Acceptations couvertes.** (1) « une transition stable crée un événement unique » : 3 runs sur la
+même désindexation → **1 finding**, **1 seul `created`** au journal, `occurrence_count` à 3, et le
+fingerprint persisté vaut exactement `(type, page, url)` ; (2) « une fluctuation isolée baisse la
+confiance ou attend confirmation » : bascule unique → `pending`, confiance **40**, sévérité plafonnée
+à `medium` malgré une page stratégique, **0 notifiable** ; confirmation arrivée → confiance **90**,
+`critical`, `aggravated` — **le même finding** ; (3) « la résolution conserve l'historique complet » :
+1re absence **constatée** comptée (`consecutive_misses = 1`, jamais résolue d'un coup), 2ᵉ →
+auto-résolue et journalisée, puis récidive → **`reopened` du même finding** avec la chaîne
+`created → resolved → reopened` intacte ; et l'absence **non constatée** ne produit rien du tout.
+
+**Prochain :** **IDX-004** (sélection/quotas d'inspection) — c'est lui qui rend ce détecteur vivant,
+et c'est lui qui posera l'arête **obligatoire** `collect:url_inspection → detect:index_transition` au
+catalogue hebdo. Puis **DASH-003** (cockpit projet, désormais débloqué côté IDX-005).
+
+**Pièges :**
+- **`index_observations` est à ZÉRO ligne** (la preuve IDX-002 a nettoyé son inspection réelle dans
+  son `finally`). Le détecteur est donc **entièrement inerte en production** — piège AGT-000 assumé,
+  **nommé et daté**, avec un consommateur identifié : IDX-004. Le runner le **dit**
+  (`aucune observation d'indexation sur la fenêtre`) au lieu de se taire.
+- **`detect:index_transition` n'est PAS au catalogue hebdo**, même raison que `collect:url_inspection`.
+  Ne pas l'y ajouter seul : sans arête vers l'inspection, il détecterait sur des états périmés — le
+  bug exact que GSC-002 a fermé côté Search Analytics.
+- **Ne JAMAIS retirer le `scope` d'un détecteur à couverture partielle.** C'est la seule chose qui
+  empêche « je ne l'ai pas regardée » de se lire « elle est guérie ». La contre-épreuve C-bis existe
+  pour que ce ne soit pas un argument mais une mesure.
+- **`outOfScope` vaudra à peu près tout le stock tant qu'IDX-004 n'existe pas.** C'est journalisé par
+  le handler et affiché par le runner : un run qui n'a rien pu juger ne doit pas se lire comme un run
+  qui n'a rien trouvé.
+- **Ne pas « corriger » le silence sur `not_indexed` de nature `other`.** Lui coller un type serait
+  inventer un diagnostic que §10.4 ne donne pas.
+- **La sévérité `critical` est RÉSERVÉE** au cas notifiable §14.3 (drop confirmé + stratégique).
+  L'ouvrir plus largement viderait la notification de son sens avant même que TEL-002 existe.
+- **Une preuve interrompue saute son `cleanup()`** : vérifier les `observed_date` **2018-11-%** de
+  `index_observations`, et les findings/`finding_events` dont `entity_key` commence par
+  `https://sentinelle-idx005.test` (**enfants d'abord**).
+- Toujours en suspens hors IDX-005 : purge destructive (DATA-008 `--execute`) · **CONTRACT différé** ·
+  double écriture legacy GSC (meurt avec GSC-003) · `gsc-002` non rejoué (quota) · `indexing.ts`
+  reste dette datée · aucun écran ne lit `indexing-read.ts` (DASH-003) · `npm run build` échoue à
+  l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant que ce n'est pas déployé** ·
+  au 1er tick hebdo, `barberconcept` écrira ses **50 findings**.
+
+**Commit :** `(à venir)` [hub] add: IDX-005 détecteur de transitions d'indexation, une absence de mesure n'est pas une guérison
+
+---
+
 ## Etat session 2026-07-25 (IDX-002 — l'inspection cesse de confondre « credential mort » et « page inconnue de Google »)
 
 **Fait :** IDX-002, enchaîné à IDX-001. `indexing.ts:batchInspect` inspectait déjà des URLs — et
@@ -2096,12 +2205,19 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-25 (IDX-001+002 · complétée des lignes **GSC-004** et **DASH-002**, oubliées aux deux lots précédents)
+> Mise à jour : 2026-07-25 (IDX-005)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/detectors/index-transition-state.ts`** (+ `.test.ts`) | **Purs IDX-005** : `confirmTransition` — le cœur du lot, où **`unknown` n'est pas un état** (une inspection illisible ne rompt pas un streak **et** ne le confirme pas : sans la 1re moitié une erreur de lecture repousserait indéfiniment la confirmation, sans la 2ᵉ un trou vaudrait preuve) et où **`excluded` n'est jamais un `index_drop`** (`indexed → noindex` est une décision du site) ; `classifyNotIndexedKind` **affine** `classifyCoverage` sans la dupliquer (elle reste l'autorité, consommée par `indexing-read.ts`) ; `buildStateSeries` (ordre **total**, donc rejouable quel que soit l'ordre d'arrivée) ; `computeTransitionConfidence` (streak / oscillations / trous — **dérivée, jamais stockée**, une observation unique plafonnée à 40) ; `deriveTransitionSeverity` (**`critical` RÉSERVÉ** au cas notifiable §14.3 ; non confirmé ou confiance < 50 → plafond `medium`) ; `decideStrategic` (déclarée **ou** ≥ N clics — **aucune** page stratégique sans donnée ni déclaration, jamais « toutes ») ; `shouldNotifyImmediately` + `NOTIFY_IMMEDIATELY_REASON` (le **SIGNAL** ; le canal est TEL-002). **42 tests.** |
+| **`src/lib/server/detectors/index-transition.ts`** | **IO IDX-005** : lit la série, construit le contexte stratégique (clics GSC **normalisés par `normalizeUrl`** — sinon la déclaration ne rejoint jamais la mesure), écrit findings + événements (**seulement** création ou mouvement de sévérité), puis réconcilie **une passe PAR TYPE** avec **son `scope`** — mélanger les closures ferait passer pour absente une page dont le problème a changé de **nature**. Le `scope` couvre les 3 types pour **toute URL observée**, pour qu'une page redevenue indexée puisse se résoudre. `recommended_skill = seo-index-diagnose`. |
+| **`src/lib/server/findings.ts`** *(IDX-005)* | **`ReconcileDetectionInput.scope`** (optionnel) + **`outOfScope`** au résultat. Ce détecteur n'est **PAS autoritaire sur son projet** (l'inspection coûte du quota et ne couvre qu'une sélection) : hors portée, le finding est laissé **strictement intact**, `consecutive_misses` compris — l'incrémenter compterait un manque de **mesure** comme une preuve de **guérison**. `outOfScope` est distinct de `held` (« une décision les protège ») : les confondre ferait lire « maintenu par décision » là où personne n'a rien décidé. Champ absent ⇒ comportement **inchangé** (`keyword-opportunity.ts` non touché). |
+| **`src/lib/server/indexing-read.ts`** *(IDX-005)* | **`loadIndexSeries`** — l'historique de **toutes** les URLs sur une fenêtre bornée. Ni `loadIndexHistory` (une URL) ni `loadLatestIndexStates` (le dernier état) ne peuvent nourrir une comparaison consécutive à l'échelle d'un projet. Le poser ici garde ce fichier comme **unique porte** de lecture de l'indexation : un détecteur avec son propre SQL finirait par diverger de l'écran qui affiche le même état. |
+| **`src/lib/server/job-runner.ts` + `job-limits.ts`** *(IDX-005)* | `detect:index_transition` : handler + provider **`none`** (il relit des observations **déjà payées** — le classer `gsc` le mettrait au repos avec la cohorte au premier 429, pour un quota dont il n'a pas besoin). ⚠️ **PAS au catalogue hebdo**, même raison que `collect:url_inspection` : il y entrera avec **IDX-004**, en arête **obligatoire** `collect:url_inspection → detect:index_transition`. |
+| **`scripts/detect-index.ts`** | Runner IDX-005 (`--project=<slug\|all>`, `--lookback`, `--dry-run`, `--limit`, `--now`) : run+step de traçabilité, et surtout deux choses **dites** plutôt que tues — la troncature, et le **hors-portée** (« aucune inspection ne les a couverts, donc rien n'a été conclu »). Tant qu'IDX-004 n'existe pas, il annonce `aucune observation d'indexation sur la fenêtre` au lieu d'un silence qu'on lirait comme « tout va bien ». |
+| **`scripts/idx-005-transition-proof.ts`** | **Preuve IDX-005 sur Neon (31 vérifs)** : 3 runs → **1 seul `created`** et `occurrence_count` à 3 ; bascule isolée `pending`/confiance 40/`medium`/0 notifiable, puis confirmée → 90/`critical`/`aggravated` **même finding** ; **le point du lot** — une URL non ré-inspectée reste `open` avec `consecutive_misses` **à 0**, et la **contre-épreuve C-bis MESURE** le faux signal évité (la même scène sans `scope` : `open → resolved`) ; page réparée résolue seulement après **2 absences constatées**, puis récidive → `reopened` avec `created → resolved → reopened` intact ; les deux silences (`noindex`, illisible). Dates **2018-11-%**, domaine `sentinelle-idx005.test`, nettoyage **enfants d'abord**. |
 | **`src/lib/server/collectors/url-inspection-state.ts`** (+ `.test.ts`) | **Purs IDX-002** : **`InspectionOutcome`** — union discriminée `result` \| `provider_error` dont les branches ne partagent **aucun champ exploitable**, ce qui rend « erreur provider ≠ non indexé » impossible à confondre (le legacy rendait `unknown` pour les deux) ; `parseInspectionResult` (7 colonnes + payload SPEC §9.2, `understood: false` sur une enveloppe illisible — écrire des `null` se lirait comme « Google ne connaît pas cette page ») ; listes **plafonnées à 50 et troncature DITE** (le payload d'observation **jette** au-delà de 32 Ko : une page très maillée s'auto-saboterait) ; `classifyCoverage` où **`excluded` est une classe à part** de `not_indexed` (décision du site vs problème à traiter) ; `canonicalMismatch` (`null` = incomparable, jamais « d'accord ») ; `capUrls` (dédup + plafond dur **200**). **18 tests.** |
 | **`src/lib/server/collectors/url-inspection.ts`** | **IO IDX-002** : `inspectOne` (seul endroit où une `GscApiError` devient une valeur, et elle devient un `provider_error` **explicite**) et `collectUrlInspection` — écriture **INCRÉMENTALE**, l'inverse de GSC-002 et délibérément : une URL inspectée est un fait **autonome** que rien ne compare à un total attendu, donc perdre 199 inspections payées au quota pour la 200ᵉ serait absurde. Mais une **erreur provider interrompt et REMONTE structurée** : l'absorber URL par URL brûlerait les suivantes contre un mur et la file n'apprendrait rien. Pause **150 ms** (600 req/min par propriété). |
 | **`src/lib/server/gsc-auth.ts`** *(étendu IDX-002)* | `urlInspection()` posée **à côté de** `searchAnalyticsPage` : hérite `toGscApiError`, donc les erreurs sont **structurées gratuitement** et `classifyJobFailure` est exact sur les deux cas que Google fait à l'envers (403 `rateLimitExceeded` → `quota`, 400 `invalid_grant` → `auth`). Scope déjà présent dans `COMBINED_SCOPE` — aucun nouveau consentement. |

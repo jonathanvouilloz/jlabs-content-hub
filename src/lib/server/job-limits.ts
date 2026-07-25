@@ -76,6 +76,11 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// que les 6 projets partagent.
 	'collect:url_inspection': 'gsc',
 	'detect:keyword_opportunity': 'none',
+	// IDX-005 — le détecteur de transitions ne sort PAS de Postgres : il relit
+	// `index_observations` que l'inspection a déjà payées. Le classer `gsc` le mettrait au repos
+	// avec la cohorte au premier 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est
+	// déjà acquis.
+	'detect:index_transition': 'none',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',
 	noop: 'none',

@@ -697,7 +697,7 @@ Acceptation :
 
 ## IDX-005 — Détecteur de transitions d'indexation
 
-**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par IDX-002, 2026-07-25) · **Dépendances :** IDX-002, DATA-005
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-25 — `index_transition@1` : trois types §10.4 (`index_drop`, `crawled_not_indexed`, `discovered_not_indexed`), confirmation après 2 observations consécutives (`unknown` neutre, `excluded` jamais un drop), sévérité plafonnée tant que non confirmé, `critical` + `notifyImmediately` réservés à la désindexation confirmée d'une page stratégique (**le signal ; le canal reste TEL-002**), et `reconcileDetectionRun` doté d'un **`scope`** — une URL non ré-inspectée n'est jamais auto-résolue. **Zéro DDL**, 809/809 tests, preuve Neon 31/31. ⚠️ **Inerte** tant qu'IDX-004 n'alimente pas l'inspection ; **pas au catalogue hebdo** — il y entre avec IDX-004) · **Dépendances :** IDX-002, DATA-005
 
 Travail :
 
@@ -985,7 +985,7 @@ Acceptation :
 
 ## DASH-003 — Cockpit projet
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** DASH-001, GSC-004, IDX-005
+**Priorité :** P0 · **Taille :** L · **État :** BLOCKED — reste **DASH-001** seul (GSC-004 livré le 2026-07-24, IDX-005 le 2026-07-25) · **Dépendances :** DASH-001, GSC-004, IDX-005
 
 Travail :
 
