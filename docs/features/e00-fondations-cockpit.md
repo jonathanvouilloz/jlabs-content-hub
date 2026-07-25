@@ -109,7 +109,7 @@ catalogue hebdo. Puis **DASH-003** (cockpit projet, désormais débloqué côté
   l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant que ce n'est pas déployé** ·
   au 1er tick hebdo, `barberconcept` écrira ses **50 findings**.
 
-**Commit :** `(à venir)` [hub] add: IDX-005 détecteur de transitions d'indexation, une absence de mesure n'est pas une guérison
+**Commit :** `81cd5a2` [hub] add: IDX-005 détecteur de transitions d'indexation, une absence de mesure n'est pas une guérison
 
 ---
 

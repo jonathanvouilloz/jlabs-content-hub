@@ -11,4 +11,4 @@ E00 sur `feat/cockpit` — **DASH-002, IDX-001, IDX-002 et IDX-005 livrés**. Pr
 et qui posera l'arête obligatoire `collect:url_inspection → detect:index_transition` au catalogue
 hebdo. Sinon **DASH-003** (cockpit projet), encore bloqué par DASH-001 seul.
 Détail, pièges et Carte du code → le fichier feature.
-Commit : `(à venir)` [hub] add: IDX-005 détecteur de transitions d'indexation
+Commit : `81cd5a2` [hub] add: IDX-005 détecteur de transitions d'indexation
