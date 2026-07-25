@@ -629,7 +629,7 @@ Acceptation :
 
 ## IDX-001 — Inventaire sitemap et canonical
 
-**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par JOB-004, 2026-07-22) · **Dépendances :** DATA-004, JOB-004
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-25) · **Dépendances :** DATA-004, JOB-004
 
 Travail :
 
@@ -646,7 +646,7 @@ Acceptation :
 
 ## IDX-002 — Collecteur URL Inspection persistant
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** GSC-001, DATA-004
+**Priorité :** P0 · **Taille :** L · **État :** READY (débloqué par GSC-001, 2026-07-23) · **Dépendances :** GSC-001, DATA-004
 
 Travail :
 

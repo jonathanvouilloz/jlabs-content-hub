@@ -77,6 +77,7 @@ import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
+import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
 import { loadGscLatencyDays } from './gsc-settings.js';
 import { expireSnoozes } from './findings.js';
 
@@ -104,6 +105,13 @@ export type JobHandler = (ctx: JobContext) => Promise<void>;
  * prérequis du détecteur dans le catalogue hebdo (JOB-004).
  */
 export const JOB_TYPE_COLLECT_GSC_QUERY_PAGE = 'collect:gsc_query_page';
+
+/**
+ * IDX-001 — inventaire sitemap. Deuxième type de collecte, et **indépendant** de la collecte
+ * GSC : deux sources distinctes, aucune dépendance entre elles. Les lier ferait sauter
+ * l'inventaire sitemap à cause d'un quota Search Analytics, alors que le XML n'en consomme pas.
+ */
+export const JOB_TYPE_COLLECT_SITEMAP = 'collect:sitemap';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
@@ -159,6 +167,36 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					rows: res.rows,
 					clicks: res.totals.totalClicks,
 					impressions: res.totals.totalImpressions
+				});
+			}
+		],
+		[
+			JOB_TYPE_COLLECT_SITEMAP,
+			async ({ db, job, signal }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await collectSitemapInventory({
+					projectId: (payload.projectId as string) ?? job.projectId,
+					rootUrl: typeof payload.rootUrl === 'string' ? payload.rootUrl : null,
+					runId: job.runId,
+					client: db,
+					// Le bail : un parcours qui l'a perdu doit s'arrêter AVANT d'écrire, sinon
+					// deux workers écrivent le même inventaire du jour.
+					signal
+				});
+				logger.info('inventaire sitemap terminé', {
+					jobId: job.id,
+					projectId: job.projectId,
+					rootUrl: res.rootUrl,
+					files: res.files.length,
+					urls: res.entries.length,
+					// Une troncature ou un fichier mort remonte dans les logs comme il remonte en
+					// base : un inventaire partiel ne doit jamais se lire comme complet.
+					truncated: res.truncated,
+					partial: res.partial,
+					errors: res.errors.length,
+					added: res.diff?.added.length ?? null,
+					removed: res.diff?.removed.length ?? null,
+					changed: res.diff?.changed.length ?? null
 				});
 			}
 		],

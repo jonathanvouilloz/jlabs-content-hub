@@ -351,12 +351,29 @@ describe('SCHEDULE_CATALOG', () => {
 		// GSC-002 — la chaîne commence par la COLLECTE. Sans elle, le détecteur
 		// travaillait sur des observations figées au backfill du 2026-07-21 et
 		// vieillissait d'une semaine chaque semaine, en silence.
+		// IDX-001 — l'inventaire sitemap rejoint le run (branche `fetch_sitemap` du graphe
+		// SPEC §8.2), en PARALLÈLE de la collecte GSC et sans dépendance avec elle.
 		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual([
 			'collect:gsc_query_page',
+			'collect:sitemap',
 			'detect:keyword_opportunity',
 			'propose:actions'
 		]);
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual(['findings:lifecycle']);
+	});
+
+	it('IDX-001 — l’inventaire sitemap ne dépend de RIEN et ne bloque RIEN', () => {
+		const sitemap = catalogFor('weekly').find((e) => e.jobType === 'collect:sitemap')!;
+		// Aucune dépendance entrante : le XML est fetchable même quand Search Analytics
+		// rend 429. Le lier à la collecte GSC ferait sauter l'inventaire pour un quota
+		// qu'il ne consomme pas.
+		expect(sitemap.dependsOn).toBeUndefined();
+		// Et aucun dépendant : la détection actuelle (`keyword_opportunity`) ne lit pas
+		// l'inventaire. IDX-005 déclarera sa propre arête le jour où il existera.
+		const dependents = catalogFor('weekly').filter((e) =>
+			(e.dependsOn ?? []).some((d) => d.jobType === 'collect:sitemap')
+		);
+		expect(dependents).toEqual([]);
 	});
 
 	it('la production de propositions est servie APRÈS la détection (priority DESC)', () => {

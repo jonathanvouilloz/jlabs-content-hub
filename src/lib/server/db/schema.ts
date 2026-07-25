@@ -867,6 +867,57 @@ export const sitemapObservations = seostats.table(
 	]
 );
 
+// 4-bis. IDX-001 — Inventaire sitemap PAR URL. Date-grained.
+//
+// `sitemap_observations` (ci-dessus) porte le PAR-FICHIER, à la forme de l'API Sitemaps de
+// GSC (submitted/indexed/errors/warnings/pending). IDX-001 lit le XML et a besoin d'autre
+// chose : l'inventaire des URLs déclarées, avec `lastmod`, locale (`hreflang`) et canonical
+// ATTENDU. Aucune table existante ne porte ce grain, et le `payload_json` d'une observation
+// est plafonné à 32 Ko (`MAX_OBSERVATION_PAYLOAD_BYTES`) — un inventaire n'y tient pas.
+//
+// Snapshot COMPLET par date, et non un journal de changements : le diff de deux dates devient
+// une fonction PURE de deux listes (`diffInventories`), donc « reproductible et lié à deux
+// snapshots » au sens littéral de l'acceptation IDX-001. Un journal cumulé, lui, ne se rejoue
+// pas — il faudrait le replier depuis l'origine et espérer n'avoir rien perdu.
+//
+// ⚠️ L'unique porte `url_normalized`, PAS `url` : sans ça, `…/page` et `…/page#a` créeraient
+// deux lignes pour une seule page, et le diff inventerait un ajout à chaque run. `url` garde
+// la forme exacte déclarée par le site (trace), `url_normalized` sert la comparaison.
+export const sitemapUrlObservations = seostats.table(
+	'sitemap_url_observations',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		runId: text('run_id').references(() => monitoringRuns.id),
+		provider: text('provider').notNull().default('gsc'),
+		schemaVersion: integer('schema_version').notNull().default(1),
+		observedDate: text('observed_date').notNull(),
+		/** Le fichier sitemap qui déclare cette URL (traçabilité : quel enfant l'a apportée). */
+		sitemapUrl: text('sitemap_url').notNull(),
+		/** `<loc>` tel qu'écrit par le site. */
+		url: text('url').notNull(),
+		/** Forme canonique de comparaison — porte l'unique. */
+		urlNormalized: text('url_normalized').notNull(),
+		/** `<lastmod>` tel quel ; `null` si absent (« absent » ≠ « jamais modifié »). */
+		lastmod: text('lastmod'),
+		/** `hreflang` de l'alternate ; `null` pour une entrée principale. */
+		locale: text('locale'),
+		/** Canonical attendu par le site — confronté au `google_canonical` d'IDX-002. */
+		expectedCanonical: text('expected_canonical'),
+		/** Vrai si l'entrée vient d'un `<xhtml:link rel="alternate">` (pas une page nouvelle). */
+		isAlternate: boolean('is_alternate').notNull().default(false),
+		payloadJson: text('payload_json'),
+		fetchedAt: text('fetched_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('sitemap_url_obs_unique').on(table.projectId, table.urlNormalized, table.observedDate),
+		index('idx_sitemap_url_obs_project_date').on(table.projectId, table.observedDate),
+		index('idx_sitemap_url_obs_project_url').on(table.projectId, table.urlNormalized)
+	]
+);
+
 // 5. Analytics page (Plausible, ← collecteur à venir). Période.
 export const plausiblePageObservations = seostats.table(
 	'plausible_page_observations',

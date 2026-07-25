@@ -467,8 +467,16 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// collecte meurt, `detect` est sauté au tour à vide suivant et `propose`
 	// seulement au tick d'APRÈS. Attendu — à ne pas diagnostiquer comme un job « qui
 	// ne part pas ».
+	// IDX-001 — `collect:sitemap` rejoint le run hebdo (branche `fetch_sitemap` du graphe
+	// SPEC §8.2). **Aucune dépendance** avec la collecte GSC : deux sources indépendantes, dont
+	// une seule consomme du quota Search Analytics. Les lier ferait sauter l'inventaire sitemap
+	// à cause d'un 429 GSC — alors que le XML, lui, aurait été parfaitement fetchable.
+	// Il ne préfixe rien non plus : la détection actuelle (`keyword_opportunity`) ne lit pas
+	// l'inventaire. Le jour où un détecteur d'indexation arrivera (IDX-005), il déclarera sa
+	// propre arête vers ce type.
 	weekly: [
 		{ jobType: 'collect:gsc_query_page', priority: 12 },
+		{ jobType: 'collect:sitemap', priority: 11 },
 		{
 			jobType: 'detect:keyword_opportunity',
 			priority: 10,

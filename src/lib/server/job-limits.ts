@@ -65,6 +65,11 @@ export type JobProvider = (typeof JOB_PROVIDERS)[number];
  */
 export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	'collect:gsc_query_page': 'gsc',
+	// IDX-001 — le fetch du XML ne consomme aucun quota Google, mais la RÉSOLUTION de la
+	// racine passe par la propriété GSC (donc le service account partagé). Classer `none` le
+	// sortirait du refroidissement provider : un `invalid_grant` général le laisserait partir
+	// six fois de suite pour échouer six fois sur l'auth.
+	'collect:sitemap': 'gsc',
 	'detect:keyword_opportunity': 'none',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',

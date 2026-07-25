@@ -58,7 +58,13 @@ describe('providerForJobType', () => {
 	});
 
 	it('jobTypesForProvider ne rend que les types déclarés pour ce provider', () => {
-		expect(jobTypesForProvider('gsc')).toEqual(['collect:gsc_query_page', 'post_publish:check']);
+		// IDX-001 — `collect:sitemap` rejoint la cohorte `gsc` : son XML ne consomme pas de
+		// quota Google, mais la résolution de racine passe par le service account partagé.
+		expect(jobTypesForProvider('gsc')).toEqual([
+			'collect:gsc_query_page',
+			'collect:sitemap',
+			'post_publish:check'
+		]);
 		expect(jobTypesForProvider('dataforseo')).toEqual([]);
 		expect(jobTypesForProvider('none')).toContain('detect:keyword_opportunity');
 	});
@@ -175,7 +181,11 @@ describe('planAdmission — concurrence', () => {
 		});
 		// Toute la cohorte `gsc` est exclue — collecteur compris : c'est justement
 		// ce qui empêche les six projets de redécouvrir le 429 un par un.
-		expect(plan.excludedTypes).toEqual(['collect:gsc_query_page', 'post_publish:check']);
+		expect(plan.excludedTypes).toEqual([
+			'collect:gsc_query_page',
+			'collect:sitemap',
+			'post_publish:check'
+		]);
 		expect(plan.excludedTypes).not.toContain('detect:keyword_opportunity');
 	});
 
@@ -506,6 +516,7 @@ describe('computeCapacity', () => {
 		expect(report.providers).toHaveLength(JOB_PROVIDERS.length);
 		expect(report.providers.find((p) => p.provider === 'gsc')?.jobTypes).toEqual([
 			'collect:gsc_query_page',
+			'collect:sitemap',
 			'post_publish:check'
 		]);
 	});

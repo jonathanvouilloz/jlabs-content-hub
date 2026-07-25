@@ -4,6 +4,112 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (IDX-001 — l'inventaire sitemap, et un `catch {}` qui rendait une acceptation impossible)
+
+**Fait :** IDX-001. Le graphe hebdo n'avait qu'**une seule arête de collecte** (`collect:gsc_query_page`) ;
+les branches `fetch_sitemap` et `inspect_priority_urls` de SPEC §8.2 n'existaient pas. L'indexation —
+la douleur jokiSEO d'origine — n'était couverte que par du code legacy non gouverné. **Un DDL additif**
+(`sitemap_url_observations`, table **vide** à la création) : 57 → **58 tables `seostats`**, l'écart étant
+exactement celle-là.
+
+- **Le legacy ne pouvait PAS tenir l'acceptation, structurellement.** `indexing.ts:fetchSitemapUrls`
+  fait `catch {}` sur chaque sous-sitemap : « signaler les sitemaps invalides ou inaccessibles » y est
+  donc **impossible par construction**, pas juste absent. Il jette aussi `lastmod` et `hreflang` (il rend
+  des chaînes), et **récurse sans borne** — un index qui se référence lui-même tourne jusqu'au timeout du
+  worker. Il reste en place pour les routes manuelles (dette datée, comme la double écriture GSC-002) ;
+  aucun nouveau chemin ne l'appelle.
+- **Une table, parce qu'aucune n'avait le grain.** `sitemap_observations` porte le **par-fichier**, à la
+  forme de l'API Sitemaps de GSC (`submitted_urls`/`indexed_urls`/`errors`/`is_pending`). IDX-001 lit le
+  **XML** et exige le **par-URL** : `lastmod`, locale, canonical attendu. Le `payload_json` d'une
+  observation est plafonné à **32 Ko** (`MAX_OBSERVATION_PAYLOAD_BYTES`) — un inventaire n'y tient pas.
+  Le « zéro DDL » des derniers lots était un **constat, pas une règle** (rappel JOB-006).
+- **Snapshot complet par date, et non un journal de changements.** C'est ce qui rend le diff une
+  **fonction PURE de deux listes** (`diffInventories`) : rejouer le même couple de dates rend le même
+  diff, indéfiniment — « reproductible et lié à deux snapshots » au sens littéral. Un journal cumulé, lui,
+  ne se rejoue pas : il faudrait le replier depuis l'origine et espérer n'avoir rien perdu.
+- **L'unique porte `url_normalized`, PAS `url`.** Sans ça, `…/page` et `…/page#a` créeraient deux lignes
+  pour une seule page, et le diff **inventerait un ajout à chaque run**. `url` garde la forme exacte que
+  le site déclare (trace), `url_normalized` sert la comparaison. Prouvé : un 2ᵉ run où les mêmes pages
+  portent des fragments produit **zéro faux ajout**.
+- **Ce qui est CONSERVÉ à la normalisation est aussi un choix** : le slash final et la query string. Les
+  retirer ferait fusionner deux entrées de sitemap en une, et le diff annoncerait un **retrait** là où le
+  site n'a rien enlevé. Le tri des paramètres n'est pas fait non plus : deux ordres dans un même sitemap
+  sont une anomalie du site, qu'IDX-005 doit pouvoir voir plutôt qu'on la masque.
+- **RIEN n'est écrit avant que tout l'arbre soit parcouru** — même invariant que GSC-002, autre
+  conséquence. Un inventaire coupé au 2ᵉ fichier sur 5 se lirait comme complet, et le run suivant
+  annoncerait des dizaines de **retraits fantômes**. Ce n'est pas une crainte théorique : la preuve le
+  **mesure** (bloc F) — un run tronqué à 1 URL annonce **4 retraits** qui n'ont jamais eu lieu. C'est
+  exactement ce que la garde empêche d'écrire, et pourquoi un bail perdu fait **échouer** la collecte.
+- **Un sitemap mort est un FAIT persisté, pas une exception.** L'enfant 404 obtient sa ligne
+  per-fichier avec `errors > 0` et son statut HTTP — **interrogeable en SQL**, pas seulement loggé — et
+  **n'empêche pas** les autres enfants d'être parcourus. Le run se déclare alors `partial` : un
+  inventaire incomplet ne doit jamais se lire comme complet.
+- **Injoignable et malformé ne se confondent ni ne se compensent.** Deux natures de problème, deux
+  compteurs : au 2ᵉ run l'enfant mort a quitté l'index (plus aucun `fetch_failed`) mais le fichier i18n
+  garde son `<url>` sans `<loc>`, donc le run **reste** `partial`. Un problème réglé ne doit pas masquer
+  celui qui reste.
+- **Une alternate `hreflang` n'est pas une page nouvelle.** Elle est marquée `is_alternate` avec sa
+  locale ; une page qui se déclare sa **propre** alternate est ignorée. Sans cette règle, le premier run
+  d'un site multilingue annoncerait autant d'« ajouts » que de langues.
+- **Dédup AVANT l'insert, jamais après.** Une URL listée par deux enfants suffirait à faire rejeter
+  **tout le lot** (Postgres refuse deux lignes de même clé dans un même `INSERT`) — leçon GSC-002
+  appliquée. Et la principale l'emporte sur l'alternate portant la même URL.
+- **Le diff se compare au dernier inventaire STRICTEMENT antérieur**, pas « au plus récent » : sinon un
+  second run le même jour se comparerait à lui-même (déjà upserté) et rendrait un diff toujours vide,
+  masquant ce que le premier run du jour avait vu.
+- **`sitemap_url` fait partie du `set` d'upsert**, contrairement aux dimensions d'unique des autres
+  domaines : une URL peut **migrer** d'un enfant à un autre lors d'une refonte de découpage sans cesser
+  d'être la même page. Figer le fichier d'origine ferait mentir la traçabilité.
+- **`collect:sitemap` est en parallèle de la collecte GSC, sans aucune dépendance.** Deux sources
+  indépendantes, dont une seule consomme du quota Search Analytics : les lier ferait sauter l'inventaire
+  sur un 429 GSC, alors que le XML aurait été parfaitement fetchable. Il est classé provider **`gsc`**
+  quand même — le fetch XML ne coûte rien, mais la résolution de racine passe par le service account
+  partagé, et le classer `none` le sortirait du refroidissement JOB-006.
+- Vérif : `npm run test` = **748/748** (+32 : 31 `sitemap-state` + 1 catalogue) · `npm run check` =
+  **0 err / 42 warn** (baseline) · **DDL appliqué sur Neon** (1 table + 3 index, 15/15 colonnes,
+  **0 ligne** à la création) · introspection = **58 tables `seostats`** (+1 `core`), écart = cette table
+  et rien d'autre · **`scripts/idx-001-sitemap-proof.ts` = 43/43 vertes sur Neon**, **rejouée**, base
+  rendue à l'identique (**441 soumissions, 13 findings, 16 jobs, 0 observation sitemap** avant comme
+  après) · non-régression : `job-005-schedule-proof`, `job-006-limits-proof`, `job-004-dag-proof`,
+  `dash-002-home-proof`, `gsc-004-windows-proof`, `dash-005-inbox-proof` — **0 échec chacune**.
+
+**Acceptations couvertes.** (1) « un sitemap diff est reproductible et lié à deux snapshots » : le diff
+nomme sa date antérieure (`previousDate`), rend +1/−1/~1 exacts, et **rejouer le même couple de dates
+depuis la base rend le même diff**, deux fois de suite ; (2) « redirects et fragments sont normalisés » :
+`…/services` et `…/services#top` ne produisent **qu'une** ligne, aucune `url_normalized` en base ne
+contient de `#`, et un run où les fragments apparaissent ailleurs ne crée **aucun faux ajout** ;
+(3) « aucune URL supprimée n'est automatiquement désindexée » : le retrait de `/blog/a` est détecté et
+**rien** n'est soumis (`indexing_submissions` **441 → 441**), aucun finding créé — tenu **par
+construction** (ce module ne sait pas soumettre) et non par vigilance.
+
+**Prochain :** **IDX-002** (collecteur URL Inspection persistant) — enchaîné dans la même session.
+Puis **IDX-004** (politique de sélection/quotas, débloqué par cet inventaire) et **IDX-005** (détecteur
+de transitions).
+
+**Pièges :**
+- **Ne jamais « corriger » le snapshot complet en journal de changements.** Le diff cesserait d'être
+  rejouable, et c'est l'acceptation elle-même.
+- **`indexing.ts` reste dette datée** : ne pas l'appeler depuis les nouveaux chemins, et **ne jamais
+  l'importer dans un runner `tsx`** (`db` et `crypto.js` en statique).
+- **Un inventaire partiel ne doit JAMAIS être écrit.** La garde vit dans le collecteur (`signal` vérifié
+  à chaque itération, écriture après le parcours). La preuve montre le faux signal qu'elle évite.
+- **La racine dérivée (`{propriété}/sitemap.xml`) est une CONVENTION, pas une découverte.** `robots.txt`
+  la porterait mieux ; à faire quand IDX-004 aura besoin d'un inventaire exhaustif.
+- **`= ANY($n)` casse avec le driver Neon** — bornes et `inArray` (respecté : le diff lit deux dates par
+  égalité, jamais par liste paramétrée).
+- **Une preuve interrompue saute son `cleanup()`** : vérifier les `observed_date` **2018-11-%** de
+  `sitemap_url_observations` **et** `sitemap_observations` (le domaine sentinelle est
+  `sentinelle-idx001.test`).
+- Toujours en suspens hors IDX-001 : purge destructive (DATA-008 `--execute`) = session dédiée ·
+  **CONTRACT différé** · double écriture legacy GSC (meurt avec GSC-003) · `gsc-002` non rejoué (quota) ·
+  `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant que ce
+  n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings** (décision maintenue)
+  — et le run enfilera désormais **2 collectes** par projet au lieu d'une.
+
+**Commit :** `PENDING-IDX-001`
+
+---
+
 ## Etat session 2026-07-25 (DASH-002 — l'accueil cesse de confondre « la collecte est morte » et « tout va bien »)
 
 **Fait :** DASH-002. La chaîne était complète et l'inbox la rendait décidable — mais **l'accueil
