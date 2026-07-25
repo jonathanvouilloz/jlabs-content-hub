@@ -44,7 +44,12 @@ describe('derivePanelState — « non branché » n’est PAS « cassé »', () 
 			label: 'Search Console'
 		});
 		expect(v.state).toBe('inactive');
-		expect(v.note).toMatch(/non branché/);
+		expect(v.note).toMatch(/désactivée/);
+		// Le point du test : la note dit qu'on a débranché, elle ne RESSORT PAS l'erreur gardée
+		// en mémoire. Assertion sur la propriété, pas sur la tournure — l'ancienne cherchait
+		// « non branché », ce qui figeait un libellé qui accordait au masculin quel que soit
+		// le domaine (« Indexation non branché »).
+		expect(v.note).not.toMatch(/invalid_grant/);
 	});
 
 	it('aucune intégration ET aucune donnée ⇒ inactive', () => {

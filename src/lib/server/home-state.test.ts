@@ -327,10 +327,13 @@ describe('acceptation : une intégration cassée est distincte d’une baisse de
 		expect(cassé.headline).not.toBe(baisse.headline);
 	});
 
-	it('un projet sain ne dit rien à traiter', () => {
+	it('un projet sain nomme ses deux axes, sans prétendre qu\'il n\'y a rien à faire', () => {
 		const ok = classifyProject(card({ openBySeverity: { info: 4, low: 2 } }));
 		expect(ok.state).toBe('ok');
-		expect(ok.headline).toBe('Rien à traiter');
+		expect(ok.headline).toBe('Collecte et performance au vert');
+		// Le verdict porte sur la DONNÉE et rien d'autre : six findings ouverts coexistent avec
+		// un état sain, donc la phrase ne peut pas dire « rien à traiter » sans mentir sur ce
+		// qu'elle a regardé.
 		expect(ok.openTotal).toBe(6);
 	});
 

@@ -119,11 +119,13 @@ export function derivePanelState(input: {
 	const i = input.integration;
 	const external = input.external !== false;
 
+	// Tournure en deux-points (comme la branche `never` plus bas) : concaténer `${label} non
+	// branché` accorde au masculin quel que soit le domaine, et rend « Indexation non branché ».
 	if (external && i && !i.enabled) {
-		return { state: 'inactive', note: `${input.label} non branché (intégration désactivée)` };
+		return { state: 'inactive', note: `${input.label} : intégration désactivée` };
 	}
 	if (external && !i && !input.hasData) {
-		return { state: 'inactive', note: `${input.label} non branché (aucune intégration déclarée)` };
+		return { state: 'inactive', note: `${input.label} : aucune intégration déclarée` };
 	}
 	if (i && (i.status === 'error' || i.status === 'revoked' || i.healthStatus === 'down')) {
 		const what = i.status === 'revoked' ? 'révoquée' : 'en erreur';
@@ -150,7 +152,11 @@ export function derivePanelState(input: {
 	if (i && i.healthStatus === 'degraded') {
 		return { state: 'ok', note: `intégration ${i.provider} dégradée, la donnée arrive encore` };
 	}
-	return { state: 'ok', note: 'à jour' };
+	// « collecte à jour », jamais « à jour » tout court : la complétude de la DONNÉE est un autre
+	// jugement (`gsc-windows-state.ts` peut poser « données pas à jour » dans le même panneau, sur
+	// la dernière semaine manquante). Deux mesures différentes ne peuvent pas porter le même mot à
+	// quinze pixels d'écart — le lecteur croirait l'une réfutée par l'autre.
+	return { state: 'ok', note: 'collecte à jour' };
 }
 
 export interface Panel {

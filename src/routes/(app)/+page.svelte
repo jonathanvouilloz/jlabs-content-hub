@@ -99,7 +99,10 @@
 			<h1 class="text-xl font-semibold text-surface-900">Bonjour, {data.user.name}</h1>
 			<p class="mt-0.5 text-sm text-surface-500">
 				{#if cockpit.portfolio.needingAction === 0}
-					{cockpit.portfolio.total} projet{cockpit.portfolio.total > 1 ? 's' : ''} — rien à traiter.
+					<!-- « aucun en alerte », pas « rien à traiter » : `needingAction` compte les projets dont
+					     la DONNÉE va mal, et ne sait rien des propositions en attente que le compteur
+					     « à valider » affiche vingt pixels plus bas. -->
+					{cockpit.portfolio.total} projet{cockpit.portfolio.total > 1 ? 's' : ''} — aucun en alerte.
 				{:else}
 					<span class="font-medium text-surface-700">
 						{cockpit.portfolio.needingAction} projet{cockpit.portfolio.needingAction > 1 ? 's' : ''}
@@ -273,7 +276,7 @@
 	{#if cockpit.portfolio.byState.ok > 0}
 		<section>
 			<h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-surface-400">
-				Rien à traiter
+				Sans alerte
 			</h2>
 			<div class="flex flex-wrap gap-2">
 				{#each cockpit.projects.filter((p) => p.state === 'ok') as p (p.projectId)}

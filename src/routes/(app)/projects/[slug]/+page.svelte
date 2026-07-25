@@ -44,7 +44,7 @@
 		stale: { label: 'en retard', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
 		never: { label: 'aucune collecte', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
 		inactive: { label: 'non branché', badge: 'bg-surface-100 text-surface-500 border-surface-200' },
-		ok: { label: 'à jour', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+		ok: { label: 'collecte à jour', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
 	};
 	const panelMeta = (s: string) => PANEL_META[s] ?? PANEL_META.never;
 

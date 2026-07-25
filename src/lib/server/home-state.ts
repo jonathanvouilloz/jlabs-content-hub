@@ -532,7 +532,12 @@ export function buildHeadline(input: {
 		case 'watch':
 			return `À surveiller — ${input.signal.reasons[0] ?? input.pipeline.reasons[0] ?? 'signal faible'}`;
 		case 'ok':
-			return 'Rien à traiter';
+			// Nomme les deux axes, comme les quatre cas au-dessus. « Rien à traiter » était le seul
+			// verdict nu du switch, et il portait plus loin que ce qu'il mesure : la santé ne lit
+			// que la DONNÉE, jamais la file de décisions. Un projet sans alerte peut avoir des
+			// propositions en attente — l'accueil affichait « rien à traiter » à côté d'un
+			// compteur « 4 à valider », chacun disant vrai et le lecteur devant trancher.
+			return 'Collecte et performance au vert';
 	}
 }
 
