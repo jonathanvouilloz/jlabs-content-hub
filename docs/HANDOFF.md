@@ -14,4 +14,4 @@ déménagé en `/projects/[slug]/content`.
 Prochain : **DASH-003 lot 2** (onglets Mots-clés / Rapports / Automatisations — read-models à
 écrire d'abord) ou **DASH-006** (vue automatisations, qui donnerait sa liste au compteur
 `runs_period`, muet depuis DASH-002).
-Commit : (à faire) [hub] add: DASH-003 lot 1, cockpit projet et timeline des décisions
+Commit : `8a84e41` [hub] add: DASH-003 lot 1, cockpit projet et timeline des décisions

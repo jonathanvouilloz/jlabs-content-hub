@@ -79,7 +79,7 @@ enfin sa liste au compteur `runs_period` (muet depuis DASH-002).
 - Le seuil de fraîcheur d'indexation est à **15 j** (et non 10 comme GSC) : l'inspection est une
   **sélection**, une page peut légitimement n'être revue que tous les 14 j (`sampleIntervalDays`).
 
-**Commit :** (à faire)
+**Commit :** `8a84e41` [hub] add: DASH-003 lot 1, cockpit projet et timeline des décisions
 
 ---
 
