@@ -4,6 +4,80 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (revue visuelle — le cockpit est vu à l'œil pour la PREMIÈRE fois)
+
+**Fait :** la revue de rendu que DASH-002 et DASH-003 traînaient tous les deux en tête de leurs
+pièges (« jamais vu à l'œil, tout est prouvé côté données, rien côté rendu »). Session admin ouverte
+sur `localhost:5173`, parcours réel de `/`, `/projects/{jonlabs,barberconcept}` et de tous les
+chemins de sortie du lot 1 (`/windows`, `/settings`, `/inbox`, `/content`, `/jobs`). **Zéro DDL,
+aucun calcul touché** : les quatre correctifs sont verbaux.
+
+- **Le cockpit marche.** Les invariants prouvés en base tiennent aussi à l'écran : deux axes jamais
+  fusionnés, trio période/fraîcheur/source sur **tous** les panneaux, `inactive` en gris avec
+  « Brancher → » et non en rouge, **aucun « 0 h »** sur un domaine jamais collecté (`Période aucune
+  donnée` / `Fraîcheur jamais collecté`), aucun onglet mort, et le refus de delta GSC-004 lisible
+  en toutes lettres (« période précédente incomplète (longueurs incompatibles) »).
+- **L'acceptation DASH-002 « chaque compteur ouvre une liste cohérente » est vérifiée EN CLIQUANT**,
+  ce qu'aucune preuve ne faisait : « 4 à valider » ouvre `/inbox?project=jonlabs&status=proposed`,
+  rend **exactement 4** lignes, filtre projet pré-rempli, lot homogène `L3 · moyen (4)`.
+- **LE défaut du lot : « à jour » désignait deux choses opposées dans le même encadré.** Le badge
+  vient de la fraîcheur de l'**intégration** (`project-cockpit-state.ts`), le caveat orange de la
+  complétude de la **donnée** (`gsc-windows-state.ts`). Sur `barberconcept` : **trois « à jour »
+  contre un « données pas à jour », à quinze pixels**. Les deux calculs sont justes — c'est le mot
+  qui était partagé. → `collecte à jour`. C'est le vice que les deux axes évitent au niveau projet,
+  reparu **à l'intérieur d'un panneau**.
+- **« Rien à traiter » se lisait à côté de « 4 à valider ».** `buildHeadline` se donne pour règle de
+  **nommer toujours l'axe** ; le cas `ok` était le seul verdict nu des cinq, et il portait plus loin
+  que ce qu'il mesure — la santé lit la **donnée**, jamais la file de décisions. → « Collecte et
+  performance au vert », et l'accueil dit « aucun en alerte » au lieu de « rien à traiter ».
+- **Deux tests figeaient une tournure au lieu d'une propriété.** Ils assertent désormais le fond :
+  qu'une intégration désactivée **ne ressort pas** l'erreur gardée en mémoire, et qu'un projet sain
+  nomme ses axes **sans nier ses 6 findings ouverts**. C'est ce qui rendait le libellé fautif
+  intouchable.
+- Correctifs mineurs : `Indexation non branché` (la concaténation `${label} non branché` accordait
+  au masculin quel que soit le domaine) → `Indexation : aucune intégration déclarée` ; `Parametres`
+  → `Paramètres` dans la sidebar projet.
+- Vérif : `npm run test` = **908/908** · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **`dash-003-project-proof` 25/25 sur Neon**, base rendue à l'identique · non-régression
+  `dash-002-home-proof`, `dash-005-inbox-proof`, `find-003-lifecycle-proof`,
+  `gsc-004-windows-proof`, `idx-004-lot2-proof` — **0 échec chacune** · **re-parcours visuel** des
+  deux écrans corrigés.
+
+**Prochain :** trancher le point produit ci-dessous (`barberconcept` « Sain »), puis **DASH-003
+lot 2** (onglets restants — clarifier d'abord lesquels, cf. piège) ou **DASH-006** (vue
+automatisations, débloquée).
+
+**Pièges :**
+- **⚠️ LE point produit non tranché : `barberconcept` s'affiche « Sain » alors qu'il n'a JAMAIS été
+  diagnostiqué.** Son panneau Diagnostic dit « aucune collecte / aucune donnée à ce jour » (état
+  `never`), mais l'axe `signal` rend `ok` = « rien à signaler », parce que zéro finding se lit
+  « zéro problème ». C'est **exactement** le vice que l'invariant « pipeline cassé ⇒ signal
+  `unknown`, jamais `ok` » interdit sur l'autre axe, non couvert ici : *ne pas avoir regardé* n'est
+  pas *avoir regardé et rien trouvé*. Et le feature file sait déjà que ce projet écrira **50
+  findings** au premier tick — le cockpit annonce donc « Sain » pour le projet qui en a le plus.
+  Correction pressentie : un domaine de diagnostic en état `never` force `signal: unknown`.
+  **Non appliqué** — décision produit, hors périmètre d'une revue de rendu.
+- **Le compteur « avis sans réponse » est grisé sans lien sur `/` mais cliquable sur le cockpit
+  projet** (→ `/reviews`). Le même compteur a une liste sur un écran et pas sur l'autre. Conforme
+  à la règle DASH-002 (aucune vue **cross-projet** des avis n'existe), mais illisible tel quel.
+- **La sidebar et la barre d'onglets donnent DEUX noms à la même page** : « Fenêtres » / « Performance »
+  (`/windows`), « Fiche Google » / « Présence locale » (`/gmb-profile`), « Avis Google » / « Avis »
+  (`/reviews`). Aligner demande de choisir un vocabulaire — décision, pas correctif.
+- **« Content Hub » subsiste** dans la sidebar et sur `/login`, alors que le produit s'appelle
+  `seo-stats`.
+- **Deux incohérences de doc à rectifier** : `BACKLOG.md` marque **DASH-006 `BLOCKED` sur JOB-007**,
+  or JOB-007 est **DONE depuis le 2026-07-22** (donc DASH-006 est jouable) ; et le lot 2 de
+  DASH-003 y désigne *Réputation / Analytics / Policies* quand le feature file dit *Mots-clés /
+  Rapports / Automatisations*. Deux définitions du même lot.
+- **La timeline n'a toujours jamais été vue avec une DÉCISION** : la base porte 0 approbation et les
+  4 propositions sont en attente, donc le chemin `decision` (point vert) reste non rendu.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien
+  n'est déployé**, donc rien ne bat.
+
+**Commit :** `c6c05d5` [hub] fix: le cockpit dit ce qu'il mesure (revue visuelle DASH-002/003)
+
+---
+
 ## Etat session 2026-07-25 (DASH-003 lot 1 — le cockpit sait enfin MONTRER un projet)
 
 **Fait :** DASH-003, **lot 1** (vue d'ensemble + timeline + barre d'onglets). Le cockpit savait
@@ -2510,12 +2584,13 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-25 (DASH-003 lot 1)
+> Mise à jour : 2026-07-25 (revue visuelle DASH-002/003)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`project-cockpit-state.ts` · `home-state.ts` · `(app)/+page.svelte` · `(app)/+layout.svelte` · `projects/[slug]/+page.svelte`** *(revue visuelle)* | **Règle établie par la revue : deux mesures différentes ne portent jamais le même mot, et un verdict ne dit jamais plus que ce qu'il a regardé.** `derivePanelState` rend `collecte à jour` et non `à jour` — le badge mesure la fraîcheur de l'**intégration**, le caveat GSC-004 la complétude de la **donnée**, et les deux tombent dans le même encadré (sur `barberconcept`, trois « à jour » contre un « données pas à jour »). `buildHeadline` case `ok` rend `Collecte et performance au vert` : le seul verdict nu des cinq, alors que la fonction se donne pour règle de **nommer toujours l'axe** — « Rien à traiter » niait les 4 propositions du compteur voisin, que la santé ne lit pas. Les notes `inactive` passent en deux-points (`${label} : aucune intégration déclarée`) : concaténer `non branché` accordait au masculin quel que soit le domaine. ⚠️ **Les deux tests correspondants assertent la PROPRIÉTÉ, plus la tournure** (qu'une intégration désactivée ne ressorte pas son `last_error_code` ; qu'un projet sain nomme ses axes avec 6 findings ouverts) — c'est ce qui rendait le libellé fautif intouchable. |
 | **`src/lib/server/project-cockpit-state.ts`** (+ `.test.ts`) | **Purs DASH-003** : **`ProvenanceTrio`** — période / fraîcheur / source, exigé par `buildPanel`, donc un panneau **ne peut pas exister** sans dire d'où il sort (une règle qui ne vivrait que dans un template se perdrait au premier refactor) ; **`derivePanelState`**, où **l'ordre des règles EST la décision** : désactivé ⇒ `inactive` **quoi qu'il porte par ailleurs** (une intégration éteinte garde son vieux `last_error_code`), activé + `error`/`revoked`/`down` ⇒ `broken`, sinon la fraîcheur tranche — et **`hasData` prime sur l'absence de ligne d'intégration** (un projet peut collecter sans registre : dire « non branché » serait démenti par l'écran d'à côté). **`external: false`** pour les domaines internes : le diagnostic n'a pas de credential, « non branché » y serait un contresens. `rankPanels` met `inactive` **après** `ok` (aucun geste à faire). `summarizeIndexation` : `excluded` **hors dénominateur** (un noindex est une décision du site), taux `null` et non 0 % quand rien n'a été mesuré. `buildTimeline` : ordre **TOTAL** (temps, nature, id), horodatage illisible **à la fin**, troncature **comptée**. **19 tests.** |
 | **`src/lib/server/project-cockpit.ts`** | **Lecture DASH-003.** ⚠️ **La carte de santé vient de `loadHomeCockpit`, et de nulle part ailleurs** — recalculer les six domaines ici ferait deux définitions de « projet à risque » qui divergeraient au premier seuil modifié, et le même projet serait noté différemment sur deux écrans. Coût nul : les requêtes de l'accueil sont **déjà groupées par projet**. Ajoute le DÉTAIL que l'accueil n'a pas la place de porter : `loadGscWindows` (GSC-004), `countIndexClasses` + `loadDueSelections` (**premier lecteur** d'`indexing-read.ts` et d'`index_selection`), et la timeline. **Les décisions se lisent dans `action_proposals`** : `proposal_approvals` seul manquerait tous les **rejets**, `finding_events` seul manquerait les décisions sur une proposition **sans finding**. Seuil de fraîcheur d'indexation à **15 j** (≠ 10 j GSC) : l'inspection est une **sélection**, pas une collecte de masse. |
 | **`src/routes/(app)/projects/[slug]/`** *(DASH-003)* | `+page.*` = le cockpit (le loader ne calcule rien) ; `+layout.svelte` = la barre d'onglets, qui **ne montre que ce qui existe** (un onglet mort apprend à ne plus cliquer) ; `content/+page.*` = le calendrier de contenus **déplacé** (`git mv`, `R100` — un déplacement, pas une réécriture, sinon une régression passerait inaperçue). Un slug inconnu rend **404**, jamais une page vide qui se lirait « ce projet n'a rien ». |

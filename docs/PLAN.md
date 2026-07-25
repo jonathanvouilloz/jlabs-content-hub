@@ -58,7 +58,7 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   validation humaine des actions sensibles.
 - **Vision complète** : [SPEC.md](SPEC.md) (23 sections, décisions validées).
 - **Exécution** : [BACKLOG.md](BACKLOG.md) — 14 epics `E00→E13`, jalons `M0→M6`, premier lot exécutable (§9).
-- **Statut (2026-07-23)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
+- **Statut (2026-07-25)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
   **IDX-008** + **DATA-001→008** livrés (cartographie, intégrations/projections, orchestration+queue,
   10 observations + backfill exécuté, findings, proposals/approvals/agent_runs, policies d'automatisation,
   rétention/purge en expand+dry-run), puis la **chaîne agentique bouclée** : **FIND-001/004** (1er
@@ -129,8 +129,34 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   l'urgent » est un **ordre** et un **canal** (`scope: 'due'`), pas un pourcentage ; l'échantillon
   est plafonné par `samplePctMax` **clampé à 60 %**, donc il ne peut jamais prendre le dernier slot.
   ⚠️ **`0` veut dire ZÉRO** ici, l'inverse de `job-limits.ts` · test **875/875**.
-  Prochain : **IDX-004 lot 2** (cadence quotidienne `scope: 'due'`, J+3/J+7/J+28 à la publication,
-  CLI d'audit borné) ou **DASH-003** (cockpit projet, bloqué par DASH-001 seul).
+  Puis **IDX-004 lot 2**, qui **ferme IDX-004** (**zéro DDL**) : une page publiée cesse d'attendre le
+  lundi — trois rendez-vous J+3/J+7/J+28 posés à la publication, qui ne passent **pas** par
+  `allocate` (`dedupeCandidates` fusionne par URL, les trois échéances y deviendraient une) ;
+  l'idempotence vit dans les **DATES**, donc republier reprogramme là où la clé de
+  `schedulePostPublish` ne savait pas ; cadence quotidienne **sans aucun prérequis** (le canal `due`
+  ne lit ni inventaire ni clics) mais arête **obligatoire** vers le détecteur ; CLI d'audit borné par
+  le **même budget** que la politique, ⚠️ en **dry-run par défaut** — l'inverse du reste de
+  l'outillage, parce qu'il dépense un quota externe payant · test **889/889**. Enfin **DASH-003
+  lot 1** (cockpit projet, **zéro DDL**) : `/projects/[slug]` cesse d'être le calendrier de contenus
+  (déplacé en `[slug]/content` par `git mv`, `R100`) et devient la vue d'ensemble — ⚠️ **la carte de
+  santé vient de `loadHomeCockpit` et n'est JAMAIS recalculée** (deux définitions de « projet à
+  risque » divergeraient au premier seuil modifié), le trio période/fraîcheur/source est porté par le
+  **type** donc un panneau ne peut pas exister sans dire d'où il sort, **« non branché » n'est pas
+  « cassé »** (désactivé ⇒ `inactive` quoi qu'il porte par ailleurs), et la timeline lit les décisions
+  dans **`action_proposals`** — seul endroit qui n'oublie ni les rejets ni les décisions sans finding.
+  **Premier lecteur** d'`indexing-read.ts` et d'`index_selection` · test **908/908**.
+  **Et le cockpit est enfin VU À L'ŒIL** (revue visuelle, **zéro DDL, aucun calcul touché**) : les
+  invariants tiennent à l'écran et l'acceptation « chaque compteur ouvre une liste cohérente » est
+  vérifiée **en cliquant** pour la première fois. Quatre correctifs verbaux, dont le seul qui compte —
+  **« à jour » désignait deux choses opposées dans le même encadré** (fraîcheur de l'**intégration**
+  vs complétude de la **donnée** : trois « à jour » contre un « données pas à jour » à quinze pixels
+  sur `barberconcept`) → `collecte à jour` ; et **« Rien à traiter » s'affichait à côté de « 4 à
+  valider »**, le seul verdict nu de `buildHeadline` alors qu'elle se donne pour règle de nommer
+  toujours l'axe → « Collecte et performance au vert ».
+  Prochain : trancher le point produit ouvert par la revue — **`barberconcept` s'affiche « Sain » sans
+  avoir jamais été diagnostiqué** (zéro finding se lit « zéro problème » : le vice que l'invariant
+  « pipeline cassé ⇒ signal `unknown` » interdit sur l'autre axe) — puis **DASH-003 lot 2** ou
+  **DASH-006** (débloqué : JOB-007 est DONE).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
