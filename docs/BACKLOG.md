@@ -646,7 +646,7 @@ Acceptation :
 
 ## IDX-002 — Collecteur URL Inspection persistant
 
-**Priorité :** P0 · **Taille :** L · **État :** READY (débloqué par GSC-001, 2026-07-23) · **Dépendances :** GSC-001, DATA-004
+**Priorité :** P0 · **Taille :** L · **État :** DONE (2026-07-25) · **Dépendances :** GSC-001, DATA-004
 
 Travail :
 
@@ -680,7 +680,7 @@ Acceptation :
 
 ## IDX-004 — Politique de sélection et quotas d'inspection
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** IDX-001, IDX-002, JOB-006
+**Priorité :** P1 · **Taille :** M · **État :** READY (débloqué par IDX-001+002, 2026-07-25) · **Dépendances :** IDX-001, IDX-002, JOB-006
 
 Travail :
 
@@ -697,7 +697,7 @@ Acceptation :
 
 ## IDX-005 — Détecteur de transitions d'indexation
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** IDX-002, DATA-005
+**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par IDX-002, 2026-07-25) · **Dépendances :** IDX-002, DATA-005
 
 Travail :
 

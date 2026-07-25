@@ -4,6 +4,127 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (IDX-002 — l'inspection cesse de confondre « credential mort » et « page inconnue de Google »)
+
+**Fait :** IDX-002, enchaîné à IDX-001. `indexing.ts:batchInspect` inspectait déjà des URLs — et
+n'en gardait **rien** : des tableaux en mémoire, consommés par une route puis jetés. Le statut
+d'indexation d'une page n'existait donc que le temps d'un appel, ce qui interdisait **les trois
+acceptations à la fois** : un historique, un rerun non destructeur, et un écran qui lise la base.
+**Zéro DDL** : `index_observations` avait déjà les 7 colonnes exactes depuis DATA-004, et
+`upsertIndexObservation` était déjà écrit — **58 tables `seostats`** (+1 `core`), `schema.ts`
+non modifié depuis IDX-001.
+
+- **LE bug de fond du legacy : une erreur provider se lisait comme un résultat.** Un credential
+  mort rendait `{ verdict: null, coverageState: null, httpStatus: 0, error: '…' }`, que
+  `classifyIndexStatus` classait `unknown` — **exactement comme une page réellement inconnue de
+  Google**. Deux situations qui demandent des gestes opposés (réparer l'auth vs travailler la
+  page) étaient indistinguables. Ici la distinction est portée par un **type** : `InspectionOutcome`
+  est une union discriminée dont les deux branches ne partagent aucun champ exploitable. Prouvé en
+  base : 7 tentatives en erreur → **0 observation** et l'URL **absente** ; une page vraiment non
+  indexée → **1 ligne, classée `not_indexed`**.
+- **Il jetait aussi une CHAÎNE, donc la file classait au petit bonheur.** `classifyJobFailure`
+  cherche `status`/`reason` sur l'objet : sur une chaîne il ne trouve rien, et un quota mal classé
+  part en **dead-letter permanente**. `urlInspection` passe par `toGscApiError` — déjà écrit pour
+  GSC-002 — donc les erreurs sont structurées **gratuitement**. Les **7 cas** sont prouvés, dont
+  les deux que Google fait à l'envers : **403 `rateLimitExceeded` → `quota`** (pas `permanent`) et
+  **400 `invalid_grant` → `auth`**.
+- **Et il jetait les 5/7 des champs.** Seuls `verdict` et `coverageState` survivaient, alors que
+  la table a des colonnes pour `indexingState`, `robotsState`, les **deux** canonicals et
+  `lastCrawlTime` depuis DATA-004. Le reste de SPEC §9.2 (`pageFetchState`, `crawledAs`,
+  `sitemap`, `referringUrls`, mobile usability, rich results) va dans le **payload borné**.
+- **Un `referringUrls` géant ne doit pas faire échouer sa propre collecte.** Le payload
+  d'observation **jette** au-delà de 32 Ko : une page très maillée se serait donc auto-sabotée.
+  Les listes sont plafonnées à 50 entrées **et la troncature est dite** (`payload.truncated`).
+  Mesuré : 400 entrées → 50 gardées, payload à **2 255 octets**.
+- **L'écriture est INCRÉMENTALE ici, et c'est l'inverse de GSC-002 — délibérément.** Là-bas rien
+  n'est écrit avant la fin de la pagination, parce qu'une semaine partielle se lirait comme
+  complète. Ici, une URL inspectée est un fait **autonome** : elle ne prétend rien sur les autres,
+  et rien ne la compare à un total attendu. Écrire au fil de l'eau évite de perdre 199
+  inspections **payées au quota** parce que la 200ᵉ a échoué.
+- **Mais une erreur provider INTERROMPT le lot et remonte.** Absorber un 429 URL par URL
+  brûlerait les 199 tentatives suivantes contre un mur — et surtout la file n'apprendrait rien.
+  En relançant l'erreur structurée, le refroidissement JOB-006 met **toute la cohorte `gsc`** au
+  repos, ce qui protège aussi la collecte Search Analytics du **même compte partagé**. Les URLs
+  déjà écrites restent : ce sont des faits acquis, pas une transaction à annuler.
+- **Une réponse 200 ILLISIBLE est un TROISIÈME état, nommé.** Ni erreur provider, ni résultat :
+  `unreadable`. Rien n'est écrit pour elle (des `null` en base se liraient comme « Google ne
+  connaît pas cette page ») mais le lot **continue** — rien n'indique que les URLs suivantes
+  soient concernées.
+- **`excluded` est une classe À PART de `not_indexed`.** « Excluded by 'noindex' tag » est une
+  décision du site qu'on respecte ; « Crawled - currently not indexed » est un problème à
+  traiter. Le legacy les rangeait ensemble (ce qui suffisait à son usage : ne pas resoumettre),
+  mais efface la distinction dont un détecteur d'indexation a besoin.
+- **Le rerun est non destructeur PARCE QUE la clé est `(projet, url, date)`.** Un rerun le même
+  jour rafraîchit sa ligne ; un jour plus tard crée une **nouvelle** ligne et **ne touche pas** la
+  précédente. Prouvé : 2 dates en base, l'ancienne mesure intacte, l'historique lu du plus récent
+  au plus ancien.
+- **`collect:url_inspection` n'est PAS au catalogue hebdo — volontairement.** Sans IDX-004,
+  personne ne sait quelles URLs méritent le quota : un job planifié avec une liste vide tournerait
+  pour rien chaque lundi. Il est exécutable dès maintenant, et un payload sans URLs **le dit** au
+  lieu d'inventer une sélection. Même forme que `post_publish:check`, déclaré avant son handler.
+- **Le plafond dur est de 200 URLs, et un `cap` forgé ne peut pas le dépasser.** Le quota est de
+  2 000/jour/propriété sur un compte partagé par 6 projets ; un appel avec 5 000 URLs le brûlerait
+  en un job. Les doublons sont dédupliqués avant tout appel (deux fois la même URL = deux fois le
+  quota pour la même donnée), et une pause de **150 ms** tient sous les 600 req/min.
+- **La lecture ne touche JAMAIS le réseau** (`indexing-read.ts`) : `DISTINCT ON (url)` rend le
+  dernier état par URL en une requête. Un écran qui appelle l'API au rendu consomme du quota à
+  chaque rafraîchissement et affiche un état incomparable à hier — ce que fait le legacy
+  `/projects/[slug]/seo-data`. La classification reste **dérivée à la lecture**, jamais stockée,
+  et `countIndexClasses` agrège **en mémoire** via `classifyCoverage` plutôt qu'en SQL : une
+  reproduction SQL divergerait au premier libellé nouveau de Google.
+- Vérif : `npm run test` = **766/766** (+18 `url-inspection-state`) · `npm run check` =
+  **0 err / 42 warn** (baseline) · **aucun DDL**, `schema.ts` inchangé, **58 tables `seostats`**
+  · **`scripts/idx-002-inspection-proof.ts` = 32/32 vertes sur Neon** (mode `--skip-real`),
+  base rendue à l'identique (**441 soumissions, 6 intégrations, 0 observation sentinelle** avant
+  comme après) · non-régression : `idx-001-sitemap-proof`, `job-006-limits-proof`,
+  `job-005-schedule-proof`, `job-004-dag-proof`, `dash-002-home-proof`, `gsc-004-windows-proof`,
+  `dash-005-inbox-proof` — **0 échec chacune**.
+- **Chaîne réelle démontrée** (1 appel de quota) : inspection de `https://barberconcept.ch/` via
+  la propriété **`sc-domain:barberconcept.ch`** → **`verdict=PASS`**, `coverageState='Submitted and
+  indexed'`. Propriété, scope (`webmasters.readonly`, déjà dans `COMBINED_SCOPE`) et parsing de la
+  vraie réponse s'accordent — la seule chose qu'un mock ne pouvait pas prouver.
+
+**Acceptations couvertes.** (1) « chaque inspection possède un historique » : 2 dates en base pour
+la même URL, la plus ancienne **intacte**, relues par `loadIndexHistory` du plus récent au plus
+ancien ; (2) « un rerun ne détruit pas l'état précédent » : rerun le même jour → **0 doublon** et
+mesure rafraîchie ; rerun un jour plus tard → **nouvelle ligne**, la veille inchangée ; (3) « le
+statut UI est dérivé de champs persistés, pas d'un appel à la volée » : `loadLatestIndexStates`
+rend l'état depuis la base avec **0 appel réseau**, une seule ligne par URL (`DISTINCT ON`) ;
+(4) « distinguer erreur provider et résultat non indexé » : 7 erreurs → **0 observation** et URL
+absente, contre une page non indexée → **1 ligne classée** ; les deux sont distinguables **en
+base**, et les 7 classes d'erreur sont exactes côté file.
+
+**Prochain :** **IDX-004** (politique de sélection et quotas — débloqué : l'inventaire IDX-001 lui
+donne sa source, et ce collecteur son exécutant) · **IDX-005** (détecteur de transitions
+d'indexation, débloqué par ce lot) · **DASH-003** (cockpit projet).
+
+**Pièges :**
+- **`collect:url_inspection` n'est pas planifié** : c'est voulu, et un job enfilé sans `urls` ne
+  fait rien (il le journalise). Ne pas « corriger » ça en ajoutant une sélection par défaut —
+  ce serait IDX-004 à l'aveugle, sur un seul de ses six critères.
+- **Ne JAMAIS absorber une erreur provider dans la boucle.** C'est ce qui rendrait le
+  refroidissement JOB-006 inopérant, et le legacy le faisait.
+- **Le refroidissement est PARTAGÉ avec la collecte GSC** (même service account) : un 429
+  d'inspection met aussi `collect:gsc_query_page` au repos. C'est voulu, mais à savoir avant de
+  diagnostiquer une collecte GSC « qui ne part pas » le lundi.
+- **`indexing.ts` reste dette datée** : `inspectUrl`/`batchInspect` servent encore les routes
+  manuelles et la page `seo-data` (qui appelle donc toujours l'API au rendu). À basculer sur
+  `indexing-read.ts` — non fait ici, hors périmètre IDX-002.
+- **Aucun écran ne consomme encore `indexing-read.ts`** : le read-model existe, testé et prouvé,
+  mais c'est DASH-003 qui l'affichera. Piège AGT-000 assumé et **nommé** — à la différence du cas
+  d'origine, il a un consommateur identifié et daté.
+- **`= ANY($n)` casse avec le driver Neon** — `inArray` et bornes (respecté).
+- **Une preuve interrompue saute son `cleanup()`** : vérifier les `observed_date` **2018-11-%** de
+  `index_observations` et les URLs `sentinelle-idx002.test`.
+- Toujours en suspens hors IDX-002 : purge destructive (DATA-008 `--execute`) · **CONTRACT
+  différé** · double écriture legacy GSC (meurt avec GSC-003) · `gsc-002` non rejoué (quota) ·
+  `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant
+  que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings**.
+
+**Commit :** `PENDING-IDX-002`
+
+---
+
 ## Etat session 2026-07-25 (IDX-001 — l'inventaire sitemap, et un `catch {}` qui rendait une acceptation impossible)
 
 **Fait :** IDX-001. Le graphe hebdo n'avait qu'**une seule arête de collecte** (`collect:gsc_query_page`) ;

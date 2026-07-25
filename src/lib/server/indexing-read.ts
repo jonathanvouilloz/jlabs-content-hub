@@ -1,0 +1,171 @@
+/**
+ * IDX-002 — Lecture de l'état d'indexation : DEPUIS LA BASE, jamais un appel à la volée.
+ *
+ * C'est l'acceptation « le statut UI est dérivé de champs persistés, pas d'un appel à la
+ * volée ». Elle n'est pas une préférence de performance : un écran qui appelle l'URL
+ * Inspection API au rendu consomme du quota **à chaque rafraîchissement**, sur un compte que
+ * les 6 projets partagent, et affiche un état qu'on ne peut pas comparer à hier — puisque rien
+ * n'a été gardé. La page `/projects/[slug]/seo-data` du legacy fait exactement ça.
+ *
+ * ⚠️ Jamais `= ANY($n)` (driver Neon) : on filtre par égalité de date et, pour restreindre à
+ * une liste d'URLs, par `inArray` (un `IN (…)` paramétré classique).
+ *
+ * Client drizzle INJECTÉ, comme partout depuis GSC-002 : ce module reste chargeable dans un
+ * runner `tsx` (contrairement à `indexing.ts`, qui importe `db` statiquement).
+ */
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { indexObservations, projects } from './db/schema.js';
+import type { AppDb } from './db/types.js';
+import { classifyCoverage, type IndexedClass } from './collectors/url-inspection-state.js';
+
+export interface IndexStateRow {
+	url: string;
+	observedDate: string;
+	verdict: string | null;
+	coverageState: string | null;
+	indexingState: string | null;
+	robotsState: string | null;
+	googleCanonical: string | null;
+	userCanonical: string | null;
+	lastCrawlAt: string | null;
+	/** DÉRIVÉ à la lecture, jamais stocké (doctrine JOB-004/005). */
+	indexedClass: IndexedClass;
+	/**
+	 * Google et le site ne sont pas d'accord sur le canonical. `null` = incomparable (l'un des
+	 * deux manque) — « on ne peut pas comparer » n'est pas « ils sont d'accord ».
+	 */
+	canonicalMismatch: boolean | null;
+}
+
+/**
+ * Le DERNIER état connu par URL pour un projet.
+ *
+ * `DISTINCT ON (url) … ORDER BY url, observed_date DESC` : une seule requête, la ligne la plus
+ * récente de chaque URL. Sans `DISTINCT ON`, il faudrait charger tout l'historique et filtrer
+ * en mémoire — ce qui ferait grossir la page avec l'ancienneté du projet.
+ *
+ * `since` borne l'historique consulté : une observation vieille de six mois n'est pas un
+ * « état courant », c'est une archive. Sans borne, une page supprimée depuis longtemps
+ * continuerait de figurer comme si son statut était d'actualité.
+ */
+export async function loadLatestIndexStates(input: {
+	db: AppDb;
+	projectId: string;
+	/** Restreint à ces URLs (facultatif). */
+	urls?: readonly string[];
+	/** Borne basse d'`observed_date` (`YYYY-MM-DD`) — au-delà, c'est de l'archive. */
+	since?: string | null;
+	limit?: number;
+}): Promise<IndexStateRow[]> {
+	const filters = [eq(indexObservations.projectId, input.projectId)];
+	if (input.since) filters.push(gte(indexObservations.observedDate, input.since));
+	if (input.urls && input.urls.length > 0) {
+		filters.push(inArray(indexObservations.url, [...input.urls]));
+	}
+
+	const rows = await input.db
+		.selectDistinctOn([indexObservations.url], {
+			url: indexObservations.url,
+			observedDate: indexObservations.observedDate,
+			verdict: indexObservations.verdict,
+			coverageState: indexObservations.coverageState,
+			indexingState: indexObservations.indexingState,
+			robotsState: indexObservations.robotsState,
+			googleCanonical: indexObservations.googleCanonical,
+			userCanonical: indexObservations.userCanonical,
+			lastCrawlAt: indexObservations.lastCrawlAt
+		})
+		.from(indexObservations)
+		.where(and(...filters))
+		.orderBy(indexObservations.url, desc(indexObservations.observedDate))
+		.limit(Math.max(1, Math.floor(input.limit ?? 1000)));
+
+	return rows.map((r) => ({
+		...r,
+		indexedClass: classifyCoverage(r.coverageState),
+		canonicalMismatch:
+			r.googleCanonical && r.userCanonical ? r.googleCanonical !== r.userCanonical : null
+	}));
+}
+
+/**
+ * L'HISTORIQUE d'une URL — l'acceptation « chaque inspection possède un historique ».
+ *
+ * Du plus récent au plus ancien : on vient chercher « qu'est-ce qui a changé », et la réponse
+ * commence par l'état actuel.
+ */
+export async function loadIndexHistory(input: {
+	db: AppDb;
+	projectId: string;
+	url: string;
+	limit?: number;
+}): Promise<IndexStateRow[]> {
+	const rows = await input.db
+		.select({
+			url: indexObservations.url,
+			observedDate: indexObservations.observedDate,
+			verdict: indexObservations.verdict,
+			coverageState: indexObservations.coverageState,
+			indexingState: indexObservations.indexingState,
+			robotsState: indexObservations.robotsState,
+			googleCanonical: indexObservations.googleCanonical,
+			userCanonical: indexObservations.userCanonical,
+			lastCrawlAt: indexObservations.lastCrawlAt
+		})
+		.from(indexObservations)
+		.where(
+			and(eq(indexObservations.projectId, input.projectId), eq(indexObservations.url, input.url))
+		)
+		.orderBy(desc(indexObservations.observedDate))
+		.limit(Math.max(1, Math.floor(input.limit ?? 90)));
+
+	return rows.map((r) => ({
+		...r,
+		indexedClass: classifyCoverage(r.coverageState),
+		canonicalMismatch:
+			r.googleCanonical && r.userCanonical ? r.googleCanonical !== r.userCanonical : null
+	}));
+}
+
+/**
+ * Répartition par classe d'indexation, cross-projet — de quoi alimenter un compteur d'accueil.
+ *
+ * L'agrégation se fait EN MÉMOIRE sur les derniers états, et non en SQL sur `coverage_state` :
+ * la classification (`classifyCoverage`) vit dans le module pur et doit rester la SEULE
+ * autorité. Une reproduction en SQL divergerait au premier libellé nouveau de Google — et
+ * l'écran annoncerait alors une répartition que le détecteur ne reconnaîtrait pas.
+ */
+export async function countIndexClasses(input: {
+	db: AppDb;
+	projectId: string;
+	since?: string | null;
+}): Promise<Record<IndexedClass, number>> {
+	const rows = await loadLatestIndexStates({ ...input, limit: 5000 });
+	const out: Record<IndexedClass, number> = { indexed: 0, not_indexed: 0, excluded: 0, unknown: 0 };
+	for (const r of rows) out[r.indexedClass] += 1;
+	return out;
+}
+
+/**
+ * Fraîcheur de l'inspection par projet : la date de la dernière observation d'indexation.
+ *
+ * `null` = jamais inspecté, et c'est un état À PART (jamais « aujourd'hui », jamais 0) — même
+ * règle que la fraîcheur de DASH-002.
+ */
+export async function loadInspectionFreshness(input: {
+	db: AppDb;
+	projectSlug?: string | null;
+}): Promise<{ projectId: string; projectSlug: string | null; lastObservedDate: string | null }[]> {
+	const rows = await input.db
+		.select({
+			projectId: projects.id,
+			projectSlug: projects.slug,
+			lastObservedDate: sql<string | null>`max(${indexObservations.observedDate})`
+		})
+		.from(projects)
+		.leftJoin(indexObservations, eq(indexObservations.projectId, projects.id))
+		.where(input.projectSlug ? eq(projects.slug, input.projectSlug) : eq(projects.archived, false))
+		.groupBy(projects.id, projects.slug)
+		.orderBy(projects.slug);
+	return rows;
+}

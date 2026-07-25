@@ -52,6 +52,16 @@ const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const WEBMASTERS_SITES = 'https://www.googleapis.com/webmasters/v3/sites';
 const SEARCH_ANALYTICS_BASE = 'https://www.googleapis.com/webmasters/v3/sites';
 
+/**
+ * IDX-002 — URL Inspection (API v1, endpoint distinct de `webmasters/v3`).
+ *
+ * Le scope requis (`webmasters.readonly`) est déjà dans `COMBINED_SCOPE` : aucun nouveau
+ * consentement, aucune nouvelle clé. Quotas propres (2 000/jour et 600/minute par propriété)
+ * mais **même service account** que Search Analytics — donc même cohorte de refroidissement
+ * JOB-006, ce qui est exactement ce qu'on veut sur un compte partagé par 6 projets.
+ */
+const URL_INSPECTION_ENDPOINT = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect';
+
 export const GSC_PROVIDER = 'gsc';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -377,6 +387,42 @@ export async function searchAnalyticsPage(
 	if (!res.ok) throw await toGscApiError(res, input.binding.siteUrl);
 	const json = (await res.json()) as { rows?: GscRow[] };
 	return { rows: json.rows ?? [] };
+}
+
+/**
+ * IDX-002 — Inspection d'UNE url via la propriété correcte (`binding.siteUrl`).
+ *
+ * Rend la réponse Google **BRUTE** : la normalisation en colonnes vit dans le module pur
+ * `collectors/url-inspection-state.ts`, testable sans réseau. Ici, une seule
+ * responsabilité — parler à Google et **jeter une erreur STRUCTURÉE**.
+ *
+ * C'est tout l'écart avec `indexing.ts:inspectUrl`, qui `catch` et rend
+ * `{ verdict: null, coverageState: null, httpStatus: 0, error: '…' }` : une **chaîne**, donc
+ * `classifyJobFailure` n'y trouve ni `status` ni `reason` et classe un quota au petit bonheur
+ * — or un quota mal classé part en **dead-letter permanente**. En passant par `toGscApiError`,
+ * les deux cas que Google fait à l'envers sont justes gratuitement : **403 `rateLimitExceeded`
+ * → `quota`** (et non `permanent`), **400 `invalid_grant` → `auth`**.
+ *
+ * Et surtout : une erreur provider **n'est jamais un résultat**. Elle sort par `throw`, pas
+ * par une valeur de retour qu'un appelant pourrait confondre avec « page non indexée » —
+ * l'acceptation IDX-002 « distinguer erreur provider et résultat non indexé » commence ici.
+ */
+export async function urlInspection(
+	input: { binding: GscBinding; inspectionUrl: string; languageCode?: string },
+	deps: GscAuthDeps = {}
+): Promise<Record<string, unknown>> {
+	const token = await getAccessToken(input.binding.serviceAccount, deps);
+	const res = await resolveFetch(deps)(URL_INSPECTION_ENDPOINT, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({
+			inspectionUrl: input.inspectionUrl,
+			siteUrl: input.binding.siteUrl,
+			...(input.languageCode ? { languageCode: input.languageCode } : {})
+		})
+	});
+	if (!res.ok) throw await toGscApiError(res, input.binding.siteUrl);
+	return (await res.json()) as Record<string, unknown>;
 }
 
 /** Propriétés visibles par le service account (diagnostic d'accès). */

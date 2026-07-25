@@ -6,22 +6,31 @@
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
 
 ## Reprendre ici
-E00 sur `feat/cockpit`. **DASH-002 livré** : `/` est l'accueil cross-projet. Santé à **deux axes qui ne
-fusionnent jamais** (`pipeline` = la donnée arrive-t-elle · `signal` = que dit-elle), un pipeline cassé
-rendant le signal **`unknown` et jamais `ok`** ; compteurs dont le **nombre et le lien naissent du même
-`CounterFilter`** (un compteur sans liste reproductible n'a pas de lien) ; filtre d'activité
-`?event=`/`?since=` sur l'inbox (EXISTS sur `finding_events`) ; fraîcheur où « jamais collecté » ≠ 0 h ;
-coûts **« non instrumentés »** et non à zéro ; quotas via `loadCapacitySnapshot`. **Zéro DDL** (57 tables
-`seostats`, `schema.ts` intact).
+E00 sur `feat/cockpit`. **IDX-001 + IDX-002 livrés** (enchaînés), après DASH-002.
 
-Prochain : **IDX-001/002** (sitemap, URL Inspection) · **DASH-003** (cockpit projet, débloqué côté
-fenêtres — consommera `/gsc/windows` et reprendra le panneau `/windows`). **DASH-001** reste BLOCKED
-(GOV-002).
+**IDX-001 — inventaire sitemap.** `collect:sitemap` parcourt l'arbre XML (index → enfants, bornes
+dures, cycle stoppé), écrit 1 ligne par **fichier** (`sitemap_observations` : un sitemap injoignable
+ou malformé est un **fait persisté** avec `errors > 0`, plus un `catch {}`) et 1 par **URL**
+(`sitemap_url_observations`, **seul DDL** du lot : 57 → **58 tables**). Le diff de deux dates est une
+**fonction pure** (`diffInventories`) donc rejouable. **Rien n'est écrit avant que tout l'arbre soit
+parcouru** — la preuve mesure le faux signal évité (un run tronqué annonce des retraits fantômes).
 
-⚠️ **Pièges vivants** : `= ANY` interdit avec Neon (bornes `>=` / `inArray`) · le read-model lit le
-CANON, jamais le legacy · un compteur d'activité doit compter des **problèmes** (`DISTINCT finding_id`),
-pas des lignes de journal · le `batch` du backfill est un débit, pas un curseur · **l'accueil et
-`/windows` n'ont jamais été vus à l'œil** (pas de session admin) · `npm run build` échoue à
-l'adaptateur Vercel sur Windows (`EPERM symlink`, **préexistant**) · `gsc-002` non rejoué (quota).
+**IDX-002 — inspection persistante.** `collect:url_inspection` remplit les 7 colonnes de
+`index_observations` + un payload borné (SPEC §9.2), avec **zéro DDL**. Une **erreur provider n'écrit
+rien et ne se lit jamais « non indexé »** (union discriminée `InspectionOutcome`) ; elle remonte
+**structurée** via `toGscApiError`, donc les 7 classes JOB-003 sont exactes. Rerun du jour =
+rafraîchit, jour antérieur = intact. Lecture par `indexing-read.ts`, **sans réseau**.
 
-Commit : `6377326` [hub] add: DASH-002 accueil cross-projet, deux axes de santé, compteurs liés à leur liste
+Prochain : **IDX-004** (politique de sélection/quotas — débloqué : IDX-001 donne la source, IDX-002
+l'exécutant) · **IDX-005** (détecteur de transitions, débloqué) · **DASH-003** (cockpit projet).
+
+⚠️ **Pièges vivants** : `= ANY` interdit avec Neon (bornes / `inArray`) · **`collect:url_inspection`
+n'est PAS au catalogue hebdo** (attend IDX-004 ; un payload sans `urls` ne fait rien et le dit) ·
+le **refroidissement est partagé** avec la collecte GSC (même service account) — un 429 d'inspection
+met aussi `collect:gsc_query_page` au repos · **aucun écran ne consomme encore `indexing-read.ts`**
+(c'est DASH-003) · `indexing.ts` reste dette datée (ne pas l'appeler, ne pas l'importer dans un
+runner `tsx`) · un inventaire sitemap partiel ne doit **jamais** être écrit · l'accueil et
+`/windows` n'ont jamais été vus à l'œil (pas de session admin) · `npm run build` échoue à
+l'adaptateur Vercel sous Windows (**préexistant**) · `gsc-002` non rejoué (quota).
+
+Commits : `ebf127b` (IDX-001) · `PENDING-IDX-002` (IDX-002)

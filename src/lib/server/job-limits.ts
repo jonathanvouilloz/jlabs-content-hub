@@ -70,6 +70,11 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// sortirait du refroidissement provider : un `invalid_grant` général le laisserait partir
 	// six fois de suite pour échouer six fois sur l'auth.
 	'collect:sitemap': 'gsc',
+	// IDX-002 — URL Inspection : quotas propres (2 000/j et 600/min par propriété) mais MÊME
+	// service account que Search Analytics. Même cohorte de refroidissement, donc : un 429
+	// d'inspection met aussi la collecte GSC au repos, ce qui est exactement voulu sur un compte
+	// que les 6 projets partagent.
+	'collect:url_inspection': 'gsc',
 	'detect:keyword_opportunity': 'none',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',

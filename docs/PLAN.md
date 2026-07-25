@@ -98,8 +98,20 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   la preuve, et **sans lien** quand aucune liste ne saurait les reproduire ; filtre d'activité
   `?event=`/`?since=` sur l'inbox via EXISTS sur `finding_events` ; « jamais collecté » ≠ 0 h ; ordre
   d'urgence **total** où `unknown` passe avant `watch` ; **coûts « non instrumentés »**, pas à zéro).
-  **Zéro DDL** · test **716/716**. Prochain : **IDX-001/002** (sitemap, URL Inspection) ou **DASH-003**
-  (cockpit projet, débloqué côté fenêtres).
+  **Zéro DDL** · test **716/716**. **Et l'indexation entre dans le cockpit** : **IDX-001** (inventaire
+  sitemap — arbre XML parcouru sous bornes dures, cycle stoppé, un sitemap injoignable ou malformé
+  devient un **fait persisté** au lieu d'un `catch {}` ; diff de deux snapshots **fonction pure** donc
+  rejouable ; unique sur l'URL **normalisée**, sans quoi `/a` et `/a#x` inventeraient un ajout par run ;
+  **rien n'est écrit avant que tout l'arbre soit parcouru**, la preuve mesurant les retraits fantômes
+  évités ; **aucune URL retirée n'est jamais désindexée**, tenu par construction. Seul DDL :
+  `sitemap_url_observations`, 57 → **58 tables**) et **IDX-002** (collecteur URL Inspection
+  **persistant**, **zéro DDL** — une **erreur provider n'écrit rien et ne se lit jamais « non
+  indexé »**, contrairement au legacy qui rendait `unknown` pour les deux ; erreurs **structurées** via
+  `toGscApiError` donc 7 classes JOB-003 exactes, dont 403 `rateLimitExceeded` → `quota` ; rerun du
+  jour rafraîchit, jour antérieur intact → historique ; lecture `indexing-read.ts` **sans réseau** ;
+  `excluded` distingué de `not_indexed` ; chaîne réelle démontrée sur `sc-domain:barberconcept.ch`).
+  · test **766/766**. Prochain : **IDX-004** (sélection/quotas, débloqué), **IDX-005** (transitions
+  d'indexation, débloqué) ou **DASH-003** (cockpit projet).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

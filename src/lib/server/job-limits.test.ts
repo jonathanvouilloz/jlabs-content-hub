@@ -63,6 +63,7 @@ describe('providerForJobType', () => {
 		expect(jobTypesForProvider('gsc')).toEqual([
 			'collect:gsc_query_page',
 			'collect:sitemap',
+			'collect:url_inspection',
 			'post_publish:check'
 		]);
 		expect(jobTypesForProvider('dataforseo')).toEqual([]);
@@ -184,6 +185,7 @@ describe('planAdmission — concurrence', () => {
 		expect(plan.excludedTypes).toEqual([
 			'collect:gsc_query_page',
 			'collect:sitemap',
+			'collect:url_inspection',
 			'post_publish:check'
 		]);
 		expect(plan.excludedTypes).not.toContain('detect:keyword_opportunity');
@@ -517,6 +519,7 @@ describe('computeCapacity', () => {
 		expect(report.providers.find((p) => p.provider === 'gsc')?.jobTypes).toEqual([
 			'collect:gsc_query_page',
 			'collect:sitemap',
+			'collect:url_inspection',
 			'post_publish:check'
 		]);
 	});

@@ -78,6 +78,7 @@ import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.j
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
+import { collectUrlInspection } from './collectors/url-inspection.js';
 import { loadGscLatencyDays } from './gsc-settings.js';
 import { expireSnoozes } from './findings.js';
 
@@ -112,6 +113,15 @@ export const JOB_TYPE_COLLECT_GSC_QUERY_PAGE = 'collect:gsc_query_page';
  * l'inventaire sitemap à cause d'un quota Search Analytics, alors que le XML n'en consomme pas.
  */
 export const JOB_TYPE_COLLECT_SITEMAP = 'collect:sitemap';
+
+/**
+ * IDX-002 — inspection d'URLs. **Volontairement ABSENT du catalogue hebdo** : sans IDX-004,
+ * personne ne sait quelles URLs méritent le quota, et un job planifié avec une liste vide
+ * tournerait pour rien chaque lundi. Il est exécutable dès maintenant (à la main, ou enfilé par
+ * un appelant qui sait ce qu'il veut inspecter) — même forme que `post_publish:check`, déclaré
+ * avant son handler.
+ */
+export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
@@ -197,6 +207,45 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					added: res.diff?.added.length ?? null,
 					removed: res.diff?.removed.length ?? null,
 					changed: res.diff?.changed.length ?? null
+				});
+			}
+		],
+		[
+			JOB_TYPE_COLLECT_URL_INSPECTION,
+			async ({ db, job, signal }) => {
+				const payload = parsePayload(job.payloadJson);
+				// Les URLs viennent du PAYLOAD : ce handler ne les choisit pas (cf. IDX-004).
+				// Une liste absente n'est pas une erreur — c'est un job qu'on a enfilé trop tôt,
+				// et le dire vaut mieux que d'inventer une sélection.
+				const urls = Array.isArray(payload.urls)
+					? payload.urls.filter((u): u is string => typeof u === 'string')
+					: [];
+				if (urls.length === 0) {
+					logger.info('inspection sans URL : rien à faire', {
+						jobId: job.id,
+						projectId: job.projectId,
+						hint: 'la politique de sélection est le sujet d’IDX-004'
+					});
+					return;
+				}
+				const res = await collectUrlInspection({
+					projectId: (payload.projectId as string) ?? job.projectId,
+					urls,
+					cap: typeof payload.cap === 'number' ? payload.cap : undefined,
+					runId: job.runId,
+					client: db,
+					signal
+				});
+				logger.info('inspection d’URLs terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					siteUrl: res.siteUrl,
+					observedDate: res.observedDate,
+					inspected: res.inspected.length,
+					// Un trou nommé remonte comme il est persisté : ni succès, ni panne.
+					unreadable: res.unreadable.length,
+					truncated: res.truncated,
+					dropped: res.dropped
 				});
 			}
 		],
