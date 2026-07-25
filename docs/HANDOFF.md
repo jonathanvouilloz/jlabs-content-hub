@@ -33,4 +33,4 @@ runner `tsx`) · un inventaire sitemap partiel ne doit **jamais** être écrit �
 `/windows` n'ont jamais été vus à l'œil (pas de session admin) · `npm run build` échoue à
 l'adaptateur Vercel sous Windows (**préexistant**) · `gsc-002` non rejoué (quota).
 
-Commits : `ebf127b` (IDX-001) · `PENDING-IDX-002` (IDX-002)
+Commits : `ebf127b` (IDX-001) · `26ebaa3` (IDX-002)

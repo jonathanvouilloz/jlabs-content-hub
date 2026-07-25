@@ -121,7 +121,7 @@ d'indexation, débloqué par ce lot) · **DASH-003** (cockpit projet).
   `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant
   que ce n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings**.
 
-**Commit :** `PENDING-IDX-002`
+**Commit :** `26ebaa3` [hub] add: IDX-002 collecteur URL Inspection persistant, erreur provider ≠ non indexé
 
 ---
 
