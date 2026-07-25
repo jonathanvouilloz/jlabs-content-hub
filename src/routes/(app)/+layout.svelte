@@ -68,6 +68,9 @@
 	function projectNav(slug: string) {
 		return [
 			{ href: `/projects/${slug}`, label: 'Vue d\'ensemble', icon: BarChart3, exact: true, linkedin: false },
+			// DASH-003 — « Vue d'ensemble » pointe désormais le cockpit ; le calendrier de
+			// contenus qui occupait cette route a son entrée à lui, au même endroit qu'avant.
+			{ href: `/projects/${slug}/content`, label: 'Contenus', icon: CalendarRange, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/articles`, label: 'Articles', icon: FileText, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/linkedin`, label: 'LinkedIn', icon: null, exact: false, linkedin: true },
 			{ href: `/projects/${slug}/gmb`, label: 'GMB', icon: MapPin, exact: false, linkedin: false },

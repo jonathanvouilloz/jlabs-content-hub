@@ -1,183 +1,346 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
-	import { FileText, MapPin, Copy, Check, Link } from 'lucide-svelte';
-	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
-	import ContentTable from '$lib/components/ContentTable.svelte';
-	import ContentPreview from '$lib/components/ContentPreview.svelte';
-	import { formatDate } from '$lib/utils/dates.js';
-	import { statusConfig } from '$lib/config/design-tokens.js';
+	import {
+		Activity,
+		AlertOctagon,
+		AlertTriangle,
+		ArrowRight,
+		CheckCircle2,
+		Clock,
+		Eye,
+		HelpCircle,
+		PlugZap,
+		Power,
+		Search
+	} from 'lucide-svelte';
 
 	let { data } = $props();
 
-	let previewId = $state<string | null>(null);
+	const cockpit = $derived(data.cockpit);
+	const card = $derived(data.cockpit.card);
 
-	let publishedContents = $state<Array<{ id: string; title: string; type: string; status: string; plannedDate: string | null }> | null>(null);
-	let loadingPublished = $state(false);
+	const nf = new Intl.NumberFormat('fr-FR');
+	const fmtInt = (n: number) => nf.format(n);
+	const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)} %`);
 
-	async function loadPublished() {
-		loadingPublished = true;
-		try {
-			const res = await fetch(`/api/content?project=${data.project.slug}&status=published`, {
-				headers: { Authorization: 'Bearer dev-api-key' }
-			});
-			const json = await res.json();
-			publishedContents = json.data ?? [];
-		} catch {
-			publishedContents = [];
-		}
-		loadingPublished = false;
+	// Même vocabulaire visuel que l'accueil pour les états de PROJET : le même projet ne doit
+	// pas changer de couleur en changeant d'écran.
+	const STATE_META: Record<string, { label: string; badge: string; icon: typeof AlertOctagon }> = {
+		broken: { label: 'Collecte cassée', badge: 'bg-red-50 text-red-700 border-red-200', icon: AlertOctagon },
+		at_risk: { label: 'À traiter', badge: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
+		unknown: { label: 'État inconnu', badge: 'bg-violet-50 text-violet-700 border-violet-200', icon: HelpCircle },
+		watch: { label: 'À surveiller', badge: 'bg-amber-50 text-amber-700 border-amber-200', icon: Eye },
+		ok: { label: 'Sain', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 }
+	};
+	const meta = (state: string) => STATE_META[state] ?? STATE_META.unknown;
+
+	/**
+	 * Les états de PANNEAU, distincts de ceux du projet — et `inactive` est délibérément neutre
+	 * (gris, pas rouge) : un provider qu'on n'a pas branché n'est pas une panne, c'est une
+	 * décision. Le peindre comme une erreur ferait reprocher à Jonathan un flux qu'il n'utilise
+	 * pas encore.
+	 */
+	const PANEL_META: Record<string, { label: string; badge: string }> = {
+		broken: { label: 'cassé', badge: 'bg-red-50 text-red-700 border-red-200' },
+		stale: { label: 'en retard', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+		never: { label: 'aucune collecte', badge: 'bg-violet-50 text-violet-700 border-violet-200' },
+		inactive: { label: 'non branché', badge: 'bg-surface-100 text-surface-500 border-surface-200' },
+		ok: { label: 'à jour', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+	};
+	const panelMeta = (s: string) => PANEL_META[s] ?? PANEL_META.never;
+
+	const KIND_META: Record<string, { label: string; dot: string }> = {
+		run: { label: 'run', dot: 'bg-sky-400' },
+		finding: { label: 'diagnostic', dot: 'bg-amber-400' },
+		decision: { label: 'décision', dot: 'bg-emerald-500' }
+	};
+
+	/** `never` n'est JAMAIS rendu « il y a 0 h » — l'état des données ne se confond pas avec zéro. */
+	function freshnessLabel(f: { state: string; ageHours: number | null }): string {
+		if (f.state === 'never' || f.ageHours === null) return 'jamais collecté';
+		const h = f.ageHours;
+		if (h < 1) return "il y a moins d'une heure";
+		if (h < 48) return `il y a ${Math.round(h)} h`;
+		return `il y a ${Math.round(h / 24)} j`;
 	}
 
-	const STATUSES = [
-		{ value: '', label: 'Tous statuts' },
-		{ value: 'draft', label: 'Draft' },
-		{ value: 'review', label: 'Review' },
-		{ value: 'approved', label: 'Approved' }
-	];
-
-	function applyFilter(value: string) {
-		const params = new URLSearchParams($page.url.searchParams);
-		if (value) params.set('status', value);
-		else params.delete('status');
-		goto(`?${params.toString()}`, { replaceState: true });
+	function fmtDb(ts: string): string {
+		return ts.slice(0, 16).replace(' ', ' à ');
 	}
 
-	let copied = $state(false);
-	function copyToken() {
-		navigator.clipboard.writeText(data.project.accessToken);
-		copied = true;
-		setTimeout(() => (copied = false), 2000);
+	function fmtDelta(d: { abs: number; pct: number | null }): string {
+		const sign = d.abs > 0 ? '+' : '';
+		return d.pct === null ? `${sign}${fmtInt(d.abs)}` : `${sign}${fmtInt(d.abs)} (${sign}${Math.round(d.pct)} %)`;
 	}
 
-	let copiedLink = $state(false);
-	function copyClientLink() {
-		const link = `${window.location.origin}/view/${data.project.slug}?token=${data.project.accessToken}`;
-		navigator.clipboard.writeText(link);
-		copiedLink = true;
-		setTimeout(() => (copiedLink = false), 2000);
-	}
+	const gsc28 = $derived(cockpit.gsc.windows.find((w) => w.span === 28) ?? cockpit.gsc.windows[0] ?? null);
 </script>
 
-<div class="flex flex-col h-[calc(100vh-73px)] -mx-6 -my-6 lg:-mx-8">
-	<!-- Header -->
-	<div class="flex-shrink-0 px-6 pt-6 pb-4 lg:px-8">
-		<div class="flex items-start justify-between">
-			<div>
-				<h1 class="text-xl font-semibold text-surface-900">{data.project.name}</h1>
-				{#if data.project.description}
-					<p class="mt-0.5 text-sm text-surface-400">{data.project.description}</p>
-				{/if}
-			</div>
-			<div class="flex gap-2">
-				<button
-					onclick={copyClientLink}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-				>
-					{#if copiedLink}<Check size={12} />{:else}<Link size={12} />{/if}
-					{copiedLink ? 'Copie !' : 'Lien client'}
-				</button>
-				<button
-					onclick={copyToken}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-				>
-					{#if copied}<Check size={12} />{:else}<Copy size={12} />{/if}
-					{copied ? 'Copie !' : 'Token'}
-				</button>
-			</div>
-		</div>
-
-		<!-- Stats inline -->
-		<div class="mt-4 flex items-center gap-6 text-sm">
+<div class="space-y-6">
+	<!-- ── Santé : les deux axes, jamais fondus ──────────────────── -->
+	<header class="flex flex-wrap items-start justify-between gap-3">
+		<div class="min-w-0">
 			<div class="flex items-center gap-2">
-				<span class="text-surface-500">Total</span>
-				<span class="font-semibold text-surface-900">{data.typeCounts.all}</span>
+				<span
+					class="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+					style="background-color: {cockpit.project.color ?? '#888'};"
+				></span>
+				<h1 class="truncate text-xl font-semibold text-surface-900">{cockpit.project.name}</h1>
+				{#if card}
+					{@const m = meta(card.state)}
+					<span
+						class="inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium {m.badge}"
+					>
+						<m.icon size={11} />
+						{m.label}
+					</span>
+				{/if}
 			</div>
-			<div class="h-4 w-px bg-surface-200"></div>
-			<div class="flex items-center gap-1.5">
-				<FileText size={14} class="text-surface-400" />
-				<span class="text-surface-500">{data.typeCounts.article}</span>
-			</div>
-			<div class="flex items-center gap-1.5">
-				<LinkedinIcon size={14} class="text-surface-400" />
-				<span class="text-surface-500">{data.typeCounts.linkedin}</span>
-			</div>
-			<div class="flex items-center gap-1.5">
-				<MapPin size={14} class="text-surface-400" />
-				<span class="text-surface-500">{data.typeCounts.gmb}</span>
+			<p class="mt-1 text-sm text-surface-600">
+				{#if card}
+					{card.headline}
+				{:else}
+					Projet archivé — la santé n'est calculée que pour les projets actifs.
+				{/if}
+			</p>
+		</div>
+		<div class="flex-shrink-0 text-right text-[11px] text-surface-400">
+			<div class="inline-flex items-center gap-1">
+				<Clock size={11} />
+				{cockpit.windowDays} jours glissants (depuis {fmtDb(cockpit.sinceDb)})
 			</div>
 		</div>
+	</header>
 
-		<!-- Filters -->
-		<div class="mt-4 flex items-center justify-between">
-			<h2 class="text-xs font-semibold uppercase tracking-wider text-surface-400">Contenus</h2>
-			<div class="flex items-center gap-3">
-				<select
-					class="rounded-md border border-surface-200 bg-white px-2.5 py-1 text-xs text-surface-600 outline-none"
-					value={data.filters.status ?? ''}
-					onchange={(e) => applyFilter((e.target as HTMLSelectElement).value)}
-				>
-					{#each STATUSES as s}
-						<option value={s.value}>{s.label}</option>
-					{/each}
-				</select>
-				<span class="text-xs text-surface-400">
-					{data.contents.length} contenu{data.contents.length !== 1 ? 's' : ''}
-				</span>
-			</div>
-		</div>
-	</div>
-
-	<!-- Split: table + preview -->
-	<div class="flex flex-1 min-h-0">
-		<div class="flex-1 overflow-y-auto px-6 pb-6 lg:px-8">
-			<ContentTable
-				contents={data.contents}
-				projectSlug={data.project.slug}
-				showType={true}
-				showBatchActions={true}
-				selectedId={previewId}
-				onselect={(id) => { previewId = id; }}
-			/>
-
-			<div class="mt-8">
-				<div class="flex items-center justify-between">
-					<h2 class="text-xs font-semibold uppercase tracking-wider text-surface-400">Contenus publies</h2>
-					{#if publishedContents === null}
-						<button
-							onclick={loadPublished}
-							class="rounded-md border border-surface-200 bg-white px-2.5 py-1 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-							disabled={loadingPublished}
-						>
-							{loadingPublished ? 'Chargement...' : 'Charger'}
-						</button>
-					{:else}
-						<span class="text-xs text-surface-400">{publishedContents.length} publie{publishedContents.length !== 1 ? 's' : ''}</span>
-					{/if}
+	{#if card}
+		<div class="grid gap-2 sm:grid-cols-2">
+			<div class="rounded-lg border border-surface-200 bg-white px-3 py-2">
+				<div class="flex items-center gap-1.5 text-[11px] font-medium text-surface-500">
+					<PlugZap size={12} /> Collecte
+					<span class="text-surface-400">· {card.pipeline.state}</span>
 				</div>
-				{#if publishedContents !== null}
-					<div class="mt-3">
-						<ContentTable
-							contents={publishedContents}
-							projectSlug={data.project.slug}
-							showType={true}
-							showBatchActions={false}
-							selectedId={previewId}
-							onselect={(id) => { previewId = id; }}
-						/>
-					</div>
+				{#if card.pipeline.reasons.length === 0}
+					<p class="mt-0.5 text-xs text-surface-400">la donnée arrive</p>
+				{:else}
+					<ul class="mt-0.5 space-y-0.5">
+						{#each card.pipeline.reasons as r}
+							<li class="text-xs text-surface-600">{r}</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+			<div class="rounded-lg border border-surface-200 bg-white px-3 py-2">
+				<div class="flex items-center gap-1.5 text-[11px] font-medium text-surface-500">
+					<Activity size={12} /> Performance
+					<span class="text-surface-400">· {card.signal.state}</span>
+				</div>
+				{#if card.signal.reasons.length === 0}
+					<p class="mt-0.5 text-xs text-surface-400">rien à signaler</p>
+				{:else}
+					<ul class="mt-0.5 space-y-0.5">
+						{#each card.signal.reasons as r}
+							<li class="text-xs text-surface-600">{r}</li>
+						{/each}
+					</ul>
 				{/if}
 			</div>
 		</div>
 
-		{#if previewId}
-			<div class="w-[45%] flex-shrink-0 overflow-hidden pr-6 pb-6 lg:pr-8">
-				<ContentPreview
-					contentId={previewId}
-					projectSlug={data.project.slug}
-					onclose={() => { previewId = null; }}
-				/>
+		<!-- Compteurs du projet : le nombre ET son lien viennent du même descripteur. -->
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+			{#each cockpit.counters as c (c.label)}
+				{#if c.href}
+					<a href={c.href} class="group inline-flex items-baseline gap-1 text-xs text-surface-500 hover:text-surface-800">
+						<span class="font-semibold text-surface-900">{fmtInt(c.count)}</span>
+						{c.label}
+						<ArrowRight size={10} class="self-center text-surface-300 transition-colors group-hover:text-surface-500" />
+					</a>
+				{:else}
+					<span
+						class="inline-flex items-baseline gap-1 text-xs text-surface-400"
+						title="Aucune liste ne reproduit exactement ce compteur — il reste un chiffre plutôt qu'un lien qui mènerait ailleurs."
+					>
+						<span class="font-semibold text-surface-700">{fmtInt(c.count)}</span>
+						{c.label}
+					</span>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+
+	<!-- ── Panneaux par domaine ──────────────────────────────────── -->
+	<!-- Chaque panneau porte son TRIO : période réellement couverte, fraîcheur, table source.
+	     Un chiffre sans période est incomparable ; sans source, invérifiable. -->
+	<section>
+		<h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-surface-400">
+			Domaines — par urgence
+		</h2>
+		<div class="grid gap-3 lg:grid-cols-3">
+			{#each cockpit.panels as p (p.key)}
+				{@const pm = panelMeta(p.state)}
+				<article
+					class="rounded-xl border bg-white p-4 shadow-sm {p.state === 'inactive'
+						? 'border-dashed border-surface-200'
+						: 'border-surface-200'}"
+				>
+					<div class="flex items-start justify-between gap-2">
+						<h3 class="text-sm font-semibold text-surface-900">{p.label}</h3>
+						<span class="inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium {pm.badge}">
+							{#if p.state === 'inactive'}<Power size={10} />{/if}
+							{pm.label}
+						</span>
+					</div>
+					<p class="mt-0.5 text-xs text-surface-500">{p.note}</p>
+
+					<!-- Le contenu ne s'affiche QUE si le domaine a quelque chose à dire. Rendre des
+					     zéros pour un flux non branché serait la panne muette que DASH-002 refuse. -->
+					{#if p.key === 'gsc' && p.state !== 'inactive' && p.state !== 'never' && gsc28}
+						<div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{fmtInt(gsc28.current?.clicks ?? 0)}</div>
+								<div class="text-[11px] text-surface-500">clics</div>
+							</div>
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{fmtInt(gsc28.current?.impressions ?? 0)}</div>
+								<div class="text-[11px] text-surface-500">impressions</div>
+							</div>
+						</div>
+						<p class="mt-1 text-[11px] text-surface-500">
+							{#if gsc28.delta.available}
+								clics {fmtDelta(gsc28.delta.clicks)} vs période précédente
+							{:else}
+								<!-- Le refus de delta vit dans le module pur : deux fenêtres de longueurs
+								     différentes ne se comparent pas, et l'écran le DIT. -->
+								pas de comparaison : les deux fenêtres n'ont pas la même longueur
+							{/if}
+						</p>
+						{#if gsc28.completeness.caveats.length > 0}
+							<ul class="mt-1 space-y-0.5">
+								{#each gsc28.completeness.caveats as c}
+									<li class="text-[11px] text-amber-700">{c}</li>
+								{/each}
+							</ul>
+						{/if}
+						<a href="/projects/{cockpit.project.slug}/windows" class="mt-2 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+							Fenêtres 7 / 28 / 90 j <ArrowRight size={11} />
+						</a>
+					{:else if p.key === 'indexing' && p.state !== 'inactive' && p.state !== 'never'}
+						<div class="mt-3 grid grid-cols-2 gap-2">
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{pct(cockpit.indexation.coverageRate)}</div>
+								<div class="text-[11px] text-surface-500">indexées (verdict tranché)</div>
+							</div>
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{fmtInt(cockpit.indexation.urlsObserved)}</div>
+								<div class="text-[11px] text-surface-500">URLs observées</div>
+							</div>
+						</div>
+						<ul class="mt-2 space-y-0.5 text-[11px] text-surface-500">
+							<li>{fmtInt(cockpit.indexation.classes.not_indexed)} non indexées · {fmtInt(cockpit.indexation.classes.excluded)} exclues (décision du site)</li>
+							{#if cockpit.indexation.dueNow > 0}
+								<!-- Des INTENTIONS dues, jamais « pages inspectées » : la table est optimiste. -->
+								<li>
+									{fmtInt(cockpit.indexation.dueNow)} inspection(s) due(s), la plus ancienne au {cockpit.indexation.oldestDueDate}
+								</li>
+							{:else}
+								<li>aucune inspection en attente</li>
+							{/if}
+						</ul>
+					{:else if p.key === 'findings' && card}
+						<div class="mt-3 grid grid-cols-2 gap-2">
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{fmtInt(card.openTotal)}</div>
+								<div class="text-[11px] text-surface-500">findings ouverts</div>
+							</div>
+							<div>
+								<div class="text-lg font-semibold text-surface-900">{fmtInt(card.activity.created)}</div>
+								<div class="text-[11px] text-surface-500">nouveaux sur la période</div>
+							</div>
+						</div>
+						<a href="/inbox?tab=findings&project={cockpit.project.slug}" class="mt-2 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+							Ouvrir l'inbox <ArrowRight size={11} />
+						</a>
+					{/if}
+
+					<!-- Le trio, sur chaque panneau, toujours au même endroit. -->
+					<dl class="mt-3 space-y-0.5 border-t border-surface-100 pt-2 text-[11px] text-surface-400">
+						<div class="flex gap-1">
+							<dt class="font-medium">Période</dt>
+							<dd>{p.provenance.period?.label ?? 'aucune donnée'}</dd>
+						</div>
+						<div class="flex gap-1">
+							<dt class="font-medium">Fraîcheur</dt>
+							<dd>{freshnessLabel(p.provenance.freshness)}</dd>
+						</div>
+						<div class="flex gap-1">
+							<dt class="font-medium">Source</dt>
+							<dd class="truncate font-mono">{p.provenance.source}</dd>
+						</div>
+					</dl>
+
+					{#if p.state === 'inactive'}
+						<a href="/projects/{cockpit.project.slug}/settings" class="mt-2 inline-flex items-center gap-1 text-xs text-surface-500 hover:text-surface-800">
+							Brancher <ArrowRight size={11} />
+						</a>
+					{/if}
+				</article>
+			{/each}
+		</div>
+	</section>
+
+	<!-- ── Timeline ──────────────────────────────────────────────── -->
+	<section>
+		<div class="mb-2 flex items-baseline justify-between">
+			<h2 class="text-xs font-semibold uppercase tracking-wider text-surface-400">
+				Ce qui s'est passé
+			</h2>
+			{#if cockpit.timeline.truncated > 0}
+				<!-- Une troncature se DIT : sans ça, une timeline pleine se lit comme complète. -->
+				<span class="text-[11px] text-surface-400">
+					{cockpit.timeline.truncated} entrée(s) plus ancienne(s) non affichée(s)
+				</span>
+			{/if}
+		</div>
+
+		{#if cockpit.timeline.entries.length === 0}
+			<div class="rounded-xl border border-dashed border-surface-200 px-4 py-6 text-center">
+				<Search size={18} class="mx-auto text-surface-300" />
+				<p class="mt-1 text-sm text-surface-500">
+					Aucun run, aucun diagnostic, aucune décision sur ce projet.
+				</p>
 			</div>
+		{:else}
+			<ol class="space-y-1">
+				{#each cockpit.timeline.entries as e (e.kind + e.id)}
+					{@const km = KIND_META[e.kind]}
+					<li class="flex items-start gap-3 rounded-lg border border-surface-100 bg-white px-3 py-2">
+						<span class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full {km.dot}" title={km.label}></span>
+						<div class="min-w-0 flex-1">
+							<div class="flex flex-wrap items-baseline gap-x-2">
+								{#if e.href}
+									<a href={e.href} class="truncate text-sm text-surface-900 hover:underline">{e.title}</a>
+								{:else}
+									<span class="truncate text-sm text-surface-900">{e.title}</span>
+								{/if}
+								{#if e.approvalLevel}
+									<span class="rounded border border-surface-200 px-1 text-[10px] text-surface-500">{e.approvalLevel}</span>
+								{/if}
+							</div>
+							{#if e.detail}
+								<p class="text-xs text-surface-500">{e.detail}</p>
+							{/if}
+							{#if e.reason}
+								<!-- Le motif est obligatoire à l'écriture (DASH-005) : il doit se relire ici,
+								     sinon « les décisions passées sont accessibles » serait décoratif. -->
+								<p class="text-xs text-surface-600">« {e.reason} »</p>
+							{/if}
+						</div>
+						<div class="flex-shrink-0 text-right text-[11px] text-surface-400">
+							<div>{fmtDb(e.at)}</div>
+							{#if e.actor}<div>{e.actor}</div>{/if}
+						</div>
+					</li>
+				{/each}
+			</ol>
 		{/if}
-	</div>
+	</section>
 </div>

@@ -987,14 +987,19 @@ Acceptation :
 
 ## DASH-003 — Cockpit projet
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED — reste **DASH-001** seul (GSC-004 livré le 2026-07-24, IDX-005 le 2026-07-25) · **Dépendances :** DASH-001, GSC-004, IDX-005
+**Priorité :** P0 · **Taille :** L · **État :** **EN COURS — lot 1 (vue d'ensemble + timeline) DONE le 2026-07-25**, lot 2 restant · **Dépendances :** DASH-001 *(avancé sans lui, comme DASH-002 — la barre d'onglets projet est livrée ici)*, GSC-004, IDX-005
 
 Travail :
 
-- afficher score de santé et explication ;
-- présenter GSC, indexation, réputation et analytics ;
-- montrer timeline des runs/findings/actions ;
-- donner accès aux integrations et policies.
+- ~~afficher score de santé et explication~~ (lot 1 — **deux axes, pas de score chiffré** : décision
+  reprise de DASH-002, un nombre unique fusionnerait « la donnée n'arrive pas » et « la donnée est
+  mauvaise ». La carte vient de `loadHomeCockpit`, jamais recalculée) ;
+- présenter GSC, indexation, réputation et analytics → **partiel** : GSC, indexation et diagnostic
+  au lot 1 ; réputation et analytics au **lot 2** (Plausible n'a pas de read-model) ;
+- ~~montrer timeline des runs/findings/actions~~ (lot 1 — décisions lues dans `action_proposals`,
+  y compris celles sans finding) ;
+- donner accès aux integrations et policies → **lot 2** (l'onglet Paramètres existe, les policies
+  n'ont pas d'écran).
 
 Acceptation :
 

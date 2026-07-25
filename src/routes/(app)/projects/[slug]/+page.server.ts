@@ -1,58 +1,26 @@
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents } from '$lib/server/db/schema.js';
-import { eq, and, asc, gt, not, sql } from 'drizzle-orm';
+import { loadProjectCockpit } from '$lib/server/project-cockpit.js';
+import { normalizeWindowDays } from '$lib/server/home-state.js';
 
-export const load: PageServerLoad = async ({ parent, url }) => {
-	const { project } = await parent();
-
-	const statusFilter = url.searchParams.get('status');
-
-	const conditions = [eq(contents.projectId, project.id)];
-	if (statusFilter) {
-		conditions.push(eq(contents.status, statusFilter));
-	} else {
-		conditions.push(not(eq(contents.status, 'published')));
-	}
-
-	const projectContents = await db
-		.select()
-		.from(contents)
-		.where(and(...conditions))
-		.orderBy(sql`CASE WHEN ${contents.plannedDate} IS NULL THEN 1 ELSE 0 END`, asc(contents.plannedDate));
-
-	// Count contents per type (unfiltered)
-	const allContents = await db
-		.select({ type: contents.type })
-		.from(contents)
-		.where(eq(contents.projectId, project.id));
-
-	const typeCounts = {
-		all: allContents.length,
-		article: allContents.filter((c) => c.type === 'article').length,
-		linkedin: allContents.filter((c) => c.type === 'linkedin').length,
-		gmb: allContents.filter((c) => c.type === 'gmb').length
-	};
-
-	// Next 3 upcoming contents
-	const now = new Date().toISOString();
-	const upcoming = await db
-		.select()
-		.from(contents)
-		.where(
-			and(
-				eq(contents.projectId, project.id),
-				gt(contents.plannedDate, now),
-				not(eq(contents.status, 'published'))
-			)
-		)
-		.orderBy(asc(contents.plannedDate))
-		.limit(3);
-
-	return {
-		contents: projectContents,
-		filters: { status: statusFilter },
-		typeCounts,
-		upcoming
-	};
+/**
+ * DASH-003 — `/projects/[slug]` EST le cockpit projet (SPEC §13.2, onglet « Vue d'ensemble »).
+ *
+ * La page répond à « que se passe-t-il sur ce projet, et à quel point puis-je y croire » : la
+ * santé aux DEUX axes (la même que l'accueil, jamais recalculée ici), un panneau par domaine
+ * portant sa période / sa fraîcheur / sa source, et la timeline où les décisions passées se
+ * relisent.
+ *
+ * Le calendrier de contenus qui occupait cette route vit désormais en `[slug]/content` —
+ * déplacé tel quel, aucune route supprimée, comme DASH-002 l'a fait sur `/`.
+ *
+ * Tout le jugement vit dans `project-cockpit-state.ts` (pur, testé) et toute la lecture dans
+ * `project-cockpit.ts` (client injecté) : ce loader ne fait que passer la fenêtre.
+ */
+export const load: PageServerLoad = async ({ params, url }) => {
+	const windowDays = normalizeWindowDays(url.searchParams.get('days'));
+	const cockpit = await loadProjectCockpit({ db, projectSlug: params.slug, windowDays });
+	if (!cockpit) throw error(404, 'Projet introuvable');
+	return { cockpit };
 };

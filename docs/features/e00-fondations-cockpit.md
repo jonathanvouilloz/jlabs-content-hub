@@ -4,6 +4,85 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-25 (DASH-003 lot 1 — le cockpit sait enfin MONTRER un projet)
+
+**Fait :** DASH-003, **lot 1** (vue d'ensemble + timeline + barre d'onglets). Le cockpit savait
+collecter, juger et décider ; il ne savait pas **montrer un projet**. `/projects/[slug]` était
+encore le calendrier de contenus du Content Hub — que la sidebar libellait déjà « Vue d'ensemble »,
+ce qui était faux. Conséquence : `indexing-read.ts` et `index_selection` n'avaient **aucun
+lecteur** (piège daté depuis IDX-002), et aucune décision passée n'était consultable au niveau
+projet. **Zéro DDL.**
+
+- **LE point du lot : la carte de santé n'est PAS recalculée ici.** Elle vient de
+  `loadHomeCockpit` et est retrouvée par slug. Recalculer les six domaines aurait créé **deux
+  définitions de « projet à risque »** qui divergeraient au premier seuil modifié — et personne
+  ne saurait laquelle croire. **Prouvé par égalité de `JSON.stringify` champ par champ** contre
+  la carte de l'accueil, même fenêtre. Le coût est nul : les requêtes de l'accueil sont **déjà
+  groupées par projet**, donc les refiltrer ne ferait rien gagner.
+- **« Non branché » n'est pas « cassé », et l'ordre des règles EST la décision.** Une intégration
+  **désactivée** rend `inactive` **quoi qu'elle porte par ailleurs** — elle peut garder un
+  `last_error_code` d'il y a trois mois, et le peindre en rouge reprocherait à Jonathan une panne
+  qu'il a lui-même débranchée. La contre-épreuve mesure la différence : **la même intégration,
+  activée, rend `broken`** avec son code, et fait passer le projet en collecte cassée.
+- **`hasData` prime sur l'absence de ligne d'intégration.** Un projet peut collecter sans ligne
+  `project_integrations` (compte de service partagé, flux hérité) : annoncer « non branché » alors
+  que la table déborde d'observations serait un mensonge **vérifiable sur l'écran d'à côté**.
+- **Un domaine INTERNE ne peut pas être « non branché »** (`external: false`). Le diagnostic relit
+  des observations déjà payées : il n'a pas de credential, et lui répondre « non branché »
+  enverrait vers une page de réglages qui ne propose rien. Trouvé en lisant la sortie de la
+  preuve, pas en écrivant le code.
+- **Le trio période/fraîcheur/source est porté par le TYPE, pas par le template.** `buildPanel`
+  exige `ProvenanceTrio` : un panneau **ne peut pas exister** sans dire d'où il sort. Et la
+  période est celle **réellement couverte** par la donnée — un domaine sans donnée porte
+  `period: null`, jamais une plage qui se lirait « on a regardé ces 28 jours et tout va bien ».
+- **La timeline lit les décisions dans `action_proposals`, et c'est le seul choix correct.** Les
+  lire dans `proposal_approvals` **manquerait tous les rejets** (un rejet ne produit aucune
+  approbation) ; les lire dans `finding_events` manquerait les décisions sur une proposition
+  **sans finding** — `proposals.ts` n'écrit son événement que `if (p.findingId)`. La preuve monte
+  exactement cette scène : une proposition rejetée **sans finding**, **0 ligne** de journal, et
+  elle apparaît quand même dans la timeline avec son niveau d'autorisation.
+- **Le calendrier de contenus a DÉMÉNAGÉ, il n'a pas été réécrit** (`git mv`, `R100`) vers
+  `[slug]/content`, avec son entrée propre dans la sidebar. Miroir de DASH-002 sur `/` : le legacy
+  passe sous ce qui décide, aucune route supprimée. Toute « amélioration au passage » aurait rendu
+  une régression invisible.
+- **La barre d'onglets ne montre que ce qui existe.** Les onglets SPEC §13.2 sans read-model
+  (Mots-clés, Rapports) ne sont **pas** affichés grisés : un onglet mort apprend à ne plus cliquer
+  et fait passer pour cassé ce qui n'est simplement pas encore écrit.
+- Vérif : `npm run test` = **908/908** (+19) · `npm run check` = **0 err / 42 warn** (baseline) ·
+  **`scripts/dash-003-project-proof.ts` = 25/25 vertes sur Neon**, base rendue à l'identique
+  (6 intégrations, 4 propositions, 0 approbations, 13 findings, 17 events avant comme après) ·
+  **zéro appel réseau** · non-régression : `dash-002-home-proof`, `dash-005-inbox-proof`,
+  `find-003-lifecycle-proof`, `gsc-004-windows-proof`, `idx-004-lot2-proof` — **0 échec chacune**.
+
+**Acceptations DASH-003.** (1) « chaque métrique affiche période, fraîcheur et source » : le trio
+est dans le type, vérifié sur **tous** les panneaux rendus, et aucun ne porte « 0 h » là où rien
+n'a été collecté ; (2) « un provider désactivé n'est pas présenté comme une erreur » : `inactive`
+avec contre-épreuve `broken` sur la **même** intégration ; (3) « les décisions passées sont
+accessibles depuis la timeline » : y compris le cas sans finding, avec motif et niveau
+d'autorisation.
+
+**Prochain :** **DASH-003 lot 2** — les onglets restants (Mots-clés, Rapports, Automatisations),
+qui demandent d'abord leurs read-models. Ou **DASH-006** (vue automatisations), qui donnerait
+enfin sa liste au compteur `runs_period` (muet depuis DASH-002).
+
+**Pièges :**
+- **⚠️ Le cockpit n'a JAMAIS été vu à l'œil** (pas de session admin dans cette session de
+  travail) — comme DASH-002 avant lui. Tout est prouvé côté données, **rien n'est prouvé côté
+  rendu**.
+- **La carte de santé ne se recalcule pas dans `project-cockpit.ts`.** Le jour où quelqu'un
+  « optimise » en requêtant le projet seul, l'invariant anti-divergence tombe — et la preuve A
+  est là pour le rattraper.
+- **`index_selection` est optimiste** : `dueNow` vient de `loadDueSelections` (qui a déjà joint
+  `index_observations`), jamais d'un `count(*)` sur la table.
+- **`excluded` est hors du dénominateur de couverture** : un `noindex` est une décision du site,
+  pas un échec. L'inclure ferait baisser le taux à chaque page volontairement désindexée.
+- Le seuil de fraîcheur d'indexation est à **15 j** (et non 10 comme GSC) : l'inspection est une
+  **sélection**, une page peut légitimement n'être revue que tous les 14 j (`sampleIntervalDays`).
+
+**Commit :** (à faire)
+
+---
+
 ## Etat session 2026-07-25 (IDX-004 lot 2 — une page publiée cesse d'attendre le lundi)
 
 **Fait :** IDX-004, **lot 2**, ce qui ferme IDX-004. Le lot 1 avait posé le registre des décisions
@@ -2431,12 +2510,16 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-25 (IDX-004 lot 2)
+> Mise à jour : 2026-07-25 (DASH-003 lot 1)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/project-cockpit-state.ts`** (+ `.test.ts`) | **Purs DASH-003** : **`ProvenanceTrio`** — période / fraîcheur / source, exigé par `buildPanel`, donc un panneau **ne peut pas exister** sans dire d'où il sort (une règle qui ne vivrait que dans un template se perdrait au premier refactor) ; **`derivePanelState`**, où **l'ordre des règles EST la décision** : désactivé ⇒ `inactive` **quoi qu'il porte par ailleurs** (une intégration éteinte garde son vieux `last_error_code`), activé + `error`/`revoked`/`down` ⇒ `broken`, sinon la fraîcheur tranche — et **`hasData` prime sur l'absence de ligne d'intégration** (un projet peut collecter sans registre : dire « non branché » serait démenti par l'écran d'à côté). **`external: false`** pour les domaines internes : le diagnostic n'a pas de credential, « non branché » y serait un contresens. `rankPanels` met `inactive` **après** `ok` (aucun geste à faire). `summarizeIndexation` : `excluded` **hors dénominateur** (un noindex est une décision du site), taux `null` et non 0 % quand rien n'a été mesuré. `buildTimeline` : ordre **TOTAL** (temps, nature, id), horodatage illisible **à la fin**, troncature **comptée**. **19 tests.** |
+| **`src/lib/server/project-cockpit.ts`** | **Lecture DASH-003.** ⚠️ **La carte de santé vient de `loadHomeCockpit`, et de nulle part ailleurs** — recalculer les six domaines ici ferait deux définitions de « projet à risque » qui divergeraient au premier seuil modifié, et le même projet serait noté différemment sur deux écrans. Coût nul : les requêtes de l'accueil sont **déjà groupées par projet**. Ajoute le DÉTAIL que l'accueil n'a pas la place de porter : `loadGscWindows` (GSC-004), `countIndexClasses` + `loadDueSelections` (**premier lecteur** d'`indexing-read.ts` et d'`index_selection`), et la timeline. **Les décisions se lisent dans `action_proposals`** : `proposal_approvals` seul manquerait tous les **rejets**, `finding_events` seul manquerait les décisions sur une proposition **sans finding**. Seuil de fraîcheur d'indexation à **15 j** (≠ 10 j GSC) : l'inspection est une **sélection**, pas une collecte de masse. |
+| **`src/routes/(app)/projects/[slug]/`** *(DASH-003)* | `+page.*` = le cockpit (le loader ne calcule rien) ; `+layout.svelte` = la barre d'onglets, qui **ne montre que ce qui existe** (un onglet mort apprend à ne plus cliquer) ; `content/+page.*` = le calendrier de contenus **déplacé** (`git mv`, `R100` — un déplacement, pas une réécriture, sinon une régression passerait inaperçue). Un slug inconnu rend **404**, jamais une page vide qui se lirait « ce projet n'a rien ». |
+| **`scripts/dash-003-project-proof.ts`** | **Preuve DASH-003 sur Neon (25 vérifs), ZÉRO réseau** : **l'invariant anti-divergence** — carte du cockpit == carte de l'accueil, `JSON.stringify` champ par champ ; intégration **désactivée** porteuse d'un code d'erreur ⇒ `inactive`, **contre-épreuve** la même activée ⇒ `broken` + projet en collecte cassée ; **une proposition rejetée SANS finding** (0 `finding_event` vérifié en SQL) apparaît quand même dans la timeline, avec son niveau d'autorisation et son lien ; aucun panneau sans source, aucune plage inventée, aucun « 0 h » là où rien n'a été collecté ; timeline stable d'un appel à l'autre ; slug inconnu ⇒ `null`. Sentinelles `__test_dash003`, nettoyage enfants d'abord. |
 | **`src/lib/server/collectors/index-selection-state.ts`** *(IDX-004 lot 2)* | **`postPublishSelections`** — une échéance par offset, datée depuis la **PUBLICATION** et jamais depuis « aujourd'hui » (sinon une transition rejouée rendrait d'autres dates, et l'idempotence par `(url, due_date)` s'effondrerait). ⚠️ **Ne passe PAS par `allocate`** : `dedupeCandidates` fusionne par URL, donc les trois échéances d'une page y deviendraient une seule ligne — « une URL, un slot » vaut pour **une journée**, pas pour trois rendez-vous futurs. URL non normalisable ou date illisible ⇒ **rien** (une échéance jamais honorable serait due pour toujours). **`manualSelections`** — coupe au budget **en conservant l'ordre d'entrée** : un tri réordonnerait la priorité de l'opérateur à sa place, puis couperait ailleurs qu'il ne croit. Seul import du module : `normalizeUrl` (pur). |
 | **`src/lib/server/collectors/index-selection.ts`** *(IDX-004 lot 2)* | **`scheduleIndexChecks`** (enveloppe base : normalise la date, délègue le jugement, `persistSelections`) — **n'inspecte rien et ne consomme aucun quota**, ce qui permet de l'appeler depuis une route HTTP. L'idempotence vit dans les **DATES** : rejouer une publication n'écrit rien, **republier** pose de nouvelles échéances — précisément ce que la clé de `schedulePostPublish` (sans `publishedAt`) ne sait pas faire, et la raison pour laquelle elle n'est pas réutilisée. **`selectManualUrls`** — repasse par `loadSelectionSettings` → `resolveProjectSelection` → `loadGlobalPoolUsed` → **`resolveBudget`** en `scope: 'due'` : un audit à la main ne peut pas vider le pool des six projets. |
 | **`src/routes/api/content/[id]/status/+server.ts`** *(IDX-004 lot 2)* | Le déclencheur J+3/J+7/J+28, **sans condition sur `autoSubmitOnPublish`** : ce drapeau gouverne la *soumission* Indexing API, pas le fait de vouloir **savoir** si la page est indexée (même raisonnement qu'`exclude_patterns` au lot 1). Garde de **type** (`article`) : GMB/LinkedIn n'ont pas de page sur le site client. ⚠️ **Un seul `publishedAt`** partagé avec l'écriture de la ligne — un second `new Date()` les ferait diverger d'un jour à la frontière UTC et fausserait la jointure « honorée » pour toujours. `await` mais **sous garde** : planifier est le corollaire de publier, jamais sa condition. |
