@@ -118,9 +118,19 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   **`scope`** — ce détecteur n'est autoritaire que sur **ce qui a été ré-inspecté**, sinon une page
   non regardée serait « guérie » en deux runs, faux signal que la contre-épreuve **mesure**. §14.3 :
   le **signal** (`notifyImmediately`), pas le canal — TEL-002 reste BLOCKED) · test **809/809**.
-  ⚠️ **Inerte tant qu'IDX-004 n'alimente pas l'inspection** (`index_observations` = 0 ligne) — piège
-  AGT-000 nommé et daté. Prochain : **IDX-004** (sélection/quotas — il rend IDX-005 vivant et posera
-  l'arête obligatoire au catalogue hebdo) ou **DASH-003** (cockpit projet, débloqué côté IDX-005).
+  Enfin **IDX-004 lot 1** (politique de sélection et quotas — **un DDL** : `index_selection`,
+  58 → **59 tables**), qui **rend IDX-005 vivant** et **referme la branche d'indexation** du graphe
+  hebdo (`sitemap`/`gsc_query_page` → `url_inspection`, prérequis **optionnels** → `index_transition`,
+  arête **obligatoire**). La table stocke la **DÉCISION**, jamais le résultat : aucune colonne
+  `status`, « honorée » se **dérive** (`observed_date >= due_date`, ce qui porte la sémantique J+N).
+  Et la sélection est **persistée AVANT que la collecte parte** — un 429 au 3ᵉ appel sur 10 laisse
+  7 intentions dues, reprises au run suivant **sans une ligne de plus**, là où la contre-épreuve
+  **mesure** qu'un code persistant *après* rendrait ces 7 URLs invisibles. « Réserver du quota à
+  l'urgent » est un **ordre** et un **canal** (`scope: 'due'`), pas un pourcentage ; l'échantillon
+  est plafonné par `samplePctMax` **clampé à 60 %**, donc il ne peut jamais prendre le dernier slot.
+  ⚠️ **`0` veut dire ZÉRO** ici, l'inverse de `job-limits.ts` · test **875/875**.
+  Prochain : **IDX-004 lot 2** (cadence quotidienne `scope: 'due'`, J+3/J+7/J+28 à la publication,
+  CLI d'audit borné) ou **DASH-003** (cockpit projet, bloqué par DASH-001 seul).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
