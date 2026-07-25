@@ -82,7 +82,7 @@ budget projet (120 URLs → 40, `--limit=5` → 5, `0` → 0) et **jamais** au-d
   Windows (**préexistant**) · aucun écran ne lit `indexing-read.ts` ni `index_selection`
   (DASH-003) · **rien ne bat tant que ce n'est pas déployé**.
 
-**Commit :** (à faire)
+**Commit :** `fd84470` [hub] add: IDX-004 lot 2, échéances post-publication et audit manuel borné
 
 ---
 

@@ -12,4 +12,4 @@ et détecte dans la foulée, et `scripts/inspect-urls.ts` permet un audit manuel
 défaut).
 Prochain : **DASH-003** (cockpit projet) — le seul écran qui lira `indexing-read.ts` et
 `index_selection`, aujourd'hui invisibles. Toujours bloqué par DASH-001 seul.
-Commit : (à faire) [hub] add: IDX-004 lot 2, échéances post-publication et audit manuel borné
+Commit : `fd84470` [hub] add: IDX-004 lot 2, échéances post-publication et audit manuel borné
