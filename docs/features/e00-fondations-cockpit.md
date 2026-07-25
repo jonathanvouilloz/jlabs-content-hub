@@ -106,7 +106,7 @@ de transitions).
   n'est pas déployé** · au 1er tick hebdo, `barberconcept` écrira ses **50 findings** (décision maintenue)
   — et le run enfilera désormais **2 collectes** par projet au lieu d'une.
 
-**Commit :** `PENDING-IDX-001`
+**Commit :** `ebf127b` [hub] add: IDX-001 inventaire sitemap, diff reproductible, sitemaps invalides signalés
 
 ---
 
