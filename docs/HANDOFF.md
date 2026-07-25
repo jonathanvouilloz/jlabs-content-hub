@@ -13,4 +13,4 @@ Prochain : **IDX-004 lot 2** — cadence quotidienne `scope: 'due'`, `scheduleIn
 depuis `src/routes/api/content/[id]/status/+server.ts` (J+3/J+7/J+28), et CLI d'audit borné
 `scripts/inspect-urls.ts`. Sinon **DASH-003** (cockpit projet), encore bloqué par DASH-001 seul.
 Détail, pièges et Carte du code → le fichier feature.
-Commit : `(à venir)` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection
+Commit : `48511b1` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection

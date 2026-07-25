@@ -144,7 +144,7 @@ Puis **DASH-003** (cockpit projet), toujours bloqué par DASH-001 seul.
   `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien ne bat tant
   que ce n'est pas déployé**.
 
-**Commit :** `(à venir)` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection
+**Commit :** `48511b1` [hub] add: IDX-004 lot 1, politique de sélection et quotas d'inspection
 
 ---
 
