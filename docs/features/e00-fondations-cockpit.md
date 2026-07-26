@@ -95,6 +95,125 @@ toujours rien.
 
 ---
 
+## Recap epic — DASH-006 Vue automatisations et jobs (2026-07-26) · CLÔTURÉ
+
+**Objectif** : donner au cockpit la vue des automatisations — savoir ce qui aurait dû tourner, ce qui
+a tourné, ce qui a échoué, et pouvoir **arrêter volontairement** une automatisation. Les deux
+acceptations du BACKLOG : « une panne est diagnostiquable sans accès serveur » et « pause et reprise
+sont auditables », plus « la désactivation d'un provider n'annule pas les autres steps ».
+
+**Livré**
+
+- **Lot 1 — l'absence devient visible.** `/automations` croise le dernier créneau **attendu**
+  (calculé par `dueOccurrences`, la fonction même du scheduler) et le run **observé**
+  (`monitoring_runs.period_end`). Un job mort laisse une ligne ; un **tick qui ne tourne pas ne
+  laisse rien**, et seul ce croisement le révèle. **Zéro DDL.**
+- **Lot 1 — deux axes qui ne fusionnent jamais** : « le créneau a-t-il été **tiré** ? » ≠ « ce qui a
+  été tiré a-t-il **réussi** ? ». `late`/`missed` se sépare sur `DEFAULT_LOOKBACK_MS` **importée** du
+  scheduler, jamais recopiée.
+- **Lot 1 — deux effets de bord** : le compteur « runs de la période » de l'accueil cesse d'être
+  muet (nombre et URL nés du même descripteur), et `/jobs` accepte `?run=` avec bandeau visible.
+- **Lot 2 — `automation_pauses`**, journal **append-only** (seul DDL de l'epic : 59 → **60** tables)
+  dont l'état effectif se **dérive**. Trois portées (cadence, projet, provider) en **union, pas en
+  préséance**. Raison **obligatoire dans les deux sens**, reprise comprise.
+- **Lot 2 — la pause mord vraiment** : overlay au scheduler (`applyPauseToSpec`), **4ᵉ passe worker**
+  `pauseOnce` qui **conclut** les jobs en file (`skipped` + `job_attempts`), et garde d'admission qui
+  les **empêche** (`provider_paused` / `project_paused` dans `claimJob`).
+- **Ce que l'écran a dit dès le premier chargement : 12 créneaux manqués sur 12**, aucun run
+  hebdomadaire n'ayant **jamais** existé — cohérent avec le cutover en attente.
+
+**Décisions techniques** (reportées dans `docs/DECISIONS.md`)
+
+- **Une pause est une DÉCISION, donc un journal append-only dont l'état se dérive — jamais un
+  booléen** : `project_projections` est **recompilée** (la pause y serait effacée sans bruit, et le
+  monitoring redémarrerait sans que personne l'ait décidé) ; `system_settings` se **réécrit sur
+  place** (l'auditabilité devient infalsifiable). Alternatives écartées : ces deux-là, plus le
+  couple état+journal de `findings.status` — deux sources de vérité pour une garantie d'audit sont
+  exactement ce qu'on ne veut pas.
+- **Aucun unique sur la table** : rejouer un geste ne doit pas *échouer*, il ne doit *rien écrire*.
+  L'idempotence vit dans la transaction (contrat d'`approveProposal`) ; une contrainte transformerait
+  un double clic en erreur au lieu d'un non-événement.
+- **Un job suspendu est CONCLU et empêché — les deux, pas l'un ou l'autre.** Le laisser partir vide
+  « en pause » de son sens ; le rendre seulement non réclamable le fait dormir **à vie** avec ses
+  dépendants obligatoires (le trou que JOB-004 avait fermé). Le statut `skipped` est ce que
+  `classifyDependencyGate` lit comme prérequis mort → propagation **gratuite**. Alternatives
+  écartées : `cancelled` (dit « un humain a annulé CE job »), suppression (trou d'audit).
+- **L'expiration `until` est dérivée à la lecture**, jamais écrite : aucun job de réveil, donc aucun
+  moyen qu'une pause « expirée en base » contredise une pause « expirée à l'écran ».
+- **La jointure du lot 1 porte sur le créneau LOCAL**, pas sur un intervalle autour de l'instant : un
+  intervalle apparierait un run au créneau voisin le jour du changement d'heure, précisément là où
+  la question se pose.
+
+**Problèmes rencontrés**
+
+- **Piège de fuseau, trouvé par un test sur la borne d'échéance** : `new Date('2026-07-26 12:00:00')`
+  est parsé en heure **LOCALE** (ECMA-262), donc repasser par `toDbTimestamp` une chaîne **déjà** au
+  format DB la décalait d'une à deux heures à Zurich. Une pause échéant à 12:00 se serait lue active
+  jusqu'à 14:00 — visible seulement aux abords de l'échéance, **deux fois l'an avec une amplitude
+  différente**. → `normalizeDbTimestamp` posé dans `timestamps.ts`, sa vraie maison, pas dans le
+  module appelant.
+- **`listPauseJournal` mélangeait alias SQL et colonnes drizzle** : celles-ci se rendent en nom
+  pleinement qualifié, que Postgres refuse dès qu'un alias existe (42P01). → conditions réécrites
+  sur l'alias.
+- **Le projet sentinelle de la preuve ne pouvait pas avoir un slug inventé** : `projects.slug` porte
+  une FK cross-schéma vers `core.entities`, registre possédé par `invoices` que seo-stats ne modifie
+  jamais (loi n°3). → la preuve **emprunte** un slug déjà déclaré mais sans projet SEO (`bc-chenois`,
+  ancien slug de facturation fusionné dans `bcchenois`), avec garde anti-collision et nettoyage
+  **par id, jamais par slug**.
+- **Le catalogue de substitution de la preuve câblait toutes les cadences** → 200 occurrences
+  horaires non suspendues faisaient échouer l'assertion B **en ayant parfaitement raison**. Corrigé
+  côté harnais, pas côté code.
+
+**Fichiers**
+
+### Créés
+- `src/lib/server/automations-state.ts` (+ `.test.ts`) — le jugement de planification, pur *(lot 1)*
+- `src/lib/server/automations.ts` — lecture base (croisement créneau ↔ run, règles effectives) *(lot 1)*
+- `src/routes/(app)/automations/+page.{server.ts,svelte}` — l'écran *(lots 1 et 2)*
+- `src/lib/server/pause-state.ts` (+ `.test.ts`) — le jugement des pauses, pur *(lot 2)*
+- `src/lib/server/pauses.ts` — lecture `DISTINCT ON` + écriture transactionnelle idempotente *(lot 2)*
+- `src/lib/server/jobs-pause.ts` — la 4ᵉ passe du worker *(lot 2)*
+- `src/routes/api/ops/automations/pause/+server.ts` — la seule porte humaine *(lot 2)*
+- `drizzle/manual-dash-006.sql` · `scripts/apply-dash-006.ts` — le DDL et son application *(lot 2)*
+- `scripts/dash-006-automations-proof.ts` (13/13) · `scripts/dash-006-pause-proof.ts` (24/24)
+
+### Modifiés
+- `src/lib/server/db/schema.ts` — table `automation_pauses` (seul DDL de l'epic)
+- `src/lib/server/scheduler.ts` — overlay de pause au call site ; `pausedCadences` dans `PlanResult`
+- `src/lib/server/job-runner.ts` — `pauseOnce` avant `settleOnce` ; compteur `pausedSkipped`
+- `src/lib/server/job-limits.ts` — `pausedProviders`/`pausedProjectIds` dans `planAdmission`
+- `src/lib/server/timestamps.ts` — `normalizeDbTimestamp`
+- `src/lib/utils/job-format.ts` — libellés `paused`, `PausedByOperator`, `skipReasonLabel`
+- `src/routes/api/cron/tick/+server.ts` — les cadences suspendues remontent dans la réponse
+- `src/lib/server/{home,home-state,job-console,jobs-claim}.ts`, `src/routes/(app)/{+page,+layout,jobs}` *(lot 1)*
+
+**Vérifications**
+
+| Test | Résultat |
+|---|---|
+| `npm run test` | **997 passés / 997** (40 neufs sur `pause-state`, + pauses dans `automations-state` et `job-limits`) |
+| `npm run check` | **0 erreur** (42 warnings préexistants) |
+| `scripts/apply-dash-006.ts` | **60 tables**, 11 colonnes, `project_id` nullable, **0 unique hors PK** |
+| `scripts/dash-006-pause-proof.ts` | **24/24 sur Neon**, dont les 3 contre-épreuves (reprise, propagation provider, expiration sans écriture) |
+| `scripts/dash-006-automations-proof.ts` | **13/13** |
+| Non-régression (`job-004-dag`, `job-005-schedule`, `job-006-limits`, `job-007-console`, `dash-002-home`, `dash-003-project`) | **0 échec chacune** |
+| Revue à l'œil, session admin | **passée** — pause/reprise réelles sur `barberconcept/hebdomadaire`, refus sans raison vérifié, base laissée propre |
+| `npm run build` | **échoue** à l'adaptateur Vercel sous Windows — **préexistant**, sans rapport avec l'epic |
+
+**Dettes assumées**
+
+- **Un run dont TOUS les steps sont `skipped` se lit `success`** (`STEP_TERMINAL_OK` contient
+  `skipped`, sémantique JOB-004 préexistante). Pas faux — rien n'a échoué — mais bien plus
+  atteignable depuis ce lot. À revisiter si un run entièrement suspendu devient courant.
+- **`project-cockpit-state.ts` (DASH-003) n'applique ni la règle des deux axes ni celle de la
+  couverture de diagnostic.** Piège hérité, à traiter quand DASH-003 lot 2 reprendra.
+- **`RUN_TYPES` (`monitoring-state.ts`) ne contient pas `hourly`** alors que `CADENCE_RUN_TYPE` le
+  mappe. Sans effet tant que la cadence n'est pas câblée.
+- **Rien n'est déployé** : le cutover Phase 5A (variable Vercel + merge `--ff-only`) reste en
+  attente, donc une pause posée aujourd'hui ne suspend rien en production — puisque rien n'y tourne.
+
+---
+
 ## Etat session 2026-07-26 (DASH-006 lot 1 — le cockpit voit le créneau qui N'A PAS eu lieu)
 
 **Fait :** DASH-006, **lot 1** (calendrier + runs + règles effectives). Le cockpit savait montrer
