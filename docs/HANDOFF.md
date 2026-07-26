@@ -27,5 +27,5 @@ socle epics 1-23 sur Neon — PAS le cockpit** : `main` n'a ni `/jobs`, ni `/inb
 
 ⚠️ **`npm run db:push` depuis `main` = risque de PROD** : `main` déclare 29 tables, Neon en porte 60.
 
-Commit : `ff2efc5` (E00) · prod : `e5efc83` sur `main`
+Commit : `4a7d263` (E00) · prod : `e5efc83` sur `main`
 Cerveau : `5d5dbbb` — journal `10-Projets/seo-stats/seo-stats-log.md` (entrée DASH-006).
