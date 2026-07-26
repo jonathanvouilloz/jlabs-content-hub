@@ -41,13 +41,16 @@ import { loadCapacitySnapshot, type CapacitySnapshot } from './jobs-limits.js';
 import {
 	ACTIVITY_EVENTS,
 	DEFAULT_WINDOW_DAYS,
+	FRESHNESS_PROVIDER,
 	buildCounter,
 	classifyProject,
 	emptyActivity,
 	groupActivity,
+	needsAction,
 	rankProjects,
 	summarizeCosts,
 	summarizePortfolio,
+	summarizeProjectPause,
 	type ActivityCounts,
 	type Counter,
 	type CostSummary,
@@ -56,12 +59,14 @@ import {
 	type PortfolioHealth,
 	type ProjectCard
 } from './home-state.js';
+import { loadPauseStates } from './pauses.js';
 import {
 	SCHEDULE_CADENCES,
 	catalogFor,
 	resolveScheduleConfig,
 	type CadenceSpec,
-	type ScheduleCadence
+	type ScheduleCadence,
+	type ScheduleConfig
 } from './schedule-state.js';
 
 /**
@@ -76,9 +81,6 @@ export const GSC_STALE_AFTER_HOURS = 24 * 10;
 
 /** Combien de runs récents l'accueil montre. Au-delà, c'est un journal, pas un accueil. */
 const RECENT_RUNS_LIMIT = 12;
-
-/** Le provider dont la fraîcheur porte le pipeline de ce produit. */
-const FRESHNESS_PROVIDER = 'gsc';
 
 // ── Lectures par domaine, groupées par projet ───────────────────────
 
@@ -244,21 +246,28 @@ export const DETECTOR_JOB_TYPES: string[] = [
 	)
 ];
 
+/** Clé de repli pour les projets sans projection : ils tournent sur les défauts SPEC. */
+const DEFAULT_SCHEDULE_KEY = '__default__';
+
 /**
- * Les détecteurs ATTENDUS par projet, selon les cadences activées pour lui.
+ * La configuration de planification de chaque projet — UNE requête, résolution en mémoire.
  *
- * Une seule requête sur `project_projections` puis résolution en mémoire — jamais un
- * `loadProjectScheduleConfig` par projet, qui rendrait six allers-retours à l'accueil.
- * Même tolérance que le scheduler : un payload illisible retombe sur les défauts SPEC
- * plutôt que de faire croire qu'un projet n'a rien de planifié.
+ * Élargie depuis DASH-003 lot 2 : elle rendait la seule liste de détecteurs attendus, elle
+ * rend maintenant la config complète, dont l'accueil a besoin pour savoir quelles cadences
+ * sont ACTIVÉES (une pause sur une cadence désactivée ne suspend rien). Même requête, même
+ * coût — c'est précisément ce qui évite d'appeler `loadProjectScheduleConfig` par projet,
+ * comme le fait `loadCadenceRows` sur `/automations` (N+1 assumé là-bas, inacceptable ici).
+ *
+ * Même tolérance que le scheduler : un payload illisible retombe sur les défauts SPEC plutôt
+ * que de faire croire qu'un projet n'a rien de planifié.
  */
-async function loadExpectedDetectors(db: AppDb): Promise<Map<string, string[]>> {
+async function loadScheduleConfigs(db: AppDb): Promise<Map<string, ScheduleConfig>> {
 	const rows = await db
 		.select({ projectId: projectProjections.projectId, payload: projectProjections.payload })
 		.from(projectProjections)
 		.where(eq(projectProjections.status, 'current'));
 
-	const overrides = new Map<string, Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> | null>();
+	const out = new Map<string, ScheduleConfig>();
 	for (const r of rows) {
 		let parsed: { schedules?: Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> } | null = null;
 		try {
@@ -266,28 +275,30 @@ async function loadExpectedDetectors(db: AppDb): Promise<Map<string, string[]>> 
 		} catch {
 			parsed = null;
 		}
-		overrides.set(r.projectId, parsed?.schedules ?? null);
+		out.set(r.projectId, resolveScheduleConfig(parsed?.schedules ?? null));
 	}
-
-	const detectorsFor = (o: Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> | null) => {
-		const config = resolveScheduleConfig(o);
-		const set = new Set<string>();
-		for (const cadence of SCHEDULE_CADENCES) {
-			if (!config[cadence].enabled) continue;
-			for (const entry of catalogFor(cadence)) {
-				if (entry.jobType.startsWith('detect:')) set.add(entry.jobType);
-			}
-		}
-		return [...set];
-	};
-
-	const defaults = detectorsFor(null);
-	const out = new Map<string, string[]>();
-	for (const [projectId, o] of overrides) out.set(projectId, detectorsFor(o));
-	// Les projets sans projection ne sont PAS absents de la couverture : ils tournent sur
-	// les défauts, donc tous les détecteurs les attendent. `home.ts` retombera dessus.
-	out.set('__default__', defaults);
+	out.set(DEFAULT_SCHEDULE_KEY, resolveScheduleConfig(null));
 	return out;
+}
+
+/**
+ * Les détecteurs ATTENDUS pour une configuration donnée.
+ *
+ * ⚠️ Dérivés de la config SEULE, jamais de la config à laquelle on aurait appliqué la pause
+ * (`applyPauseToSpec`) : `expected` serait alors vide, la couverture rendrait `none`, et
+ * l'écran dirait « aucun diagnostic n'est PLANIFIÉ sur ce projet » là où la vérité est
+ * « planifié, et suspendu ». C'est la distinction configuration/décision que DASH-006 a
+ * payée cher — la pause entre par `summarizeProjectPause`, jamais par la planification.
+ */
+function expectedDetectorsFor(config: ScheduleConfig): string[] {
+	const set = new Set<string>();
+	for (const cadence of SCHEDULE_CADENCES) {
+		if (!config[cadence].enabled) continue;
+		for (const entry of catalogFor(cadence)) {
+			if (entry.jobType.startsWith('detect:')) set.add(entry.jobType);
+		}
+	}
+	return [...set];
 }
 
 /**
@@ -435,8 +446,9 @@ export async function loadHomeCockpit(input: {
 		runStatusCounts,
 		periodRunCosts,
 		capacity,
-		expectedDetectors,
-		detectorLastSuccess
+		scheduleConfigs,
+		detectorLastSuccess,
+		pauseStates
 	] = await Promise.all([
 		loadProjects(input.db),
 		loadOpenBySeverity(input.db),
@@ -449,8 +461,13 @@ export async function loadHomeCockpit(input: {
 		loadRunStatusCounts(input.db, sinceDb),
 		loadPeriodRunCosts(input.db, sinceDb),
 		loadCapacitySnapshot({ db: input.db, now }),
-		loadExpectedDetectors(input.db),
-		loadDetectorLastSuccess(input.db)
+		loadScheduleConfigs(input.db),
+		loadDetectorLastSuccess(input.db),
+		// ⚠️ `now` EXPLICITE : `loadPauseStates` retombe sinon sur `new Date()`, et une pause
+		// pourrait se lire active pour le badge et expirée pour la fraîcheur — deux instants
+		// dans la même page. Une seule requête (`DISTINCT ON` par cible), donc un coût
+		// constant : 13 → 14 allers-retours quel que soit le nombre de projets.
+		loadPauseStates(input.db, now)
 	]);
 
 	const cards = projectRows.map((p) => {
@@ -463,12 +480,24 @@ export async function loadHomeCockpit(input: {
 		// Ce que le catalogue prévoit pour CE projet, croisé au dernier succès réel. Un
 		// détecteur attendu mais jamais exécuté entre ici avec `lastSuccessAt: null` — c'est
 		// exactement ce qui interdit à la carte de conclure « au vert ».
-		const expected = expectedDetectors.get(p.id) ?? expectedDetectors.get('__default__') ?? [];
+		const config =
+			scheduleConfigs.get(p.id) ?? scheduleConfigs.get(DEFAULT_SCHEDULE_KEY) ?? resolveScheduleConfig(null);
+		const expected = expectedDetectorsFor(config);
 		const lastSuccess = detectorLastSuccess.get(p.id);
 		const detectors: DetectorCoverage[] = expected.map((detector) => ({
 			detector,
 			lastSuccessAt: lastSuccess?.get(detector) ?? null
 		}));
+		// Ce qui est arrêté PAR DÉCISION. Dérivé en mémoire de l'état de pause déjà chargé :
+		// aucune requête par projet, et aucune ré-implémentation de l'union des portées ni de
+		// l'expiration `until`, que `derivePauseStates` a déjà faites.
+		const pause = summarizeProjectPause({
+			projectId: p.id,
+			states: pauseStates,
+			enabledByCadence: Object.fromEntries(
+				SCHEDULE_CADENCES.map((c) => [c, config[c].enabled])
+			) as Record<ScheduleCadence, boolean>
+		});
 		return classifyProject({
 			projectId: p.id,
 			slug: p.slug,
@@ -482,6 +511,7 @@ export async function loadHomeCockpit(input: {
 			jobsDead: jobsDead.get(p.id) ?? 0,
 			gscLastSuccessAt: gsc?.lastSuccessAt ?? null,
 			detectors,
+			pause,
 			sinceDb,
 			now,
 			staleAfterHours
@@ -526,7 +556,10 @@ export async function loadHomeCockpit(input: {
 		now: toDbTimestamp(now),
 		portfolio: summarizePortfolio(ranked),
 		projects: ranked,
-		needingAction: ranked.filter((c) => c.state !== 'ok'),
+		// Même prédicat que `summarizePortfolio.needingAction` et `projectsNeedingAction` : un
+		// projet suspendu ne demande rien. Deux définitions du « à traiter » divergeraient au
+		// premier état ajouté — c'est déjà ce qui vient d'arriver avec `paused`.
+		needingAction: ranked.filter((c) => needsAction(c.state)),
 		activity,
 		counters,
 		recentRuns,

@@ -8,6 +8,7 @@
 		Clock,
 		Eye,
 		HelpCircle,
+		PauseCircle,
 		PlugZap,
 		Power,
 		Search
@@ -23,13 +24,16 @@
 	const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)} %`);
 
 	// Même vocabulaire visuel que l'accueil pour les états de PROJET : le même projet ne doit
-	// pas changer de couleur en changeant d'écran.
+	// pas changer de couleur en changeant d'écran. ⚠️ `paused` compris — sans lui, le repli
+	// `?? STATE_META.unknown` afficherait « État inconnu » sur un projet dont la cause du
+	// silence est connue, écrite et datée.
 	const STATE_META: Record<string, { label: string; badge: string; icon: typeof AlertOctagon }> = {
 		broken: { label: 'Collecte cassée', badge: 'bg-red-50 text-red-700 border-red-200', icon: AlertOctagon },
 		at_risk: { label: 'À traiter', badge: 'bg-orange-50 text-orange-700 border-orange-200', icon: AlertTriangle },
 		unknown: { label: 'État inconnu', badge: 'bg-violet-50 text-violet-700 border-violet-200', icon: HelpCircle },
 		watch: { label: 'À surveiller', badge: 'bg-amber-50 text-amber-700 border-amber-200', icon: Eye },
-		ok: { label: 'Sain', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 }
+		ok: { label: 'Sain', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
+		paused: { label: 'Suspendu', badge: 'bg-sky-50 text-sky-700 border-sky-200', icon: PauseCircle }
 	};
 	const meta = (state: string) => STATE_META[state] ?? STATE_META.unknown;
 
@@ -110,6 +114,38 @@
 			</div>
 		</div>
 	</header>
+
+	{#if card?.pause}
+		<!-- La décision d'abord : elle explique tout ce qui suit. Rendue aussi sur une pause
+		     PARTIELLE, qui ne porte pas le badge — c'est justement le cas où la cause du silence
+		     est la plus difficile à retrouver. -->
+		<div class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
+			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+				<span class="inline-flex items-center gap-1.5 text-sm font-medium text-sky-900">
+					<PauseCircle size={14} />
+					{card.pause.full ? 'Automatisations suspendues' : 'Suspension partielle'}
+				</span>
+				<span class="text-sm text-sky-800">{card.pause.reason}</span>
+			</div>
+			<p class="mt-1 text-xs text-sky-700">
+				{#if card.pause.cadences.length > 0}
+					cadences {card.pause.cadences.join(', ')} ·
+				{/if}
+				{#if card.pause.providers.length > 0}
+					provider {card.pause.providers.join(', ')} coupé ·
+				{/if}
+				décidé par {card.pause.actor} le {fmtDb(card.pause.since)}{card.pause.until
+					? ` · échéance ${fmtDb(card.pause.until)}`
+					: ' · jusqu’à reprise explicite'}
+			</p>
+			<a
+				href="/automations?project={cockpit.project.slug}"
+				class="mt-1 inline-block text-xs text-sky-800 underline hover:no-underline"
+			>
+				Journal des pauses et reprise →
+			</a>
+		</div>
+	{/if}
 
 	{#if card}
 		<div class="grid gap-2 sm:grid-cols-2">

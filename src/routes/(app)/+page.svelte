@@ -9,6 +9,7 @@
 		HelpCircle,
 		Eye,
 		Gauge,
+		PauseCircle,
 		PlugZap,
 		Activity
 	} from 'lucide-svelte';
@@ -22,8 +23,12 @@
 	const nf = new Intl.NumberFormat('fr-FR');
 	const fmtInt = (n: number) => nf.format(n);
 
-	// Un seul vocabulaire visuel pour les 5 états — défini une fois, sinon « broken » et
+	// Un seul vocabulaire visuel pour les 6 états — défini une fois, sinon « broken » et
 	// « at_risk » finissent par se ressembler sur un écran et pas sur un autre.
+	//
+	// ⚠️ `paused` DOIT y figurer : le repli `?? STATE_META.unknown` ne planterait pas, il
+	// afficherait « État inconnu » en violet sur un projet dont on sait très bien pourquoi il
+	// est muet. Le badge ne casserait pas — il mentirait, ce qui est pire.
 	const STATE_META: Record<
 		string,
 		{ label: string; badge: string; dot: string; icon: typeof AlertOctagon }
@@ -57,13 +62,23 @@
 			badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 			dot: 'bg-emerald-500',
 			icon: CheckCircle2
+		},
+		// Bleu, et surtout PAS rouge ni ambre : une décision n'est pas une panne. Même choix de
+		// couleur que le badge de cadence suspendue sur `/automations` — un projet gelé doit se
+		// reconnaître d'un écran à l'autre.
+		paused: {
+			label: 'Suspendu',
+			badge: 'bg-sky-50 text-sky-700 border-sky-200',
+			dot: 'bg-sky-500',
+			icon: PauseCircle
 		}
 	};
 	const meta = (state: string) => STATE_META[state] ?? STATE_META.unknown;
 
 	// `as const` et non `string[]` : les littéraux indexent `byState` sans cast, et l'ordre
-	// d'affichage reste celui de l'urgence (le même que `stateRank`, côté module pur).
-	const STATE_ORDER = ['broken', 'at_risk', 'unknown', 'watch', 'ok'] as const;
+	// d'affichage reste celui de l'urgence (le même que `stateRank`, côté module pur) —
+	// `paused` en dernier, après `ok`, parce qu'un arrêt volontaire ne demande rien.
+	const STATE_ORDER = ['broken', 'at_risk', 'unknown', 'watch', 'ok', 'paused'] as const;
 
 	const RUN_STATUS_CLASS: Record<string, string> = {
 		success: 'text-emerald-600',
@@ -207,6 +222,35 @@
 								</div>
 							</div>
 						</div>
+
+						<!-- La DÉCISION, quand il y en a une. Elle est rendue même sur une pause partielle
+						     (qui ne porte pas le badge) : « le hebdo de ce client est suspendu » est
+						     exactement ce qu'on cherche quand on se demande pourquoi rien n'arrive. -->
+						{#if p.pause}
+							<div class="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-sky-900">
+									<span class="inline-flex items-center gap-1 font-medium">
+										<PauseCircle size={12} />
+										{p.pause.full ? 'Automatisations suspendues' : 'Suspension partielle'}
+									</span>
+									<span class="text-sky-700">{p.pause.reason}</span>
+								</div>
+								<p class="mt-0.5 text-[11px] text-sky-700">
+									{#if p.pause.cadences.length > 0}
+										{p.pause.cadences.join(', ')} ·
+									{/if}
+									{#if p.pause.providers.length > 0}
+										provider {p.pause.providers.join(', ')} coupé ·
+									{/if}
+									par {p.pause.actor} le {fmtDb(p.pause.since)}{p.pause.until
+										? ` · jusqu’au ${fmtDb(p.pause.until)}`
+										: ' · jusqu’à reprise explicite'}
+									<a href="/automations?project={p.slug}" class="ml-1 underline hover:no-underline">
+										voir le journal
+									</a>
+								</p>
+							</div>
+						{/if}
 
 						<!-- Les DEUX axes, côte à côte et jamais fondus : « la donnée arrive-t-elle ? »
 						     et « que dit-elle ? » demandent deux gestes différents. -->

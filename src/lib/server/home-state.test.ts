@@ -20,13 +20,54 @@ import {
 	summarizePortfolio,
 	summarizeCosts,
 	stateRank,
+	needsAction,
+	summarizeProjectPause,
+	pauseSuspendsFreshness,
 	type ProjectCardInput,
 	type IntegrationSummary,
-	type ActivityCounts
+	type ActivityCounts,
+	type ProjectPause
 } from './home-state.js';
+import { derivePauseStates, type PauseEventRow } from './pause-state.js';
+import type { ScheduleCadence } from './schedule-state.js';
 
 const NOW = new Date('2026-07-25T12:00:00Z');
 const SINCE = '2026-07-18 12:00:00';
+
+/** Un événement du journal de pauses, réduit à ce que la dérivation lit. */
+function pauseRow(over: Partial<PauseEventRow> = {}): PauseEventRow {
+	return {
+		id: over.id ?? 'evt-1',
+		scope: over.scope ?? 'project',
+		projectId: over.projectId !== undefined ? over.projectId : 'p1',
+		cadence: over.cadence ?? null,
+		provider: over.provider ?? null,
+		eventType: over.eventType ?? 'paused',
+		reason: over.reason ?? 'contrat en pause jusqu’à la reprise du client',
+		until: over.until ?? null,
+		actor: over.actor ?? 'user:contact@jonlabs.ch',
+		createdAt: over.createdAt ?? '2026-07-20 08:00:00'
+	};
+}
+
+const ALL_CADENCES_ENABLED: Record<ScheduleCadence, boolean> = {
+	hourly: true,
+	daily: true,
+	weekly: true,
+	monthly: true
+};
+
+/** Passe par la VRAIE dérivation : les tests exercent l'union des portées et l'expiration. */
+function pauseOf(
+	rows: PauseEventRow[],
+	over: { projectId?: string; enabled?: Record<ScheduleCadence, boolean>; now?: Date } = {}
+): ProjectPause | null {
+	return summarizeProjectPause({
+		projectId: over.projectId ?? 'p1',
+		states: derivePauseStates(rows, over.now ?? NOW),
+		enabledByCadence: over.enabled ?? ALL_CADENCES_ENABLED
+	});
+}
 
 function integration(over: Partial<IntegrationSummary> = {}): IntegrationSummary {
 	return {
@@ -70,6 +111,7 @@ function card(over: Partial<ProjectCardInput> = {}): ProjectCardInput {
 		jobsDead: over.jobsDead ?? 0,
 		gscLastSuccessAt: over.gscLastSuccessAt ?? '2026-07-24 09:00:00',
 		detectors: over.detectors ?? detectors(),
+		pause: over.pause ?? null,
 		sinceDb: over.sinceDb ?? SINCE,
 		now: over.now ?? NOW,
 		staleAfterHours: over.staleAfterHours ?? 24 * 10
@@ -548,6 +590,278 @@ describe('santé du portefeuille', () => {
 
 	it('aucun projet vaut « unknown », pas « ok »', () => {
 		expect(summarizePortfolio([]).worst).toBe('unknown');
+	});
+});
+
+describe('pause : une décision, jamais une panne (DASH-003 lot 2)', () => {
+	it('résume un gel projet : toutes les cadences câblées, donc `full`', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		expect(p).not.toBeNull();
+		expect(p!.scope).toBe('project');
+		expect(p!.full).toBe(true);
+		// `hourly` et `monthly` ont un catalogue VIDE : elles ne sont pas comptées, sans quoi
+		// `full` serait inatteignable et le badge n'apparaîtrait jamais.
+		expect(p!.cadences).toEqual(['daily', 'weekly']);
+		expect(p!.reason).toContain('contrat en pause');
+		expect(p!.actor).toBe('user:contact@jonlabs.ch');
+	});
+
+	it('nomme la portée la PLUS LARGE : c’est elle qu’il faudra lever', () => {
+		const p = pauseOf([
+			pauseRow({ id: 'e1', scope: 'project_cadence', cadence: 'weekly' }),
+			pauseRow({ id: 'e2', scope: 'project' })
+		]);
+		// Proposer « Reprendre » sur la cadence alors qu'un gel projet subsiste ferait
+		// cliquer dans le vide (`resolveCadencePause`, union et non préséance).
+		expect(p!.scope).toBe('project');
+	});
+
+	it('⭐ une pause sur une cadence NON CÂBLÉE ne suspend rien', () => {
+		// `monthly` a un catalogue vide : la suspendre est une décision sans effet. La colorer
+		// signalerait un arrêt là où rien ne tournait.
+		expect(pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'monthly' })])).toBeNull();
+	});
+
+	it('une cadence DÉSACTIVÉE est hors du décompte (configuration ≠ décision)', () => {
+		const p = pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'weekly' })], {
+			enabled: { ...ALL_CADENCES_ENABLED, weekly: false }
+		});
+		expect(p).toBeNull();
+	});
+
+	it('une pause partielle n’est pas `full`', () => {
+		const p = pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'weekly' })]);
+		expect(p!.full).toBe(false);
+		expect(p!.cadences).toEqual(['weekly']);
+	});
+
+	it('⭐ l’expiration est DÉRIVÉE — jamais réimplémentée ici', () => {
+		const rows = [pauseRow({ until: '2026-07-25 11:00:00' })];
+		// Échéance passée à l'instant de lecture : `derivePauseStates` l'écarte, et ce module
+		// n'a aucune seconde comparaison de `until` qui pourrait la contredire.
+		expect(pauseOf(rows)).toBeNull();
+		expect(pauseOf(rows, { now: new Date('2026-07-25T10:00:00Z') })).not.toBeNull();
+	});
+
+	it('une pause d’un AUTRE projet ne suspend pas celui-ci', () => {
+		expect(pauseOf([pauseRow({ projectId: 'p2' })])).toBeNull();
+	});
+
+	it('une reprise lève la pause sans rien effacer du journal', () => {
+		const p = pauseOf([
+			pauseRow({ id: 'e1', createdAt: '2026-07-20 08:00:00' }),
+			pauseRow({ id: 'e2', eventType: 'resumed', createdAt: '2026-07-21 08:00:00' })
+		]);
+		expect(p).toBeNull();
+	});
+});
+
+describe('pause : diagnostic suspendu, par DÉTECTEUR', () => {
+	it('⭐ suspendre le hebdo ne suspend pas un détecteur que le quotidien enfile aussi', () => {
+		const p = pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'weekly' })]);
+		// `detect:keyword_opportunity` n'est qu'au catalogue hebdo → suspendu.
+		expect(p!.suspendedJobTypes).toContain('detect:keyword_opportunity');
+		// `detect:index_transition` est au catalogue `daily` ET `weekly` → il tournera demain.
+		expect(p!.suspendedJobTypes).not.toContain('detect:index_transition');
+	});
+
+	it('une coupure provider suspend les détecteurs par PROPAGATION (JOB-004)', () => {
+		const p = pauseOf([
+			pauseRow({ scope: 'provider', projectId: null, provider: 'gsc', reason: 'quota épuisé' })
+		]);
+		expect(p).not.toBeNull();
+		// ⚠️ Une pause provider ne suspend AUCUNE cadence : le run s'ouvre, seuls ses jobs sautent.
+		expect(p!.cadences).toEqual([]);
+		expect(p!.full).toBe(false);
+		expect(p!.providers).toEqual(['gsc']);
+		// …mais un prérequis OBLIGATOIRE mort fait passer son dépendant en `skipped` : aucun
+		// détecteur ne sort de Postgres, et pourtant aucun ne tournera. Ne compter que le
+		// provider du détecteur lui-même annoncerait un diagnostic qui n'aura pas lieu.
+		expect(p!.suspendedJobTypes).toContain('detect:index_transition');
+		expect(p!.suspendedJobTypes).toContain('detect:keyword_opportunity');
+		// `findings:lifecycle` ne sort pas de Postgres : il n'a aucune raison d'attendre.
+		expect(p!.suspendedJobTypes).not.toContain('findings:lifecycle');
+	});
+
+	it('la couverture ACQUISE ne baisse pas sous pause', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		const d = deriveDiagnosisCoverage(detectors(), p);
+		// Ce qui a été examiné l'a été : la couverture cesse d'être renouvelée, elle ne se
+		// rétracte pas. La rabaisser effacerait un passage réel.
+		expect(d.state).toBe('full');
+		expect(d.suspended.sort()).toEqual(['detect:index_transition', 'detect:keyword_opportunity']);
+	});
+
+	it('« suspendu » ne se confond pas avec « jamais planifié »', () => {
+		const rien = deriveDiagnosisCoverage([], pauseOf([pauseRow({ scope: 'project' })]));
+		expect(rien.expectedCount).toBe(0);
+		// Aucun détecteur attendu ici : nommer un domaine suspendu parlerait d'un diagnostic
+		// que personne n'attendait de ce projet.
+		expect(rien.suspended).toEqual([]);
+	});
+});
+
+describe('pause : l’axe PIPELINE', () => {
+	const STALE = deriveFreshness({
+		lastSuccessAt: '2026-07-01 09:00:00',
+		now: NOW,
+		staleAfterHours: 24 * 10
+	});
+
+	it('⭐ une pause EXPLIQUE le retard : on le dit, on ne dégrade pas', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		const v = classifyPipeline({ integrations: [integration()], freshness: STALE, jobsDead: 0, pause: p });
+		expect(v.reasons.join(' ')).toContain('collecte suspendue');
+		expect(v.reasons.join(' ')).not.toContain('en retard');
+		// `unknown` (pause totale), et surtout PAS `degraded` : réparer une décision n'a pas de sens.
+		expect(v.state).toBe('unknown');
+	});
+
+	it('CONTRE-ÉPREUVE : le MÊME retard sans pause dégrade toujours', () => {
+		const v = classifyPipeline({ integrations: [integration()], freshness: STALE, jobsDead: 0 });
+		expect(v.state).toBe('degraded');
+		expect(v.reasons.join(' ')).toContain('en retard');
+	});
+
+	it('CONTRE-ÉPREUVE : une pause qui ne couvre pas la collecte laisse le retard visible', () => {
+		// `daily` seule : la collecte GSC hebdomadaire n'en dépend pas.
+		const p = pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'daily' })]);
+		expect(pauseSuspendsFreshness(p)).toBe(false);
+		const v = classifyPipeline({ integrations: [integration()], freshness: STALE, jobsDead: 0, pause: p });
+		expect(v.state).toBe('degraded');
+		expect(v.reasons.join(' ')).toContain('en retard');
+	});
+
+	it('pause totale sur un pipeline sain ⇒ `unknown`, jamais `ok`', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		const v = classifyPipeline({
+			integrations: [integration()],
+			freshness: deriveFreshness({ lastSuccessAt: '2026-07-24 09:00:00', now: NOW, staleAfterHours: 240 }),
+			jobsDead: 0,
+			pause: p
+		});
+		expect(v.state).toBe('unknown');
+		expect(v.reasons[0]).toContain('suspendue par décision');
+	});
+
+	it('⭐ une pause ne RÉPARE rien : un credential révoqué reste `broken`', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		const v = classifyPipeline({
+			integrations: [integration({ status: 'revoked' })],
+			freshness: STALE,
+			jobsDead: 0,
+			pause: p
+		});
+		// Le jour où on reprend, la panne est encore là. L'ordre des règles est celui de ce
+		// qui SURVIT à la reprise.
+		expect(v.state).toBe('broken');
+	});
+
+	it('un job en dead-letter reste une dégradation sous pause', () => {
+		const p = pauseOf([pauseRow({ scope: 'project' })]);
+		const v = classifyPipeline({
+			integrations: [integration()],
+			freshness: deriveFreshness({ lastSuccessAt: '2026-07-24 09:00:00', now: NOW, staleAfterHours: 240 }),
+			jobsDead: 2,
+			pause: p
+		});
+		// Il ne repartira pas parce qu'on a suspendu la cadence : il est DÉJÀ en file.
+		expect(v.state).toBe('degraded');
+	});
+});
+
+describe('pause : la carte et le portefeuille', () => {
+	const GEL = [pauseRow({ scope: 'project' })];
+
+	it('⭐ CONTRE-ÉPREUVE : une pause sans effet rend une carte STRICTEMENT identique', () => {
+		const sans = classifyProject(card());
+		const avec = classifyProject(
+			card({ pause: pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'monthly' })]) })
+		);
+		expect(avec).toEqual(sans);
+	});
+
+	it('un gel total porte le badge `paused` et nomme la décision', () => {
+		const c = classifyProject(card({ pause: pauseOf(GEL) }));
+		expect(c.state).toBe('paused');
+		expect(c.headline).toContain('Suspendu');
+		expect(c.headline).toContain('contrat en pause');
+		expect(c.headline).toContain('user:contact@jonlabs.ch');
+		expect(c.headline).toContain('projet gelé');
+		expect(c.pause?.full).toBe(true);
+	});
+
+	it('⭐ ni `ok` ni `broken` : la doctrine, assertée frontalement', () => {
+		const c = classifyProject(card({ pause: pauseOf(GEL) }));
+		expect(c.state).not.toBe('ok');
+		expect(c.state).not.toBe('broken');
+	});
+
+	it('une panne réelle sous pause garde le badge de la PANNE', () => {
+		const c = classifyProject(
+			card({ integrations: [integration({ status: 'error' })], pause: pauseOf(GEL) })
+		);
+		expect(c.state).toBe('broken');
+	});
+
+	it('⭐ le badge `paused` ne MASQUE pas un problème encore actif', () => {
+		// Dead-letter → le pipeline reste `degraded` (pas `unknown`), donc le signal garde le
+		// droit de conclure, et le critique déjà ouvert reprend la main sur la décision.
+		const c = classifyProject(
+			card({ jobsDead: 1, openBySeverity: { critical: 1 }, pause: pauseOf(GEL) })
+		);
+		expect(c.state).toBe('at_risk');
+		expect(c.pause?.full).toBe(true);
+	});
+
+	it('sous gel total, un critique déjà ouvert reste DIT même si le badge est `paused`', () => {
+		const c = classifyProject(card({ openBySeverity: { critical: 2 }, pause: pauseOf(GEL) }));
+		expect(c.state).toBe('paused');
+		// Même doctrine que le pipeline cassé : ce qui est POSITIVEMENT su ne disparaît pas.
+		expect(c.signal.reasons.join(' ')).toContain('critique déjà ouvert');
+		expect(c.openTotal).toBe(2);
+	});
+
+	it('une pause partielle ne repeint pas le projet, mais se DIT', () => {
+		const c = classifyProject({
+			...card(),
+			pause: pauseOf([pauseRow({ scope: 'project_cadence', cadence: 'weekly' })])
+		});
+		expect(c.state).not.toBe('paused');
+		expect(c.signal.reasons.join(' ')).toContain('diagnostic suspendu');
+	});
+
+	it('`paused` passe APRÈS `ok` dans l’ordre : un arrêt volontaire ne prend pas la tête', () => {
+		expect(stateRank('ok')).toBeLessThan(stateRank('paused'));
+		expect(needsAction('paused')).toBe(false);
+		expect(needsAction('unknown')).toBe(true);
+	});
+
+	it('les projets « à traiter » excluent les suspendus', () => {
+		const gelé = classifyProject(card({ slug: 'gele', pause: pauseOf(GEL) }));
+		const cassé = classifyProject(
+			card({ slug: 'casse', integrations: [integration({ status: 'error' })] })
+		);
+		expect(projectsNeedingAction([gelé, cassé]).map((c) => c.slug)).toEqual(['casse']);
+	});
+
+	it('un projet suspendu ne teinte pas le portefeuille…', () => {
+		const p = summarizePortfolio([
+			classifyProject(card({ slug: 'a' })),
+			classifyProject(card({ slug: 'b', pause: pauseOf(GEL) }))
+		]);
+		expect(p.worst).toBe('ok');
+		expect(p.byState.paused).toBe(1);
+		expect(p.needingAction).toBe(0);
+	});
+
+	it('…mais un parc ENTIÈREMENT suspendu n’est pas « au vert »', () => {
+		const p = summarizePortfolio([
+			classifyProject(card({ slug: 'a', pause: pauseOf(GEL) })),
+			classifyProject(card({ slug: 'b', pause: pauseOf(GEL) }))
+		]);
+		expect(p.worst).toBe('paused');
+		expect(p.byState.paused).toBe(2);
 	});
 });
 

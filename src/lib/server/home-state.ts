@@ -28,7 +28,26 @@
  * au canon GSC, hebdomadaire) : une fenêtre glissante y est une vraie précision, pas une
  * précision inventée. Elle couvre toujours le dernier run hebdo du lundi, quel que soit
  * le jour où l'écran est ouvert.
+ *
+ * DASH-003 lot 2 — la PAUSE entre dans la santé. `/automations` savait depuis DASH-006
+ * qu'« une décision n'est pas une panne » ; l'accueil, lui, ne connaissait pas
+ * `automation_pauses` du tout. Un projet volontairement suspendu s'y lisait donc comme
+ * un pipeline qui a cessé de livrer : collecte en retard, badge rouge, zéro finding —
+ * exactement la confusion que DASH-006 supprime, réintroduite sur l'écran qu'on lit en
+ * premier. Les trois imports ajoutés sont des modules PURS (`pause-state`,
+ * `schedule-state`, `job-limits`), les mêmes que `pause-state.ts` s'autorise : la règle
+ * « zéro import db/`$env`/réseau » tient.
  */
+
+import {
+	pausedProviders,
+	resolveCadencePause,
+	type ActivePause,
+	type PauseScope,
+	type PauseStates
+} from './pause-state.js';
+import { SCHEDULE_CADENCES, catalogFor, type ScheduleCadence } from './schedule-state.js';
+import { providerForJobType, type JobProvider } from './job-limits.js';
 
 // ── Fenêtre de la période ───────────────────────────────────────────
 
@@ -137,6 +156,238 @@ export function groupActivity(rows: { eventType: string; n: number }[]): Activit
 	return out;
 }
 
+// ── Pauses : ce qui s'est arrêté PAR DÉCISION (DASH-003 lot 2) ───────
+
+/**
+ * Le provider dont la fraîcheur porte le pipeline de ce produit.
+ *
+ * Déplacé de `home.ts` : la règle « une pause GSC explique le retard de collecte » est un
+ * JUGEMENT, elle doit vivre là où le jugement vit. Deux définitions du provider de
+ * fraîcheur — une pour lire la dernière collecte, une pour décider si la pause l'explique —
+ * finiraient par désigner deux providers différents.
+ */
+export const FRESHNESS_PROVIDER: JobProvider = 'gsc';
+
+/**
+ * Ce qui, sur CE projet, est suspendu par décision — et depuis quand, par qui, pourquoi.
+ *
+ * Un champ dédié plutôt qu'une valeur d'axe supplémentaire : un enum ne peut porter ni la
+ * raison, ni l'auteur, ni l'échéance, et c'est exactement ce qu'il faut lire pour savoir
+ * s'il faut lever la pause ou la laisser courir. Même vocabulaire que `CadenceVerdict.pause`
+ * (`automations-state.ts`) — réutilisé, jamais recopié.
+ */
+export interface ProjectPause {
+	/**
+	 * La portée qui l'emporte, donc celle qu'il faudra LEVER. `resolveCadencePause` rend
+	 * déjà la plus large quand les deux existent : proposer « Reprendre » sur la cadence
+	 * alors qu'un gel projet subsiste ferait cliquer dans le vide.
+	 */
+	scope: PauseScope;
+	reason: string;
+	actor: string;
+	/** Quand la décision a été prise (format DB). */
+	since: string;
+	/** Échéance, ou `null` si la pause court jusqu'à reprise explicite. */
+	until: string | null;
+	/** Les cadences de ce projet réellement suspendues (câblées ET activées). */
+	cadences: ScheduleCadence[];
+	/**
+	 * Toutes les cadences câblées et activées de ce projet sont suspendues — donc plus rien
+	 * n'est planifié ici. C'est la SEULE condition du badge `paused` : une pause partielle
+	 * se dit dans les raisons, elle ne repeint pas le projet.
+	 */
+	full: boolean;
+	/**
+	 * Providers suspendus globalement qui coupent au moins un job de ce projet. ⚠️ Une pause
+	 * provider ne suspend AUCUNE cadence (le run s'ouvre, seuls ses jobs sautent) : elle
+	 * n'entre donc jamais dans `full`. L'y faire entrer ferait virer les six cartes d'un coup
+	 * sur une coupure `gsc`, alors que `findings:lifecycle` produit toujours.
+	 */
+	providers: JobProvider[];
+	/**
+	 * Les types de job que cette pause empêche réellement de tourner, TOUTES cadences
+	 * confondues. Un type n'y entre que si **chacune** des cadences câblées et activées qui
+	 * l'enfilent est neutralisée : `detect:index_transition` est au catalogue `daily` ET
+	 * `weekly`, donc suspendre le hebdo ne le suspend pas — il tournera demain.
+	 *
+	 * ⚠️ La propagation JOB-004 y est comptée : un prérequis OBLIGATOIRE mort fait passer son
+	 * dépendant en `skipped`. Couper `gsc` ne suspend aucun détecteur *directement* (aucun ne
+	 * sort de Postgres) et les suspend pourtant tous — c'est ce que DASH-006 a prouvé en base.
+	 * Ne compter que le provider du job lui-même annoncerait un travail qui n'aura pas lieu.
+	 */
+	suspendedJobTypes: string[];
+	/**
+	 * La pause explique-t-elle qu'aucune collecte fraîche ne soit arrivée ?
+	 *
+	 * Vrai seulement si **tous** les jobs du provider de fraîcheur sont suspendus. Se contenter
+	 * d'« au moins un » serait plus simple et faux : `collect:url_inspection` (quotidien) et
+	 * `collect:gsc_query_page` (hebdo) rafraîchissent tous deux `project_integrations` via
+	 * `syncGscIntegration`, donc suspendre le seul quotidien laisse la fraîcheur se renouveler
+	 * chaque lundi — et un vrai retard s'y lirait « c'est normal, c'est en pause ».
+	 */
+	suspendsFreshness: boolean;
+}
+
+/** Les cadences CÂBLÉES (celles qui mettent réellement quelque chose en file) et activées. */
+function activeCadences(enabledByCadence: Record<ScheduleCadence, boolean>): ScheduleCadence[] {
+	return SCHEDULE_CADENCES.filter((c) => catalogFor(c).length > 0 && enabledByCadence[c]);
+}
+
+/**
+ * Les types de job d'UNE cadence qui ne tourneront pas, pause donnée.
+ *
+ * Trois causes, celles de `resolveJobPause` puis celle de JOB-004 : la cadence est suspendue
+ * (tout tombe) · le provider du job est coupé · un prérequis OBLIGATOIRE est déjà tombé — un
+ * prérequis mort fait passer son dépendant en `skipped`, un optionnel ne bloque personne.
+ *
+ * Une seule passe suffit : `validateCatalogGraph` garantit qu'un prérequis est déclaré AVANT
+ * son dépendant, donc la propagation se fait dans l'ordre de lecture, même en profondeur 3.
+ */
+function deadJobTypes(input: {
+	cadence: ScheduleCadence;
+	cadencePaused: boolean;
+	pausedProviders: ReadonlySet<JobProvider>;
+}): Set<string> {
+	const entries = catalogFor(input.cadence);
+	const dead = new Set<string>();
+	for (const entry of entries) {
+		if (input.cadencePaused) {
+			dead.add(entry.jobType);
+			continue;
+		}
+		const providerDown = input.pausedProviders.has(providerForJobType(entry.jobType));
+		const requiredDown = (entry.dependsOn ?? []).some(
+			(d) => d.required !== false && dead.has(d.jobType)
+		);
+		if (providerDown || requiredDown) dead.add(entry.jobType);
+	}
+	return dead;
+}
+
+/**
+ * Résume l'état de pause d'un projet.
+ *
+ * Ne réimplémente RIEN : l'union `project`/`project_cadence` et l'expiration `until` dérivée
+ * ont déjà été faites par `derivePauseStates`/`resolveCadencePause`. Une seconde
+ * implémentation de l'expiration, c'est précisément la divergence que DASH-006 a supprimée.
+ *
+ * ⚠️ Seules les cadences CÂBLÉES comptent. Suspendre `monthly` — dont le catalogue est vide —
+ * est une décision sans effet : elle ne doit rien colorer, sinon l'écran signalerait un arrêt
+ * là où rien ne tournait de toute façon.
+ *
+ * ⚠️ Une cadence DÉSACTIVÉE est hors du décompte, comme dans `classifyCadence` où `disabled`
+ * précède `paused` : la configuration et la décision restent deux causes distinctes du silence.
+ *
+ * Rend `null` quand rien n'est suspendu — un `ProjectPause` vide se lirait « suspendu, sans
+ * rien de suspendu ».
+ */
+export function summarizeProjectPause(input: {
+	projectId: string;
+	states: PauseStates;
+	enabledByCadence: Record<ScheduleCadence, boolean>;
+}): ProjectPause | null {
+	const considered = activeCadences(input.enabledByCadence);
+
+	const paused: ScheduleCadence[] = [];
+	let widest: ActivePause | null = null;
+	for (const cadence of considered) {
+		const verdict = resolveCadencePause({
+			states: input.states,
+			projectId: input.projectId,
+			cadence
+		});
+		if (!verdict.paused || !verdict.by) continue;
+		paused.push(cadence);
+		// `project` l'emporte sur `project_cadence` : c'est la portée à lever.
+		if (!widest || (widest.target.scope !== 'project' && verdict.by.target.scope === 'project')) {
+			widest = verdict.by;
+		}
+	}
+
+	// Les providers de ce projet, dérivés du CATALOGUE de ses cadences câblées et activées :
+	// une coupure `dataforseo` ne concerne pas un projet dont aucun job n'en dépend.
+	const used = new Set<JobProvider>(
+		considered.flatMap((c) => catalogFor(c).map((e) => providerForJobType(e.jobType)))
+	);
+	const providers = pausedProviders(input.states).filter((p) => used.has(p));
+
+	if (paused.length === 0 && providers.length === 0) return null;
+
+	// Un type de job n'est suspendu que si TOUTES les cadences câblées qui l'enfilent le sont.
+	const providerSet = new Set(providers);
+	const enqueued = new Map<string, number>();
+	const neutralized = new Map<string, number>();
+	for (const cadence of considered) {
+		const dead = deadJobTypes({
+			cadence,
+			cadencePaused: paused.includes(cadence),
+			pausedProviders: providerSet
+		});
+		for (const entry of catalogFor(cadence)) {
+			enqueued.set(entry.jobType, (enqueued.get(entry.jobType) ?? 0) + 1);
+			if (dead.has(entry.jobType)) {
+				neutralized.set(entry.jobType, (neutralized.get(entry.jobType) ?? 0) + 1);
+			}
+		}
+	}
+	const suspendedJobTypes = [...enqueued]
+		.filter(([jobType, total]) => (neutralized.get(jobType) ?? 0) === total)
+		.map(([jobType]) => jobType);
+
+	// La fraîcheur ne se renouvelle plus que si TOUS les jobs du provider de fraîcheur sont
+	// suspendus — pas « au moins un » : deux collecteurs distincts la rafraîchissent.
+	const freshnessJobs = [...enqueued.keys()].filter(
+		(t) => providerForJobType(t) === FRESHNESS_PROVIDER
+	);
+	const suspendsFreshness =
+		freshnessJobs.length > 0 && freshnessJobs.every((t) => suspendedJobTypes.includes(t));
+
+	// Aucune cadence suspendue mais un provider coupé : c'est la pause provider qui parle.
+	const source =
+		widest ??
+		[...input.states.values()].find(
+			(p) => p.target.scope === 'provider' && providers.includes(p.target.provider as JobProvider)
+		) ??
+		null;
+	if (!source) return null;
+
+	return {
+		scope: source.target.scope,
+		reason: source.reason,
+		actor: source.actor,
+		since: source.since,
+		until: source.until,
+		cadences: paused,
+		full: considered.length > 0 && paused.length === considered.length,
+		providers,
+		suspendedJobTypes,
+		suspendsFreshness
+	};
+}
+
+/**
+ * La pause explique-t-elle qu'aucune collecte de fraîcheur ne soit arrivée ?
+ *
+ * Prédicat nommé plutôt qu'un accès direct au champ : c'est LA question que `classifyPipeline`
+ * pose, et lui donner un nom empêche qu'on la remplace un jour par une approximation
+ * (« le provider est coupé », « une cadence est suspendue ») qui silencierait un vrai retard.
+ */
+export function pauseSuspendsFreshness(pause: ProjectPause | null | undefined): boolean {
+	return pause?.suspendsFreshness ?? false;
+}
+
+/** Libellé de portée, pour que la phrase dise ce qu'il faudra lever. */
+export function pauseScopeLabel(scope: PauseScope): string {
+	switch (scope) {
+		case 'project':
+			return 'projet gelé';
+		case 'project_cadence':
+			return 'cadence suspendue';
+		case 'provider':
+			return 'provider coupé';
+	}
+}
+
 // ── Couverture de diagnostic (« jamais regardé » ≠ « rien à signaler ») ──
 
 export type DiagnosisState = 'none' | 'partial' | 'full';
@@ -156,6 +407,14 @@ export interface DiagnosisCoverage {
 	/** Les détecteurs attendus qui ont tourné au moins une fois. */
 	ranCount: number;
 	expectedCount: number;
+	/**
+	 * Les détecteurs attendus qui ne tourneront plus tant que la pause court (DASH-003 lot 2).
+	 *
+	 * Distinct de `neverRan` : ici la couverture ne progresse plus **par décision**, alors que
+	 * `neverRan` dit qu'elle n'a jamais commencé. Et distinct d'`expectedCount === 0`, qui dit
+	 * « rien n'est planifié » : ici c'est planifié, et suspendu.
+	 */
+	suspended: string[];
 }
 
 /**
@@ -184,13 +443,25 @@ export function detectorLabel(detector: string): string {
  * source que ce que le scheduler enfile). Un projet dont on aurait désactivé la cadence
  * n'a donc aucun détecteur attendu → `none`, pas `full` : couper la planification ne rend
  * pas un projet sain, ça arrête juste de le regarder.
+ *
+ * DASH-003 lot 2 — `state` ne bouge PAS sous pause. Ce qui a été examiné l'a été : la
+ * couverture acquise reste vraie, elle cesse seulement d'être renouvelée. La rabaisser
+ * effacerait un passage réel, ce qui serait mentir dans l'autre sens.
  */
-export function deriveDiagnosisCoverage(expected: DetectorCoverage[]): DiagnosisCoverage {
+export function deriveDiagnosisCoverage(
+	expected: DetectorCoverage[],
+	pause?: ProjectPause | null
+): DiagnosisCoverage {
 	const neverRan = expected.filter((d) => !d.lastSuccessAt).map((d) => d.detector);
 	const ranCount = expected.length - neverRan.length;
 	const state: DiagnosisState =
 		ranCount === 0 ? 'none' : neverRan.length === 0 ? 'full' : 'partial';
-	return { state, neverRan, ranCount, expectedCount: expected.length };
+	// Intersection avec les détecteurs ATTENDUS : une pause peut neutraliser un détecteur que
+	// ce projet n'attend pas (cadence désactivée chez lui), et l'annoncer suspendu nommerait
+	// un domaine dont personne ici n'attendait rien.
+	const expectedSet = new Set(expected.map((d) => d.detector));
+	const suspended = (pause?.suspendedJobTypes ?? []).filter((d) => expectedSet.has(d));
+	return { state, neverRan, ranCount, expectedCount: expected.length, suspended };
 }
 
 // ── Compteurs : le nombre ET son lien, depuis un seul descripteur ────
@@ -294,7 +565,16 @@ export function buildCounter(label: string, count: number, filter: CounterFilter
 
 export type PipelineState = 'ok' | 'degraded' | 'broken' | 'unknown';
 export type SignalState = 'ok' | 'watch' | 'at_risk' | 'unknown';
-export type ProjectState = 'ok' | 'watch' | 'at_risk' | 'broken' | 'unknown';
+/**
+ * `paused` (DASH-003 lot 2) est un état À PART, ni `ok` ni `broken` ni `unknown`.
+ *
+ * `unknown` aurait pu passer pour suffisant — un projet suspendu ne dit effectivement plus
+ * rien. Mais `unknown` veut dire « muet, et je ne sais pas pourquoi », le contraire exact de
+ * ce qui est vrai ici. Et l'argument qui tranche est un effet de bord : `STATE_RANK` place
+ * `unknown` en 3ᵉ position, donc un projet volontairement suspendu passerait DEVANT un
+ * projet à surveiller. Un arrêt volontaire ne prend pas la tête de la file.
+ */
+export type ProjectState = 'ok' | 'watch' | 'at_risk' | 'broken' | 'unknown' | 'paused';
 
 export interface AxisVerdict<S extends string> {
 	state: S;
@@ -333,6 +613,11 @@ export interface ProjectCardInput {
 	 * empêche « zéro finding » de se lire « zéro problème » sur un projet jamais examiné.
 	 */
 	detectors: DetectorCoverage[];
+	/**
+	 * Ce qui est suspendu par décision sur ce projet, ou `null`. OPTIONNEL : un appelant qui
+	 * ne connaît pas les pauses obtient exactement la carte d'avant DASH-003 lot 2.
+	 */
+	pause?: ProjectPause | null;
 	/** Borne basse de la période, au format DB — celle SOUS LAQUELLE l'activité a été comptée. */
 	sinceDb: string;
 	now: Date;
@@ -350,6 +635,8 @@ export interface ProjectCard {
 	freshness: Freshness;
 	/** Ce qui a réellement été examiné — rendu à l'écran, pas seulement pris en compte. */
 	diagnosis: DiagnosisCoverage;
+	/** Ce qui est arrêté PAR DÉCISION — avec sa raison, son auteur et sa date. `null` si rien. */
+	pause: ProjectPause | null;
 	/** UNE phrase qui nomme l'axe en cause — ce qu'on lit en moins d'une minute. */
 	headline: string;
 	openBySeverity: Record<string, number>;
@@ -382,11 +669,18 @@ function sumAll(map: Record<string, number>): number {
  * `inactive`/jamais collectée n'est PAS une panne : c'est un flux qu'on n'a pas branché,
  * et le confondre avec une panne ferait crier six projets pour un provider qu'on n'utilise
  * pas encore.
+ *
+ * DASH-003 lot 2 — la PAUSE entre à un seul endroit : la fraîcheur. L'ordre des règles est
+ * celui de **ce qui survit à la reprise**. Un credential révoqué reste `broken` sous pause
+ * (le jour où on reprend, la panne est encore là) ; un job en dead-letter reste une
+ * dégradation (il ne repartira pas parce qu'on a suspendu la cadence) ; mais un retard de
+ * collecte sous pause n'est pas un symptôme, c'est la conséquence ATTENDUE de la décision.
  */
 export function classifyPipeline(input: {
 	integrations: IntegrationSummary[];
 	freshness: Freshness;
 	jobsDead: number;
+	pause?: ProjectPause | null;
 }): AxisVerdict<PipelineState> {
 	const reasons: string[] = [];
 	let state: PipelineState = 'ok';
@@ -411,11 +705,23 @@ export function classifyPipeline(input: {
 
 	// Fraîcheur de la collecte : le retard est une DÉGRADATION, jamais une panne — GSC
 	// complète ses données après coup, et une semaine de retard n'est pas un credential mort.
+	//
+	// ⚠️ Sauf si une pause l'explique. Reprocher « collecte en retard » à un flux qu'on a
+	// soi-même suspendu, c'est demander de réparer une décision — et c'est exactement ce que
+	// DASH-006 a supprimé sur `/automations`. On le DIT quand même (le silence n'est pas
+	// l'absence de cause), mais on ne dégrade pas.
+	const freshnessPaused = pauseSuspendsFreshness(input.pause);
 	if (input.freshness.state === 'stale') {
-		reasons.push(
-			`collecte GSC en retard (dernier succès ${input.freshness.lastSuccessAt ?? 'inconnu'})`
-		);
-		if (state === 'ok') state = 'degraded';
+		if (freshnessPaused && input.pause) {
+			reasons.push(
+				`collecte suspendue depuis ${input.pause.since} — ${input.pause.reason} (${pauseScopeLabel(input.pause.scope)})`
+			);
+		} else {
+			reasons.push(
+				`collecte GSC en retard (dernier succès ${input.freshness.lastSuccessAt ?? 'inconnu'})`
+			);
+			if (state === 'ok') state = 'degraded';
+		}
 	}
 
 	if (input.jobsDead > 0) {
@@ -427,6 +733,19 @@ export function classifyPipeline(input: {
 	// « unknown » et non « ok » — c'est la même règle que §10.3 : l'absence n'est pas un bon état.
 	if (state === 'ok' && input.integrations.length === 0 && input.freshness.state === 'never') {
 		return { state: 'unknown', reasons: ['aucune intégration déclarée, aucune collecte'] };
+	}
+
+	// Tout est suspendu et rien n'est cassé : plus rien n'arrivera, donc l'axe ne peut pas
+	// rester `ok`. Même forme et même raison que la règle juste au-dessus — l'absence de
+	// donnée n'est pas un bon état, qu'elle vienne d'un flux jamais branché ou d'un arrêt
+	// volontaire. La CAUSE, elle, est dite : c'est ce qui les distingue à l'écran.
+	if (state === 'ok' && input.pause?.full) {
+		return {
+			state: 'unknown',
+			reasons: [
+				`collecte suspendue par décision — plus rien n’arrive (${pauseScopeLabel(input.pause.scope)}, ${input.pause.reason})`
+			]
+		};
 	}
 
 	return { state, reasons };
@@ -515,6 +834,16 @@ export function classifySignal(input: {
 		if (state === 'ok') state = 'watch';
 	}
 
+	// Diagnostic SUSPENDU : la couverture acquise reste vraie, mais elle ne se renouvelle plus.
+	// Un `ok` dirait « rien à signaler » d'un domaine que plus personne n'examine. `watch` pour
+	// la même raison que le cas `partial` juste au-dessus — et non `unknown`, réservé au « je ne
+	// sais RIEN » : ce qui a déjà été trouvé ici reste connu.
+	if (input.diagnosis.suspended.length > 0) {
+		const domains = input.diagnosis.suspended.map(detectorLabel).join(', ');
+		reasons.push(`diagnostic suspendu : ${domains} — ne tournera pas tant que la pause court`);
+		if (state === 'ok') state = 'watch';
+	}
+
 	// Une collecte dégradée n'annule pas le signal (la donnée arrive, en retard) mais on
 	// le dit : lire « ok » sur des mesures d'une semaine de trop serait trompeur.
 	if (input.pipeline === 'degraded' && state === 'ok') {
@@ -537,12 +866,14 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 		now: input.now,
 		staleAfterHours: input.staleAfterHours
 	});
+	const pause = input.pause ?? null;
 	const pipeline = classifyPipeline({
 		integrations: input.integrations,
 		freshness,
-		jobsDead: input.jobsDead
+		jobsDead: input.jobsDead,
+		pause
 	});
-	const diagnosis = deriveDiagnosisCoverage(input.detectors);
+	const diagnosis = deriveDiagnosisCoverage(input.detectors, pause);
 	const signal = classifySignal({
 		openBySeverity: input.openBySeverity,
 		activity: input.activity,
@@ -553,11 +884,16 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 	let state: ProjectState;
 	if (pipeline.state === 'broken') state = 'broken';
 	else if (signal.state === 'at_risk') state = 'at_risk';
+	// La pause vient APRÈS `broken` et `at_risk` : elle arrête de REGARDER, elle n'annule pas
+	// ce qui est DÉJÀ su. Un credential mort et un critique ouvert restent vrais sous pause —
+	// même doctrine que `classifySignal`, qui conserve « X critique déjà ouvert » sous un
+	// pipeline cassé. Et AVANT `unknown` : nommer la cause bat nommer le symptôme.
+	else if (pause?.full) state = 'paused';
 	else if (pipeline.state === 'unknown' || signal.state === 'unknown') state = 'unknown';
 	else if (signal.state === 'watch' || pipeline.state === 'degraded') state = 'watch';
 	else state = 'ok';
 
-	const headline = buildHeadline({ state, pipeline, signal });
+	const headline = buildHeadline({ state, pipeline, signal, pause });
 
 	return {
 		projectId: input.projectId,
@@ -569,6 +905,7 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 		signal,
 		freshness,
 		diagnosis,
+		pause,
 		headline,
 		openBySeverity: input.openBySeverity,
 		openTotal: sumAll(input.openBySeverity),
@@ -635,8 +972,18 @@ export function buildHeadline(input: {
 	state: ProjectState;
 	pipeline: AxisVerdict<PipelineState>;
 	signal: AxisVerdict<SignalState>;
+	pause?: ProjectPause | null;
 }): string {
 	switch (input.state) {
+		case 'paused': {
+			// La phrase nomme la DÉCISION : sa portée (donc ce qu'il faudra lever), sa raison,
+			// son auteur et sa date. Un « Suspendu » nu obligerait à ouvrir `/automations` pour
+			// savoir si c'est voulu, ce qui est précisément la question qu'on vient de répondre.
+			const p = input.pause;
+			if (!p) return 'Suspendu — décision d’exploitation';
+			const terme = p.until ? `, jusqu’au ${p.until}` : '';
+			return `Suspendu — ${p.reason} (${pauseScopeLabel(p.scope)}, par ${p.actor} le ${p.since}${terme})`;
+		}
 		case 'broken':
 			return `Collecte à réparer — ${input.pipeline.reasons[0] ?? 'intégration cassée'}`;
 		case 'at_risk':
@@ -669,7 +1016,11 @@ const STATE_RANK: Record<ProjectState, number> = {
 	at_risk: 1,
 	unknown: 2,
 	watch: 3,
-	ok: 4
+	ok: 4,
+	// APRÈS `ok`, et c'est l'argument qui a fait de `paused` un état à part : un projet
+	// volontairement suspendu ne demande aucune action, il ne doit donc jamais remonter en
+	// tête de la liste « à traiter ». Le ranger sous `unknown` l'y aurait mis chaque fois.
+	paused: 5
 };
 
 export function stateRank(state: ProjectState): number {
@@ -701,9 +1052,19 @@ export function rankProjects(cards: ProjectCard[]): ProjectCard[] {
 	});
 }
 
-/** Les projets qui demandent une action — tout sauf `ok`. */
+/**
+ * Les projets qui demandent une action — tout sauf `ok` **et `paused`**.
+ *
+ * Une décision n'est pas une tâche : un projet qu'on a soi-même suspendu n'a rien à traiter,
+ * l'y laisser rendrait la liste « à traiter » ininterrompue tant que la pause court. Il reste
+ * évidemment dans le portefeuille, avec son badge et sa raison.
+ */
+export function needsAction(state: ProjectState): boolean {
+	return state !== 'ok' && state !== 'paused';
+}
+
 export function projectsNeedingAction(cards: ProjectCard[]): ProjectCard[] {
-	return rankProjects(cards).filter((c) => c.state !== 'ok');
+	return rankProjects(cards).filter((c) => needsAction(c.state));
 }
 
 // ── Santé globale du portefeuille ───────────────────────────────────
@@ -721,15 +1082,31 @@ export interface PortfolioHealth {
 }
 
 export function summarizePortfolio(cards: ProjectCard[]): PortfolioHealth {
-	const byState: Record<ProjectState, number> = { ok: 0, watch: 0, at_risk: 0, broken: 0, unknown: 0 };
+	const byState: Record<ProjectState, number> = {
+		ok: 0,
+		watch: 0,
+		at_risk: 0,
+		broken: 0,
+		unknown: 0,
+		paused: 0
+	};
 	for (const c of cards) byState[c.state] += 1;
+	// `paused` n'entre PAS dans l'échelle de gravité : une décision n'est pas une panne, et
+	// un projet suspendu au milieu de cinq projets sains ne doit pas teinter le portefeuille.
 	const worst =
 		(['broken', 'at_risk', 'unknown', 'watch'] as ProjectState[]).find((s) => byState[s] > 0) ?? 'ok';
 	return {
 		total: cards.length,
 		byState,
-		needingAction: cards.filter((c) => c.state !== 'ok').length,
-		worst: cards.length === 0 ? 'unknown' : worst
+		needingAction: cards.filter((c) => needsAction(c.state)).length,
+		// …mais un parc ENTIÈREMENT suspendu n'est pas « au vert ». Rendre `ok` ici afficherait
+		// « tout va bien » sur un monitoring que plus personne ne fait tourner.
+		worst:
+			cards.length === 0
+				? 'unknown'
+				: worst === 'ok' && byState.paused === cards.length
+					? 'paused'
+					: worst
 	};
 }
 

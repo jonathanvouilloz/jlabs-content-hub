@@ -4,6 +4,95 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-26 (DASH-003 lot 2 chantier 1 — la pause entre dans la santé)
+
+**Fait :** le chantier 1 de DASH-003 lot 2. DASH-006 avait appris à `/automations` qu'« une décision
+n'est pas une panne ». `grep -i pause` rendait **0 occurrence** dans `home-state.ts`, `home.ts`,
+`project-cockpit-state.ts` et `project-cockpit.ts` : la leçon s'arrêtait à un écran. Sur `/` et
+`/projects/[slug]`, un projet volontairement suspendu se lisait donc comme un pipeline qui a cessé de
+livrer — collecte en retard, zéro finding, badge rouge — soit exactement la confusion que DASH-006
+supprime, réintroduite sur l'écran qu'on lit en premier. **Zéro DDL** (60 tables), **une seule requête
+ajoutée**, coût constant quel que soit le nombre de projets.
+
+- **LE point du lot : `paused` est un 6ᵉ état de PROJET, pas une 5ᵉ valeur d'axe.** `unknown` semblait
+  suffire — un projet suspendu ne dit effectivement plus rien — mais il veut dire « muet, **et je ne
+  sais pas pourquoi** », le contraire exact de ce qui est vrai ici. Et l'argument qui tranche est un
+  effet de bord : `STATE_RANK` place `unknown` en 3ᵉ position, donc un projet volontairement suspendu
+  serait passé **devant** un projet à surveiller. Un arrêt volontaire ne prend pas la tête de la file
+  → `paused` est rangé **après `ok`**, et `needsAction` l'exclut.
+- **⭐ L'ordre des règles de `classifyPipeline` est celui de ce qui SURVIT à la reprise.** Un
+  credential `revoked` sous pause reste `broken` (le jour où on reprend, la panne est encore là) ; un
+  job en dead-letter reste une dégradation (il est **déjà** en file, la pause ne le concerne pas) ;
+  seul le **retard de collecte** cesse d'être un symptôme, parce qu'il est la conséquence attendue de
+  la décision. Prouvé en base : intégration `revoked` **+** gel projet ⇒ `broken`, pas `paused`.
+- **⭐ La pause n'explique le retard que si TOUS les jobs du provider de fraîcheur sont suspendus.**
+  La première version disait « au moins un » et elle était fausse : `collect:gsc_query_page` (hebdo)
+  **et** `collect:url_inspection` (quotidien) appellent tous deux `syncGscIntegration`, donc suspendre
+  le seul quotidien laisse la fraîcheur se renouveler chaque lundi — un vrai retard s'y serait lu
+  « c'est normal, c'est en pause ». Trouvé par un test qui a échoué en ayant raison.
+- **Le diagnostic est suspendu PAR DÉTECTEUR, jamais en bloc.** Un détecteur n'est suspendu que si
+  **chacune** des cadences câblées qui l'enfilent l'est : `detect:index_transition` est aux catalogues
+  `daily` **et** `weekly`, donc suspendre le hebdo ne le suspend pas — il tournera demain. Et la
+  **propagation JOB-004 y est comptée** : couper `gsc` ne suspend directement aucun détecteur (aucun
+  ne sort de Postgres) et les suspend pourtant tous, parce qu'un prérequis obligatoire mort fait
+  passer son dépendant en `skipped` — ce que DASH-006 avait prouvé en base.
+- **La couverture acquise ne BAISSE pas sous pause.** `diagnosis.state` reste `full` : ce qui a été
+  examiné l'a été, la couverture cesse seulement d'être renouvelée. La rabaisser effacerait un passage
+  réel — mentir dans l'autre sens. Le fait nouveau vit dans `diagnosis.suspended`, et fait passer un
+  signal `ok` à `watch` (jamais `unknown`, réservé au « je ne sais RIEN »).
+- **Rien n'est réimplémenté.** L'union des portées (`project` > `project_cadence`) et l'expiration
+  `until` dérivée viennent de `resolveCadencePause`/`derivePauseStates`. Une seconde comparaison de
+  `until` dans `home-state.ts`, c'était exactement la divergence que DASH-006 a supprimée.
+- **Une seule requête, pas un N+1.** `loadPauseStates` entre dans le `Promise.all` de
+  `loadHomeCockpit` avec le **`now` déjà calculé** (13 → 14 allers-retours, constant), et
+  `loadExpectedDetectors` est **élargie** en `loadScheduleConfigs` — même requête sur
+  `project_projections`, config complète au lieu de la seule liste de détecteurs. Surtout **pas**
+  `loadProjectScheduleConfig` par projet, le N+1 assumé de `loadCadenceRows` sur `/automations`.
+- **Zéro changement dans `project-cockpit.ts`** : la carte vient de `loadHomeCockpit` par slug, donc
+  `pause` arrive gratuitement et l'invariant anti-divergence de DASH-003 lot 1 tient **par
+  construction** — vérifié pause active (§G).
+
+**Vérifs :** 1026 tests (**+29** sur `home-state`, dont 6 contre-épreuves) · `npm run check` 0 erreur /
+42 warnings (baseline) · `scripts/dash-003-pause-health-proof.ts` **26/26 sur Neon**, base rendue à
+l'identique (pauses 2→2, projets 6→6, intégrations 6→6, jobs 16→16) · non-régression `dash-002-home`,
+**`dash-003-project` (l'égalité §A)**, `dash-006-automations`, `dash-006-pause`, `job-004-dag`,
+`job-005-schedule`, `job-006-limits` — **0 échec chacune**.
+
+**Prochain :** **DASH-003 lot 2 chantier 2** — l'onglet Indexation (`/projects/[slug]/indexing`), qui
+donnerait enfin un lecteur d'écran à `indexing-read.ts` (`loadLatestIndexStates`, `loadIndexHistory`,
+`loadIndexSeries`, `loadInspectionFreshness` — cette dernière n'a **aucun appelant nulle part**) et à
+`index_selection` : 4 tickets E04 livrés, résumés aujourd'hui en 4 lignes sur la vue d'ensemble. Zéro
+DDL également. Sinon **E11/exécution** — approuver une proposition n'exécute toujours rien.
+
+**Pièges :**
+- **⚠️ Un gel total + un finding critique donne le badge `paused`, pas `at_risk`.** Ce n'est pas un
+  oubli : pause totale ⇒ pipeline `unknown` ⇒ signal `unknown` (règle DASH-002 préexistante), et le
+  critique reste **dit** dans `signal.reasons` (« déjà ouvert ») comme sous un pipeline cassé. La
+  contre-épreuve montre que le badge ne **masque** rien pour autant : ajoutez un job en dead-letter et
+  le pipeline reste `degraded`, le signal reprend le droit de conclure, et la carte repasse `at_risk`.
+- **⚠️ `STATE_META` a un repli `?? STATE_META.unknown`** dans les deux `.svelte`. Un `paused` oublié
+  n'aurait pas planté : il aurait affiché « État inconnu » en violet sur un projet dont la cause du
+  silence est connue, écrite et datée. Le badge n'aurait pas cassé — il aurait menti. Idem
+  `STATE_ORDER`, sans quoi la puce « suspendus » n'existe nulle part.
+- **⚠️ La preuve injecte des instants strictement croissants**, et c'est nécessaire :
+  `automation_pauses.created_at` est à la **seconde** et `loadPauseStates` départage les ex æquo par
+  `id DESC` — un ordre reproductible, **pas juste** (c'est écrit dans `pauses.ts`). La première
+  version posait pause et reprise en moins d'une seconde et échouait en §D une fois sur deux, en
+  accusant le code d'un défaut qui n'existe pas.
+- **`worst` ignore `paused`** (une décision n'est pas une panne) **sauf si TOUT le parc est
+  suspendu** : six projets gelés ne sont pas « au vert ».
+- **Le bandeau de pause est rendu même sur une pause PARTIELLE**, qui ne porte pas le badge — c'est
+  justement le cas où la cause du silence est la plus difficile à retrouver.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** (`main` = socle epics 1-23 sur Neon, ni `/jobs`, ni `/inbox`,
+  ni cron `tick`), donc une pause posée ici ne suspend rien en prod · `project-cockpit-state.ts` n'a
+  **pas** été touché : il ne calcule pas la santé (il réutilise `classifyProject`), le défaut était
+  en amont.
+
+**Commit :** _(à faire)_
+
+---
+
 ## Etat session 2026-07-26 (DASH-006 lot 2 — arrêter une automatisation sans que ça ressemble à une panne)
 
 **Fait :** DASH-006 **lot 2**, qui ferme l'epic DASH-006. Le lot 1 avait appris au cockpit à voir le
