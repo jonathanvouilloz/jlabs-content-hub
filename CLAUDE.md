@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Source de vérité DB = **Neon (Postgres)**, schéma `seostats` d'une base partagée avec `invoices` (voir `docs/NEON-MIGRATION.md`). Ex "Content Hub" / "jokiSEO". La sync GitHub a été retirée en 2026-05 (le repo `content/` reste une archive figée).
 
-> ✅ **Migration terminée côté code et données** (2026-07-23) : plus de `@libsql/client`, plus de `DATABASE_AUTH_TOKEN`, 58 tables vérifiées dans `seostats`. Ne restent que deux gestes d'**infra**, hors code et hors chemin critique : roter le password Neon exposé les 2026-07-20/21, supprimer la base Turso. Voir `docs/NEON-MIGRATION.md`.
+> ⚠️ **Migrée sur la branche, PAS en production** (constaté 2026-07-26) : le code Neon vit sur `feat/neon`, absorbé dans `feat/cockpit`. **`main` — ce que Vercel déploie — porte encore le code libsql** (dernier commit `af6da45`, 2026-07-15), donc **Turso est toujours la base de prod** et reçoit les écritures des crons. Reste la **Phase 5A** (variable Vercel + merge `--ff-only` de `feat/neon` dans `main`), puis la Phase 6 (rotation du password, décommissionnement de Turso). Données prod rattrapées le 2026-07-26. Voir `docs/NEON-MIGRATION.md`.
 
 ## Stack technique
 
@@ -159,7 +159,7 @@ Pour les images GMB, le skill `/publish-hub` doit :
 **Date :** 2026-07-25
 **Produit :** **seo-stats** — cockpit agentique de monitoring SEO & présence locale. Ex "Content Hub" / "jokiSEO".
 **Cap :** déléguer 90% du monitoring récurrent aux agents (findings persistants + validation humaine). Voir `docs/SPEC.md`.
-**Chantier transverse :** migration Turso → Neon **finie côté code et données**. Reste deux gestes d'infra hors chemin critique (rotation du password exposé, suppression de Turso).
+**Chantier transverse :** migration Turso → Neon **finie sur la branche, pas déployée**. `main` = code libsql = **la prod tourne encore sur Turso**. Reste le cutover (Phase 5A : variable Vercel puis merge `--ff-only feat/neon`), qui bloque les deux gestes d'infra (rotation du password, suppression de Turso).
 **DB cible :** Neon `neondb`, schéma `seostats` (partagé avec `invoices` via schéma `core`). **59 tables**, ~6 projets GSC.
 **Socle livré :** epics 1-22 DONE, epic 23 (positions GSC) en prod. Refactor in-place, DataForSEO = fournisseur SEO externe.
 **Admin :** contact@jonlabs.ch
