@@ -78,7 +78,7 @@ approuver une proposition n'exécute toujours rien.
   cockpit n'est toujours pas déployé** (`main` = socle epics 1-23 sur Neon) · **le rendu n'a
   toujours jamais été vu à l'œil** (pas de session admin) — tout est prouvé côté données.
 
-**Commit :** _(à venir)_
+**Commit :** `351a380` [hub] add: l'indexation cesse d'être écrite pour personne (DASH-003 lot 2, chantier 2)
 
 ---
 

@@ -16,4 +16,4 @@ ni cron `tick`. `npm run db:push` depuis `main` = risque de PROD (29 tables déc
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
 `gsc_query_page_observations` est racée (`dash-002-home-proof` en porte une).
 
-Commit : _(à venir)_ · prod : `e5efc83` sur `main`
+Commit : `351a380` (E00) · prod : `e5efc83` sur `main`
