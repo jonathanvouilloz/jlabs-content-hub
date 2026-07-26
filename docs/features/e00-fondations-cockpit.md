@@ -45,9 +45,18 @@ examinée). Plus aucun projet ne se déclare sain, et aucun ne le mérite encore
 vitest ne peut pas : la couverture rendue correspond aux jobs détecteurs réellement réussis, et sur
 un pipeline sain l'inconnu est bien imputé au diagnostic et non à la collecte.
 
-**Reste :** DASH-003 lot 2 (trancher d'abord quels onglets — BACKLOG et feature file divergent) ou
-DASH-006. La règle ne vaut que pour l'accueil : `project-cockpit-state.ts` (DASH-003) a son propre
-jugement, non revu ici.
+**Prochain :** DASH-003 lot 2 — trancher d'abord **quels onglets** (le BACKLOG et le bloc de session
+DASH-003 lot 1 de ce fichier ne listent pas les mêmes). Sinon DASH-006, débloqué.
+
+**Pièges :** la règle de couverture ne vaut que pour **l'accueil**. `src/lib/server/project-cockpit-state.ts`
+(DASH-003) porte son propre jugement et n'a pas été revu — il peut avoir la même faille, à vérifier
+quand DASH-003 reprendra. Par ailleurs `detect:index_transition` n'a **jamais** tourné en base : les
+trois projets `watch` repasseront au vert dès son premier passage, ce qui est le comportement voulu
+et non une régression à venir.
+
+**Commit :** `d1ced4a` [hub] fix: un projet jamais diagnostiqué ne se lit plus « Sain » (DASH-002)
+
+---
 
 ## Etat session 2026-07-25 (revue visuelle — le cockpit est vu à l'œil pour la PREMIÈRE fois)
 
@@ -2629,12 +2638,15 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-25 (revue visuelle DASH-002/003)
+> Mise à jour : 2026-07-26 (couverture de diagnostic DASH-002)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/home-state.ts`** (+ `.test.ts`) *(couverture de diagnostic)* | **`deriveDiagnosisCoverage` + `classifySignal` étendu** — la seconde moitié de « une intégration cassée est distincte d'une baisse de performance ». Le pipeline dit si la donnée **arrive** ; il ne dit rien de ce qu'on en a **fait**. `barberconcept` collectait bien et s'affichait « Sain » sans avoir jamais été détecté : ses zéro findings étaient une page blanche, pas un bulletin de santé. **L'invariant : `ok` n'est atteignable que sur un diagnostic complet** — ce qui est POSITIVEMENT su passe toujours (un critique reste un critique malgré l'angle mort), c'est la conclusion au vert qui exige d'avoir tout examiné. ⚠️ **Trois degrés qui ne se confondent PAS** : rien d'examiné → `unknown`, partiellement examiné sans rien trouver → **`watch`**, tout examiné → le verdict des findings. La 1re version renvoyait `unknown` dans les deux cas — vérifié sur Neon, `detect:index_transition` n'ayant jamais tourné nulle part, **les 6 projets viraient au violet** et « 6 à traiter sur 6 » ne distinguait plus le projet jamais ouvert de celui suivi depuis des semaines. `expectedCount === 0` vaut **`none`, pas `full`** : couper la planification d'un projet ne le rend pas sain. **46 tests.** |
+| **`src/lib/server/home.ts`** *(couverture de diagnostic)* | **`DETECTOR_JOB_TYPES` dérivé du CATALOGUE** (`SCHEDULE_CATALOG` filtré sur `detect:*`) et non d'une liste tenue à la main — ajouter un détecteur l'intègre d'office à la couverture, sinon un détecteur neuf ferait passer les projets pour **couverts avant d'avoir tourné une seule fois**. `loadExpectedDetectors` lit `project_projections` en **UNE** requête puis résout en mémoire (un `loadProjectScheduleConfig` par projet rendrait six allers-retours à l'accueil) ; `loadDetectorLastSuccess` ne compte que les jobs **`succeeded`** — un détecteur mort en dead-letter n'a rien diagnostiqué, le compter comme passage referait l'erreur qu'on corrige. Projet sans projection ⇒ défauts SPEC via la clé `__default__`. |
+| **`scripts/dash-002-home-proof.ts`** *(section B-ter)* | Ce que vitest **ne peut pas** prouver : que la couverture rendue correspond aux jobs détecteurs **réellement** réussis en base (comparé par un `count(DISTINCT type)` indépendant, projet par projet), qu'aucune carte ne se dit `ok` sans couverture complète, et que **sur un pipeline sain l'inconnu est imputé au DIAGNOSTIC et non à la collecte** — sans ce dernier contrôle l'assertion passerait aussi bien pour une tout autre cause, et l'intégration sentinelle de la section B en fabrique justement une (première rédaction du test : rouge sur `barberconcept`, cassé exprès à cet instant). |
 | **`project-cockpit-state.ts` · `home-state.ts` · `(app)/+page.svelte` · `(app)/+layout.svelte` · `projects/[slug]/+page.svelte`** *(revue visuelle)* | **Règle établie par la revue : deux mesures différentes ne portent jamais le même mot, et un verdict ne dit jamais plus que ce qu'il a regardé.** `derivePanelState` rend `collecte à jour` et non `à jour` — le badge mesure la fraîcheur de l'**intégration**, le caveat GSC-004 la complétude de la **donnée**, et les deux tombent dans le même encadré (sur `barberconcept`, trois « à jour » contre un « données pas à jour »). `buildHeadline` case `ok` rend `Collecte et performance au vert` : le seul verdict nu des cinq, alors que la fonction se donne pour règle de **nommer toujours l'axe** — « Rien à traiter » niait les 4 propositions du compteur voisin, que la santé ne lit pas. Les notes `inactive` passent en deux-points (`${label} : aucune intégration déclarée`) : concaténer `non branché` accordait au masculin quel que soit le domaine. ⚠️ **Les deux tests correspondants assertent la PROPRIÉTÉ, plus la tournure** (qu'une intégration désactivée ne ressorte pas son `last_error_code` ; qu'un projet sain nomme ses axes avec 6 findings ouverts) — c'est ce qui rendait le libellé fautif intouchable. |
 | **`src/lib/server/project-cockpit-state.ts`** (+ `.test.ts`) | **Purs DASH-003** : **`ProvenanceTrio`** — période / fraîcheur / source, exigé par `buildPanel`, donc un panneau **ne peut pas exister** sans dire d'où il sort (une règle qui ne vivrait que dans un template se perdrait au premier refactor) ; **`derivePanelState`**, où **l'ordre des règles EST la décision** : désactivé ⇒ `inactive` **quoi qu'il porte par ailleurs** (une intégration éteinte garde son vieux `last_error_code`), activé + `error`/`revoked`/`down` ⇒ `broken`, sinon la fraîcheur tranche — et **`hasData` prime sur l'absence de ligne d'intégration** (un projet peut collecter sans registre : dire « non branché » serait démenti par l'écran d'à côté). **`external: false`** pour les domaines internes : le diagnostic n'a pas de credential, « non branché » y serait un contresens. `rankPanels` met `inactive` **après** `ok` (aucun geste à faire). `summarizeIndexation` : `excluded` **hors dénominateur** (un noindex est une décision du site), taux `null` et non 0 % quand rien n'a été mesuré. `buildTimeline` : ordre **TOTAL** (temps, nature, id), horodatage illisible **à la fin**, troncature **comptée**. **19 tests.** |
 | **`src/lib/server/project-cockpit.ts`** | **Lecture DASH-003.** ⚠️ **La carte de santé vient de `loadHomeCockpit`, et de nulle part ailleurs** — recalculer les six domaines ici ferait deux définitions de « projet à risque » qui divergeraient au premier seuil modifié, et le même projet serait noté différemment sur deux écrans. Coût nul : les requêtes de l'accueil sont **déjà groupées par projet**. Ajoute le DÉTAIL que l'accueil n'a pas la place de porter : `loadGscWindows` (GSC-004), `countIndexClasses` + `loadDueSelections` (**premier lecteur** d'`indexing-read.ts` et d'`index_selection`), et la timeline. **Les décisions se lisent dans `action_proposals`** : `proposal_approvals` seul manquerait tous les **rejets**, `finding_events` seul manquerait les décisions sur une proposition **sans finding**. Seuil de fraîcheur d'indexation à **15 j** (≠ 10 j GSC) : l'inspection est une **sélection**, pas une collecte de masse. |

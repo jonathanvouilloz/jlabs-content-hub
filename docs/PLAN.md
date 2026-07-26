@@ -1,12 +1,15 @@
 # Plan d'execution — seo-stats
 
-> Derniere mise a jour : 2026-07-21
+> Derniere mise a jour : 2026-07-26
 > **Cap actuel :** refonte **cockpit agentique de monitoring** (SPEC : [SPEC.md](SPEC.md) · execution : [BACKLOG.md](BACKLOG.md)).
 > Ce fichier ne garde que **l'historique du socle livré** (Phases 1-2, epics 1-23). La suite (E00→E13)
 > vit dans **[BACKLOG.md](BACKLOG.md)**, pas ici. Le pivot jokiSEO (2026-06-24) est archivé (`_archive/PRD-jokiseo.md`).
 >
-> **Pré-requis transverse en cours :** migration données Turso → Neon (voir [NEON-MIGRATION.md](NEON-MIGRATION.md) Phase 4)
-> avant de démarrer la reconstruction du BACKLOG.
+> **Pré-requis transverse en cours :** migration Turso → Neon, **Phase 5A — le cutover**
+> (voir [NEON-MIGRATION.md](NEON-MIGRATION.md)). ⚠️ Constaté le 2026-07-26 : `main` porte encore le
+> code libsql, donc **la prod tourne toujours sur Turso** ; le code Neon vit sur `feat/cockpit`.
+> Données prod rattrapées (222 lignes). Restent deux gestes qui demandent Jonathan : variable Vercel
+> puis `git merge --ff-only feat/neon` sur `main`.
 
 ---
 
@@ -153,10 +156,21 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   sur `barberconcept`) → `collecte à jour` ; et **« Rien à traiter » s'affichait à côté de « 4 à
   valider »**, le seul verdict nu de `buildHeadline` alors qu'elle se donne pour règle de nommer
   toujours l'axe → « Collecte et performance au vert ».
-  Prochain : trancher le point produit ouvert par la revue — **`barberconcept` s'affiche « Sain » sans
-  avoir jamais été diagnostiqué** (zéro finding se lit « zéro problème » : le vice que l'invariant
-  « pipeline cassé ⇒ signal `unknown` » interdit sur l'autre axe) — puis **DASH-003 lot 2** ou
-  **DASH-006** (débloqué : JOB-007 est DONE).
+  **Et le point produit ouvert par la revue est tranché** (2026-07-26, **zéro DDL**) : `barberconcept`
+  s'affichait « Sain » sans avoir jamais été diagnostiqué — collecte fraîche, pipeline vert, et zéro
+  finding qui se lisait « zéro problème » au lieu de « personne n'a jamais ouvert le dossier ». C'est
+  la seconde moitié de l'invariant : un pipeline sain ne prouve pas qu'on ait **regardé**. Nouvel axe
+  dérivé, la **couverture de diagnostic** — détecteurs attendus lus dans le **catalogue** (pas une
+  liste tenue à la main) et croisés au dernier job `succeeded`. **`ok` n'est atteignable que sur un
+  diagnostic complet** ; ce qui est positivement su passe toujours. ⚠️ **Trois degrés qui ne se
+  confondent pas** : rien d'examiné → `unknown`, partiellement examiné sans rien trouver → `watch`,
+  tout examiné → le verdict des findings. La 1re version renvoyait `unknown` dans les deux cas et
+  faisait virer **les 6 projets au violet** (`detect:index_transition` n'a jamais tourné nulle part) —
+  un cockpit uniforme ne se lit plus. Couper la planification ne rend pas un projet sain
+  (`expectedCount === 0` vaut `none`) · test **917/917**.
+  Prochain : **DASH-003 lot 2** (trancher d'abord quels onglets) ou **DASH-006** (débloqué : JOB-007
+  est DONE). ⚠️ La règle de couverture ne vaut que pour l'accueil — `project-cockpit-state.ts` porte
+  son propre jugement, non revu.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
