@@ -160,10 +160,31 @@ async function replayCounterHref(href: string): Promise<number> {
 }
 
 async function main(): Promise<void> {
-	const projRes = await db.execute(
-		sql`SELECT id, slug, name FROM "seostats"."projects" WHERE archived = false ORDER BY slug`
-	);
-	const projectRows = (projRes.rows ?? []) as unknown as { id: string; slug: string; name: string }[];
+	// ⚠️ Le projet « baisse de performance » ne peut PAS être choisi par position.
+	//
+	// Il l'était (`projectRows[1]`), et la preuve a fini par échouer sans qu'une ligne de code
+	// applicatif change : le parc a grandi, la 2ᵉ place a glissé sur un projet qu'aucun détecteur
+	// n'a jamais examiné. DASH-002 rend alors son signal `unknown` — « jamais regardé » n'est pas
+	// « rien à signaler » — et `unknown` prime sur `at_risk`. La preuve testait donc la règle de
+	// couverture en croyant tester la distinction panne/baisse.
+	//
+	// D'où un choix par PROPRIÉTÉ, pas par rang : un projet dont au moins un détecteur a tourné.
+	// Sans lui, la section B ne prouve rien de ce qu'elle annonce.
+	const projRes = await db.execute(sql`
+		SELECT p.id, p.slug, p.name,
+		       count(j.id) FILTER (WHERE j.type LIKE 'detect:%' AND j.status = 'succeeded') AS detects
+		  FROM "seostats"."projects" p
+		  LEFT JOIN "seostats"."jobs" j ON j.project_id = p.id
+		 WHERE p.archived = false
+		 GROUP BY p.id, p.slug, p.name
+		 ORDER BY p.slug
+	`);
+	const projectRows = (projRes.rows ?? []) as unknown as {
+		id: string;
+		slug: string;
+		name: string;
+		detects: number | string;
+	}[];
 	if (projectRows.length < 2) {
 		console.error('Moins de 2 projets actifs en base : la preuve a besoin de deux cibles. Abandon.');
 		process.exitCode = 1;
@@ -171,9 +192,20 @@ async function main(): Promise<void> {
 	}
 	// Deux projets RÉELS distincts : l'un recevra une panne d'intégration, l'autre une
 	// baisse de performance. C'est la contre-épreuve de l'acceptation n°3.
-	const brokenProj = projectRows[0];
-	const perfProj = projectRows[1];
-	console.log(`Projets : panne → ${brokenProj.slug} · performance → ${perfProj.slug}`);
+	const diagnosed = projectRows.filter((p) => Number(p.detects) > 0);
+	if (diagnosed.length === 0) {
+		console.error(
+			'Aucun projet n’a jamais eu de détecteur réussi : la section B testerait la règle de\n' +
+				'couverture (`signal = unknown`) au lieu de la distinction panne / baisse. Abandon.'
+		);
+		process.exitCode = 1;
+		return;
+	}
+	const perfProj = diagnosed[0];
+	const brokenProj = projectRows.find((p) => p.id !== perfProj.id)!;
+	console.log(
+		`Projets : panne → ${brokenProj.slug} · performance → ${perfProj.slug} (${perfProj.detects} détecteur(s) passé(s))`
+	);
 
 	// Baselines à rendre à l'identique.
 	const base = {

@@ -4,6 +4,84 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-26 (DASH-003 lot 2 chantier 2 — l'indexation cesse d'être écrite pour personne)
+
+**Fait :** le chantier 2 de DASH-003 lot 2. Quatre tickets E04 étaient livrés — `IDX-001`
+(inventaire sitemap), `IDX-002` (collecteur URL Inspection), `IDX-004` (sélection et quotas),
+`IDX-005` (transitions) — et **aucun écran ne les lisait** : `loadInspectionFreshness` n'avait
+**aucun appelant nulle part**, et `index_selection` n'était lu que par le collecteur qui l'écrit.
+La vue d'ensemble résumait tout ça en quatre chiffres sans nulle part où cliquer. **Zéro DDL**
+(60 tables), **zéro appel réseau**, nombre d'allers-retours **constant** (indépendant du nombre
+d'URLs et de findings).
+
+- **LE point du lot : donner un lecteur à `loadInspectionFreshness` ne vaut que si les DEUX
+  chemins rendent le même panneau.** L'onglet passe par elle, la vue d'ensemble par son
+  `max(observed_date)` local (`project-cockpit.ts`) — deux requêtes différentes sur la même
+  mesure. Recopier la requête aurait créé une seconde autorité qui diverge au premier changement
+  de borne ; ne pas l'utiliser aurait laissé le read-model sans lecteur, donc *cru* juste. D'où
+  l'appel **et** l'égalité `JSON.stringify` prouvée en base (§A), sur un projet réel : c'est le
+  pendant de l'égalité §A du lot 1.
+- **⭐ « Honorée » se DÉRIVE, prouvé sur Neon.** Poser l'observation **à** la date d'échéance fait
+  disparaître l'intention de la file **sans qu'une seule ligne d'`index_selection` ne bouge**
+  (2 → 2, compté avant/après). Le `>=` d'`observed_date >= due_date` porte toute la sémantique
+  J+N : une inspection antérieure n'honore rien.
+- **⭐ La contre-épreuve §H a été trouvée par un échec — et l'assertion était fausse, pas le
+  code.** J'attendais `never` sur un projet vide ; `derivePanelState` rend `inactive`, parce que
+  sans ligne d'intégration **et** sans donnée il n'y a rien à brancher. C'est devenu la
+  contre-épreuve qui manquait : la **même** absence de donnée, intégration déclarée, devient
+  `never`. « Rien à brancher » et « branché, rien collecté » demandent deux gestes opposés.
+- **Un seul snapshot sitemap ne rend PAS un diff vide.** `{added: [], removed: []}` se lirait
+  « rien n'a changé » là où la vérité est « il n'y a rien à quoi comparer ». Les deux états sont
+  distincts dans le type (`diff: null` + note propre) et prouvés l'un contre l'autre. Et une
+  **alternate n'est pas une page** (comptée à part) : sinon un site multilingue annoncerait autant
+  de pages neuves que de langues.
+- **Le compteur et son lien naissent du même descripteur** (`buildClassFilters`) : il est
+  impossible d'afficher « 34 non indexées » au-dessus d'un lien qui en montrerait 12. Filtres
+  portés par la query string (`?class=`, `?url=`), donc reproductibles et partageables.
+- **Rien n'est recalculé.** `summarizeIndexation` reste l'autorité unique du taux de couverture et
+  de `dueNow` ; `summarizeQuota` ne fait qu'**ajouter** ce qui manquait (périmées, illisibles,
+  familles, pool). La santé du projet n'est **pas chargée du tout** — le moyen le plus sûr de tenir
+  l'invariant du lot 1 sur un onglet qui ne l'affiche pas.
+
+**Vérifs :** 1051 tests (**+25** sur `project-indexing-state`, dont 6 contre-épreuves) ·
+`npm run check` 0 erreur / 42 warnings (baseline) · `scripts/dash-003-indexing-proof.ts`
+**46/46 sur Neon**, base rendue à l'identique (observations 0→0, selection 0→0, sitemap urls 0→0,
+fichiers 0→0, projets 9→9) · non-régression `dash-002-home`, `dash-003-project` (l'égalité §A),
+`dash-003-pause-health`, `idx-004-lot2`, `dash-006-automations` — **0 échec chacune**.
+
+**Prochain :** **DASH-003 lot 2 chantier 3** — les onglets Mots-clés et Rapports, qui demandent
+d'abord leurs read-models (rien n'existe côté `REP-*`). Sinon **DASH-007** (coûts et capacité,
+dont le compteur « non instrumentés » de DASH-002 attend la liste), ou **E11/exécution** —
+approuver une proposition n'exécute toujours rien.
+
+**Pièges :**
+- **⚠️ `scripts/dash-002-home-proof.ts` était cassé AVANT cette session, et je l'ai réparé.** Il
+  choisissait sa cible « baisse de performance » par **position** (`projectRows[1]`). Le parc est
+  passé à **9 projets**, la 2ᵉ place a glissé sur `barbermedia`, qui n'a **aucun `detect:*`
+  réussi** — son signal est donc `unknown` (règle DASH-002 « jamais regardé ≠ rien à signaler »),
+  qui prime sur `at_risk`. La preuve testait la règle de couverture **en croyant** tester la
+  distinction panne/baisse. Le choix se fait maintenant par **propriété** (un projet effectivement
+  diagnostiqué), et il **échoue franchement** si aucun ne l'est.
+- **⚠️ La PROD écrit dans la même base.** Pendant un run, `gsc_query_page_observations` a pris
+  **+109 lignes** (`run_id: null`, projets `barbermedia`/`cardrank` — le snapshot GSC legacy de
+  `main`). Toute assertion « base rendue à l'identique » sur cette table est donc **intrinsèquement
+  racée** : `dash-002-home-proof` en porte une, la preuve de ce chantier n'y touche pas. Un échec
+  isolé sur cette ligne se rejoue, il ne se débogue pas.
+- **⚠️ `0` veut dire ZÉRO** dans `index-selection-state.ts` (l'inverse de `job-limits.ts`) : un
+  `dailyPoolTotal` à 0 en base n'est pas « pas de limite ».
+- **Le pool est une borne INFÉRIEURE** : « au plus N », jamais « il reste N ». Le compte ne voit ni
+  les appels échoués, ni les réponses illisibles, ni ceux de `/seo-index-diagnose` et de la route
+  legacy `seo-data`, qui tapent le **même** service account.
+- **Le seuil de fraîcheur d'indexation est à 15 j** (et non 10 comme GSC) : l'inspection est une
+  **sélection**, une page peut légitimement n'être revue que tous les 14 j (`sampleIntervalDays`).
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** (`main` = socle epics 1-23 sur Neon) · **le rendu n'a
+  toujours jamais été vu à l'œil** (pas de session admin) — tout est prouvé côté données.
+
+**Commit :** _(à venir)_
+
+---
+
 ## Etat session 2026-07-26 (DASH-003 lot 2 chantier 1 — la pause entre dans la santé)
 
 **Fait :** le chantier 1 de DASH-003 lot 2. DASH-006 avait appris à `/automations` qu'« une décision
@@ -3018,12 +3096,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-26 (DASH-003 lot 2 chantier 1 — la pause entre dans la santé)
+> Mise à jour : 2026-07-26 (DASH-003 lot 2 chantier 2 — l'onglet Indexation)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/project-indexing-state.ts`** (+ `.test.ts`) *(DASH-003 lot 2 ch.2)* | **Le jugement pur de l'onglet Indexation.** `buildClassFilters` fabrique **le compteur et son lien ensemble** (règle DASH-002) : impossible d'afficher un nombre au-dessus d'un lien qui en montrerait un autre. `normalizeIndexClass` **écarte** une valeur inventée (`noindex` ne devient pas `excluded`). `describeInspectionFreshness` refuse d'écrire « 0 h » pour un `never`, et dit le retard comme un **cycle d'échantillon dépassé**, pas comme une panne (seuil 15 j, pas 10). `summarizeSitemap` distingue **« premier inventaire »** de **« diff vide »** — `{added: [], removed: []}` se lirait « rien n'a changé » là où il n'y a rien à quoi comparer — et compte les **alternates à part** (une alternate n'est pas une page, IDX-001). `summarizeQuota` **reprend** `dueNow`/`oldestDueDate` de `summarizeIndexation` au lieu de les recompter, et **ajoute** les périmées (`isExpired`), les **illisibles** (raison hors vocabulaire, écartée et **dite**), les familles dans l'ordre de service, et un `poolNote` qui dit **« au plus »**, jamais « il reste ». `describeCanonical` : `null` = **incomparable**, jamais « accord ». **25 tests.** |
+| **`src/lib/server/project-indexing.ts`** *(DASH-003 lot 2 ch.2)* | **La lecture, client injecté.** Un seul `Promise.all` (11 lectures), puis deux qui **dépendent** de la date d'inventaire découverte. ⭐ **`loadLastIndexObservation` passe par `loadInspectionFreshness`** (`indexing-read.ts`) — sa **première utilisation depuis IDX-002** : en recopier le `max(observed_date)` en aurait fait une 2ᵉ autorité sur la même mesure. Le panneau et `IndexationSummary` sont construits avec **les mêmes fonctions pures** que la vue d'ensemble (`derivePanelState`, `makePeriod`, `summarizeIndexation`, `INDEX_STALE_AFTER_HOURS`), et l'égalité est **vérifiée en base** (§A). ⚠️ **La santé du projet n'est pas chargée du tout** : le moyen le plus sûr de tenir l'invariant anti-divergence du lot 1 sur un onglet qui ne l'affiche pas. La classe est **dérivée à la lecture** (`classifyCoverage` reste l'autorité), donc le filtre se fait **en mémoire** — la reproduire en SQL divergerait au premier libellé nouveau de Google. |
+| **`src/routes/(app)/projects/[slug]/indexing/`** *(DASH-003 lot 2 ch.2)* | **L'écran.** `+page.server.ts` ne fait que **passer les paramètres d'URL** (`?class=` normalisé avant toute requête, `?url=` pour l'historique). `+page.svelte` rend : le trio de provenance, la couverture (`null` ≠ « 0 % »), les filtres de classe, l'inventaire sitemap et son diff (« retirée » = **constat**, jamais une désindexation), le quota (« au plus », périmées, illisibles), les findings de transition, l'historique d'une URL, et la liste plafonnée dont la **troncature est dite avec le total réel**. |
+| **`src/routes/(app)/projects/[slug]/+layout.svelte`** *(DASH-003 lot 2 ch.2)* | L'onglet **« Indexation »** entre dans `TABS` — la règle « on ne montre que ce qui existe » est respectée, le read-model existe désormais. |
+| **`scripts/dash-003-indexing-proof.ts`** | **Preuve sur Neon (46 vérifs), zéro réseau, base rendue à l'identique.** §A **anti-divergence** : le panneau et le résumé de l'onglet === ceux de `loadProjectCockpit`, **alors que la fraîcheur passe par deux chemins de lecture différents**. §D **⭐ « honorée » se dérive** : l'observation posée à la date d'échéance vide la file **sans qu'une ligne d'`index_selection` ne bouge** (2 → 2). §H **contre-épreuve** : sans intégration ET sans donnée ⇒ `inactive` ; la **même** absence, intégration déclarée ⇒ `never`. §C : un snapshot ⇒ pas de diff ; deux ⇒ diff réel (+1 −2 ~1). §E : raison inconnue comptée et **hors de toute famille**. |
+| **`scripts/dash-002-home-proof.ts`** *(réparation, DASH-003 lot 2 ch.2)* | ⚠️ **Le projet « baisse de performance » n'est plus choisi par POSITION.** `projectRows[1]` a glissé quand le parc est passé à 9 projets, sur un projet sans aucun `detect:*` réussi : la preuve testait la règle de couverture (`signal = unknown`) en croyant tester la distinction panne/baisse. Choix par **propriété** désormais (un projet effectivement diagnostiqué), et **échec franc** si aucun ne l'est. |
 | **`src/lib/server/home-state.ts`** (+ `.test.ts`) *(DASH-003 lot 2 ch.1)* | **La pause devient un fait de SANTÉ.** `ProjectPause` (portée, raison, auteur, date, échéance) + `summarizeProjectPause`, qui **ne réimplémente rien** : l'union `project` > `project_cadence` et l'expiration `until` restent celles de `pause-state.ts` — une seconde comparaison de `until` ici serait exactement la divergence que DASH-006 a supprimée. `paused` est un **6ᵉ `ProjectState` rangé APRÈS `ok`** (`STATE_RANK.paused = 5`) et exclu par **`needsAction`** : sous `unknown` il serait passé **devant** un projet à surveiller. ⚠️ **Seules les cadences CÂBLÉES et ACTIVÉES comptent** — suspendre `monthly` (catalogue vide) ne colore rien, et une cadence désactivée reste hors du décompte (configuration ≠ décision, ordre de `classifyCadence`). `suspendedJobTypes` : un type n'y entre que si **chacune** des cadences qui l'enfilent est neutralisée (`detect:index_transition` est en `daily` **et** `weekly`) — **propagation JOB-004 comprise**, via `deadJobTypes` qui relit `dependsOn.required` dans l'ordre du catalogue. `suspendsFreshness` exige que **TOUS** les jobs du provider de fraîcheur soient suspendus : `collect:gsc_query_page` **et** `collect:url_inspection` appellent `syncGscIntegration`, donc « au moins un » aurait silencié un vrai retard. **76 tests.** |
 | **`src/lib/server/home-state.ts` → `classifyPipeline`** *(DASH-003 lot 2 ch.1)* | **L'ordre des règles EST celui de ce qui SURVIT à la reprise.** `error`/`revoked`/`down` ⇒ `broken` **avant** la pause (une pause ne répare pas un credential) ; `degraded` ; **la fraîcheur, seul point d'entrée de la pause** (le retard devient la conséquence attendue de la décision, dite mais non dégradante) ; dead-letter ⇒ `degraded` **inchangé** (le job est déjà en file) ; enfin `ok` + `pause.full` ⇒ **`unknown`**, même forme que « rien de déclaré, rien de collecté ». `deriveDiagnosisCoverage(expected, pause?)` gagne `suspended` **sans toucher `state`** : la couverture acquise reste vraie, elle cesse d'être renouvelée. `classifySignal` : `suspended` non vide ⇒ `ok` → **`watch`** (jamais `unknown`, réservé au « je ne sais RIEN »). |
 | **`src/lib/server/home.ts`** *(DASH-003 lot 2 ch.1)* | **Une seule requête de plus, coût constant.** `loadPauseStates` entre dans le `Promise.all` avec le **`now` déjà calculé** — le défaut `new Date()` de `pauses.ts` ferait cohabiter deux instants dans la même page (pause active pour le badge, expirée pour la fraîcheur). `loadExpectedDetectors` est **élargie** en `loadScheduleConfigs` : **même** requête sur `project_projections`, config complète au lieu de la seule liste de détecteurs (13 → 14 allers-retours, quel que soit le parc). ⚠️ Surtout **pas** `loadProjectScheduleConfig` par projet — le N+1 assumé de `loadCadenceRows` sur `/automations`. ⚠️ **Ne jamais appliquer `applyPauseToSpec` avant de dériver les détecteurs attendus** : `expected = []` dirait « aucun diagnostic n'est **planifié** » là où la vérité est « planifié, et **suspendu** ». `FRESHNESS_PROVIDER` déménage vers le module pur (la règle « la pause explique le retard » est un jugement). |

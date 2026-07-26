@@ -217,6 +217,27 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   projet reste **jamais vu à l'œil** — tout est prouvé côté données, rien côté rendu.
   ⚠️ Un run dont **tous** les steps sont `skipped` se lit `success` (`STEP_TERMINAL_OK`, sémantique
   JOB-004) : bien plus atteignable depuis ce lot.
+  Puis **DASH-003 lot 2, chantier 2 — l'onglet Indexation** (`/projects/[slug]/indexing`) : quatre
+  tickets E04 étaient livrés sans qu'aucun écran ne les lise. `loadInspectionFreshness` n'avait
+  **aucun appelant nulle part**, et `index_selection` n'était lu que par le collecteur qui l'écrit.
+  ⭐ Lui donner un lecteur n'avait de valeur que si les **deux chemins de lecture rendent le même
+  panneau** — l'onglet par elle, la vue d'ensemble par son `max(observed_date)` local : l'égalité
+  `JSON.stringify` est prouvée en base, faute de quoi le taux de couverture aurait pu différer d'un
+  onglet à l'autre sans qu'on sache lequel croire. ⭐ **« Honorée » se dérive** : l'observation posée
+  **à** la date d'échéance vide la file **sans qu'une ligne d'`index_selection` ne bouge** (2 → 2
+  compté). Un **seul** snapshot sitemap ne rend pas un diff vide (« rien à quoi comparer » ≠ « rien
+  n'a changé »), une **alternate n'est pas une page**, le pool se dit **« au plus »** jamais « il
+  reste », et une raison de sélection hors vocabulaire est **écartée, comptée et dite**, jamais
+  réinterprétée. Contre-épreuve trouvée par un échec : sans intégration **et** sans donnée ⇒
+  `inactive` (rien à brancher) ; la **même** absence, intégration déclarée ⇒ `never`. Zéro DDL ·
+  zéro appel réseau · allers-retours constants · test **1051/1051** (+25) · preuve **46/46** sur
+  Neon.
+  ⚠️ **`scripts/dash-002-home-proof.ts` était cassé avant ce lot, et a été réparé** : il choisissait
+  sa cible « baisse de performance » par **position**, et le parc passé à 9 projets l'a fait glisser
+  sur un projet sans aucun détecteur passé — la preuve testait la règle de couverture en croyant
+  tester la distinction panne/baisse. Choix par **propriété** désormais.
+  ⚠️ **La prod écrit dans la même base** (`gsc_query_page_observations`, `run_id: null`) : toute
+  assertion « base rendue à l'identique » sur cette table est **racée** par construction.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

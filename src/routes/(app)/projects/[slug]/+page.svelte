@@ -281,6 +281,9 @@
 								<li>aucune inspection en attente</li>
 							{/if}
 						</ul>
+						<a href="/projects/{cockpit.project.slug}/indexing" class="mt-2 inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+							Couverture, sitemap et quota <ArrowRight size={11} />
+						</a>
 					{:else if p.key === 'findings' && card}
 						<div class="mt-3 grid grid-cols-2 gap-2">
 							<div>

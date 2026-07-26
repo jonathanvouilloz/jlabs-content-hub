@@ -9,11 +9,15 @@
 	 * ⚠️ Elle ne montre QUE ce qui existe. Les onglets de la SPEC encore sans read-model
 	 * (Mots-clés, Rapports) ne sont pas affichés grisés : un onglet mort apprend à ne plus
 	 * cliquer, et il ferait passer pour cassé ce qui n'est simplement pas encore écrit.
+	 *
+	 * « Indexation » y entre au lot 2 chantier 2 : `indexing-read.ts` et `index_selection` ont
+	 * enfin un lecteur d'écran, donc l'onglet a le droit d'exister.
 	 */
 	const TABS = $derived([
 		{ href: `/projects/${data.project.slug}`, label: "Vue d'ensemble", exact: true },
 		{ href: `/projects/${data.project.slug}/windows`, label: 'Performance', exact: false },
 		{ href: `/projects/${data.project.slug}/positions`, label: 'Positions', exact: false },
+		{ href: `/projects/${data.project.slug}/indexing`, label: 'Indexation', exact: false },
 		{ href: `/projects/${data.project.slug}/reviews`, label: 'Avis', exact: false },
 		{ href: `/projects/${data.project.slug}/gmb-profile`, label: 'Présence locale', exact: false },
 		{ href: `/projects/${data.project.slug}/content`, label: 'Contenus', exact: false },
