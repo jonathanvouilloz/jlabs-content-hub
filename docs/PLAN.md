@@ -193,10 +193,28 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   écrite**. Seul DDL : **60 tables** · test **997/997** · preuve **24/24** sur Neon.
   **À l'œil** : suspendre `barberconcept/hebdomadaire` fait passer le bandeau de **12 manqués / 12
   attendues** à **11 / 11 + 1 suspendue** — la décision sort du dénominateur *et* du décompte d'échecs.
-  Prochain : **DASH-003 lot 2** (trancher quels onglets) ou **E11/exécution** (approuver n'exécute
-  toujours rien).
-  ⚠️ La règle de couverture ne vaut que pour l'accueil, et celle des deux axes que pour
-  `/automations` — `project-cockpit-state.ts` porte son propre jugement, **toujours non revu**.
+  Puis **DASH-003 lot 2, chantier 1** : la leçon de DASH-006 s'arrêtait à un écran. `grep -i pause`
+  rendait **0 occurrence** dans `home-state.ts`/`home.ts`/`project-cockpit*.ts`, si bien qu'un projet
+  volontairement suspendu se lisait comme un pipeline mort sur `/` et `/projects/[slug]` — la
+  confusion supprimée par DASH-006, réintroduite sur l'écran qu'on ouvre en premier. `paused` devient
+  un **6ᵉ état de projet rangé APRÈS `ok`** et exclu de « à traiter » (sous `unknown` il serait passé
+  **devant** un projet à surveiller). ⭐ L'ordre des règles de `classifyPipeline` est celui de **ce qui
+  survit à la reprise** : un credential révoqué reste `broken` sous pause, un dead-letter reste une
+  dégradation ; seul le **retard de collecte** cesse d'être un symptôme. Et il n'est expliqué que si
+  **tous** les jobs du provider de fraîcheur sont suspendus — `collect:gsc_query_page` **et**
+  `collect:url_inspection` écrivent `syncGscIntegration`, donc « au moins un » aurait silencié un vrai
+  retard (trouvé par un test qui a échoué en ayant raison). Le diagnostic est suspendu **par
+  détecteur**, propagation JOB-004 comprise. Aucun DDL · **une seule** requête ajoutée (coût constant)
+  · test **1026/1026** (+29) · preuve **26/26** sur Neon.
+  L'arbitrage « quels onglets » est tranché sur pièces : Rapports (REP-\*) et Analytics (ANA-\*) n'ont
+  **aucun read-model**, Automatisations est livré en cross-projet depuis DASH-006. Prochain :
+  **chantier 2 — l'onglet Indexation** (`indexing-read.ts` et `index_selection` n'ont toujours pas de
+  lecteur d'écran ; `loadInspectionFreshness` n'a **aucun appelant nulle part**) ou **E11/exécution**
+  (approuver n'exécute toujours rien : ni runner de skills — AGT-008 BLOCKED —, ni client d'écriture
+  provider — IDX-007 BLOCKED).
+  ⚠️ `project-cockpit-state.ts` **n'a pas été touché** et n'avait pas à l'être : il ne calcule pas la
+  santé (il réutilise `classifyProject` de `home-state.ts`), le défaut était en amont. Le cockpit
+  projet reste **jamais vu à l'œil** — tout est prouvé côté données, rien côté rendu.
   ⚠️ Un run dont **tous** les steps sont `skipped` se lit `success` (`STEP_TERMINAL_OK`, sémantique
   JOB-004) : bien plus atteignable depuis ce lot.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).

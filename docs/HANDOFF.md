@@ -12,14 +12,10 @@
 6 projets). Turso figé au 2026-07-26 09:00 UTC, plus lu ni écrit. ⚠️ **Ce qui est déployé, c'est le
 socle epics 1-23 sur Neon — PAS le cockpit** : `main` n'a ni `/jobs`, ni `/inbox`, ni le cron `tick`.
 
-**Puis E00** — **DASH-003 lot 2, chantier 1 livré** : la pause entre dans la santé de `/` et de
-`/projects/[slug]` (`paused` est un 6ᵉ état de projet, rangé **après `ok`** ; une panne réelle sous
-pause reste `broken`). L'arbitrage « quels onglets » est tranché sur pièces : Rapports (REP-\*) et
-Analytics (ANA-\*) n'ont **aucun read-model** → hors lot ; Automatisations est livré en cross-projet
-depuis DASH-006. Suivant : **chantier 2 — l'onglet Indexation** (`/projects/[slug]/indexing`), le
-seul read-model écrit et sans lecteur d'écran (`indexing-read.ts`, `index_selection` — 4 tickets E04
-résumés en 4 lignes aujourd'hui). Sinon **E11/exécution** (approuver n'exécute rien : ni runner de
-skills — AGT-008 BLOCKED —, ni client d'écriture provider — IDX-007 BLOCKED).
+**Puis E00** — **DASH-003 lot 2 chantier 1 livré** (la pause entre dans la santé de `/` et
+`/projects/[slug]`). Suivant : **chantier 2, l'onglet Indexation** — `indexing-read.ts` et
+`index_selection` sont les seuls read-models écrits sans lecteur d'écran. Sinon **E11/exécution**
+(bloqué en amont : AGT-008 et IDX-007 sont BLOCKED). Détail : bloc de session du fichier feature.
 
 **À la main de Jonathan, hors code :**
 1. **Login réel** dans le navigateur — `get-session` prouve que l'adaptateur Better Auth `pg` répond,
