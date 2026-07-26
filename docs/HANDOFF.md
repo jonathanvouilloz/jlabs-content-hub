@@ -19,12 +19,13 @@ Reste, dans cet ordre : **(a)** Vercel Production `DATABASE_URL` → Neon + supp
 L'ordre donne zéro coupure — détail, vérifs et rollback → `NEON-MIGRATION.md` § Phase 5A.
 ⚠️ Après le merge, **ne jamais lancer `db:push` depuis `main`** (29 tables déclarées contre 59 en base).
 
-**2. E00 sur `feat/cockpit`** (63 commits non poussés). Le cockpit a été vu à l'œil (DASH-002 +
+**2. E00 sur `feat/cockpit`** (commits non poussés). Le cockpit a été vu à l'œil (DASH-002 +
 DASH-003 lot 1) ; les invariants tiennent, 4 correctifs verbaux livrés.
-⚠️ **Point produit à trancher** : `barberconcept` s'affiche « Sain » sans avoir jamais été
-diagnostiqué (zéro finding se lit « zéro problème ») — correctif pressenti : un domaine de diagnostic
-en état `never` force `signal: unknown`.
+✅ **Point produit tranché le 2026-07-26** : un projet jamais diagnostiqué ne se lit plus « Sain ».
+`ok` n'est atteignable que sur un diagnostic complet ; rien d'examiné → `unknown`, partiellement
+examiné sans rien trouver → `watch`. État réel : 3 projets `unknown` (0/2 détecteurs), 3 `watch`
+(indexation jamais examinée). Détail → `features/e00-fondations-cockpit.md`, session 2026-07-26.
 Ensuite : **DASH-003 lot 2** (clarifier d'abord quels onglets — BACKLOG et feature file divergent) ou
 **DASH-006** (débloqué, JOB-007 est DONE malgré le `BLOCKED` du BACKLOG).
-
-Commit E00 le plus récent : `8d193d6` docs: wrap de session — le cockpit vu à l'œil.
+⚠️ La règle de couverture ne vaut que pour l'accueil : `project-cockpit-state.ts` (DASH-003) porte
+son propre jugement, non revu — à vérifier quand DASH-003 reprendra.

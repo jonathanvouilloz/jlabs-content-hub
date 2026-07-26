@@ -4,6 +4,51 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-26 (DASH-002 — « jamais regardé » cesse de se lire « rien à signaler »)
+
+**Fait :** le point produit laissé ouvert par la revue visuelle. `barberconcept` s'affichait
+**« Sain »** sans avoir jamais été diagnostiqué : sa collecte GSC était fraîche, son pipeline vert,
+et ses **zéro findings** se lisaient « zéro problème » alors qu'ils voulaient dire « personne n'a
+jamais ouvert le dossier ». C'est la même classe de faute que DASH-002 avait déjà fermée sur l'autre
+axe (« un pipeline cassé rend le signal inconnu, jamais ok ») — il en manquait la moitié : un
+pipeline sain ne prouve pas qu'on ait **regardé**. **Zéro DDL.**
+
+- **Nouvel axe dérivé : la couverture de diagnostic** (`deriveDiagnosisCoverage`, module pur). Les
+  détecteurs **attendus** viennent du CATALOGUE (`SCHEDULE_CATALOG`, filtré sur `detect:*`) et non
+  d'une liste écrite à la main — ajouter un détecteur l'intègre d'office à la couverture, sans quoi
+  un détecteur neuf ferait passer les projets pour couverts avant d'avoir tourné une seule fois.
+  Croisés au dernier job `succeeded` de ce type sur le projet.
+- **L'invariant : `ok` n'est atteignable que sur un diagnostic complet.** Ce qui est POSITIVEMENT su
+  passe toujours (un critique reste un critique, même avec un angle mort) ; c'est la **conclusion au
+  vert** qui exige d'avoir tout examiné. L'absence de finding n'est une bonne nouvelle que dans les
+  domaines réellement examinés.
+- **Trois degrés, et ils ne se confondent pas.** Première version : tout ce qui n'était pas complet
+  virait `unknown`. Vérifié sur Neon — `detect:index_transition` n'ayant **jamais** tourné nulle
+  part, les **6 projets** passaient au violet et « 6 à traiter sur 6 » ne distinguait plus le projet
+  jamais ouvert de celui suivi depuis des semaines. Un cockpit uniforme ne se lit pas « en moins
+  d'une minute » : il ne se lit plus du tout. D'où la séparation retenue — rien d'examiné →
+  `unknown` (on ne sait rien) · partiellement examiné sans rien trouver → **`watch`** (on ne peut
+  pas conclure) · tout examiné → le verdict des findings, `ok` compris.
+- **Couper la planification ne rend pas un projet sain** : `expectedCount === 0` vaut `none`, pas
+  `full`. Ça vise directement la décision en attente sur `barberconcept` (désactiver `weekly`) —
+  l'éteindre le rendra muet, jamais vert.
+- **Rendu inchangé** : `unknown` et `watch` existaient déjà côté template (violet « État inconnu »,
+  ambre « À surveiller »). Le correctif ne touche que le jugement ; la phrase de la carte nomme le
+  domaine jamais exécuté (« transitions d'indexation »), pas le type de job.
+
+**État réel après correctif** (lecture Neon) : `barberconcept`/`spinlink`/`wildcat` **unknown**
+(0/2 détecteurs), `jonlabs`/`bisrepetita`/`physiopommier` **watch** (1/2 — indexation jamais
+examinée). Plus aucun projet ne se déclare sain, et aucun ne le mérite encore.
+
+**Vérifs :** 917 tests (46 sur `home-state`, dont 9 neufs) · `npm run check` 0 erreur ·
+`scripts/dash-002-home-proof.ts` vert sur Neon avec une section **B-ter** qui prouve en base ce que
+vitest ne peut pas : la couverture rendue correspond aux jobs détecteurs réellement réussis, et sur
+un pipeline sain l'inconnu est bien imputé au diagnostic et non à la collecte.
+
+**Reste :** DASH-003 lot 2 (trancher d'abord quels onglets — BACKLOG et feature file divergent) ou
+DASH-006. La règle ne vaut que pour l'accueil : `project-cockpit-state.ts` (DASH-003) a son propre
+jugement, non revu ici.
+
 ## Etat session 2026-07-25 (revue visuelle — le cockpit est vu à l'œil pour la PREMIÈRE fois)
 
 **Fait :** la revue de rendu que DASH-002 et DASH-003 traînaient tous les deux en tête de leurs

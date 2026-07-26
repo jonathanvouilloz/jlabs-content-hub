@@ -12,6 +12,9 @@ import {
 	classifyPipeline,
 	classifySignal,
 	classifyProject,
+	deriveDiagnosisCoverage,
+	detectorLabel,
+	type DetectorCoverage,
 	rankProjects,
 	projectsNeedingAction,
 	summarizePortfolio,
@@ -40,6 +43,19 @@ function activity(over: Partial<ActivityCounts> = {}): ActivityCounts {
 	return { ...emptyActivity(), ...over };
 }
 
+/** Deux détecteurs attendus, tous deux passés — la couverture COMPLÈTE, cas nominal. */
+function detectors(over?: DetectorCoverage[]): DetectorCoverage[] {
+	return (
+		over ?? [
+			{ detector: 'detect:keyword_opportunity', lastSuccessAt: '2026-07-21 09:04:00' },
+			{ detector: 'detect:index_transition', lastSuccessAt: '2026-07-21 09:06:00' }
+		]
+	);
+}
+
+/** Couverture complète, pour les tests qui n'interrogent pas cet axe. */
+const FULL_DIAGNOSIS = deriveDiagnosisCoverage(detectors());
+
 function card(over: Partial<ProjectCardInput> = {}): ProjectCardInput {
 	return {
 		projectId: over.projectId ?? 'p1',
@@ -53,6 +69,7 @@ function card(over: Partial<ProjectCardInput> = {}): ProjectCardInput {
 		reviewsUnanswered: over.reviewsUnanswered ?? 0,
 		jobsDead: over.jobsDead ?? 0,
 		gscLastSuccessAt: over.gscLastSuccessAt ?? '2026-07-24 09:00:00',
+		detectors: over.detectors ?? detectors(),
 		sinceDb: over.sinceDb ?? SINCE,
 		now: over.now ?? NOW,
 		staleAfterHours: over.staleAfterHours ?? 24 * 10
@@ -256,7 +273,7 @@ describe('axe pipeline : est-ce que la donnée arrive ?', () => {
 
 describe('axe signal : une collecte cassée rend le signal INCONNU, jamais bon', () => {
 	it('pipeline cassé → signal unknown même sans aucun finding', () => {
-		const v = classifySignal({ openBySeverity: {}, activity: activity(), pipeline: 'broken' });
+		const v = classifySignal({ openBySeverity: {}, activity: activity(), pipeline: 'broken', diagnosis: FULL_DIAGNOSIS });
 		expect(v.state).toBe('unknown');
 		expect(v.reasons[0]).toContain('non fiable');
 	});
@@ -265,31 +282,138 @@ describe('axe signal : une collecte cassée rend le signal INCONNU, jamais bon',
 		const v = classifySignal({
 			openBySeverity: { critical: 2 },
 			activity: activity(),
-			pipeline: 'broken'
-		});
+			pipeline: 'broken', diagnosis: FULL_DIAGNOSIS });
 		expect(v.state).toBe('unknown');
 		expect(v.reasons.join(' ')).toContain('2 finding critique');
 	});
 
 	it('un critique ou une aggravation met le signal at_risk', () => {
-		expect(classifySignal({ openBySeverity: { critical: 1 }, activity: activity(), pipeline: 'ok' }).state).toBe(
+		expect(classifySignal({ openBySeverity: { critical: 1 }, activity: activity(), pipeline: 'ok', diagnosis: FULL_DIAGNOSIS }).state).toBe(
 			'at_risk'
 		);
 		expect(
-			classifySignal({ openBySeverity: {}, activity: activity({ aggravated: 1 }), pipeline: 'ok' }).state
+			classifySignal({ openBySeverity: {}, activity: activity({ aggravated: 1 }), pipeline: 'ok', diagnosis: FULL_DIAGNOSIS }).state
 		).toBe('at_risk');
 	});
 
 	it('une sévérité haute seule met en surveillance', () => {
-		expect(classifySignal({ openBySeverity: { high: 3 }, activity: activity(), pipeline: 'ok' }).state).toBe(
+		expect(classifySignal({ openBySeverity: { high: 3 }, activity: activity(), pipeline: 'ok', diagnosis: FULL_DIAGNOSIS }).state).toBe(
 			'watch'
 		);
 	});
 
 	it('un signal ok sur données en retard le DIT', () => {
-		const v = classifySignal({ openBySeverity: {}, activity: activity(), pipeline: 'degraded' });
+		const v = classifySignal({ openBySeverity: {}, activity: activity(), pipeline: 'degraded', diagnosis: FULL_DIAGNOSIS });
 		expect(v.state).toBe('ok');
 		expect(v.reasons.join(' ')).toContain('retard');
+	});
+});
+
+describe('couverture de diagnostic : « jamais regardé » n’est pas « rien à signaler »', () => {
+	const NEVER = detectors([
+		{ detector: 'detect:keyword_opportunity', lastSuccessAt: null },
+		{ detector: 'detect:index_transition', lastSuccessAt: null }
+	]);
+	const PARTIAL = detectors([
+		{ detector: 'detect:keyword_opportunity', lastSuccessAt: '2026-07-21 09:04:00' },
+		{ detector: 'detect:index_transition', lastSuccessAt: null }
+	]);
+
+	it('dérive les trois états de couverture', () => {
+		expect(deriveDiagnosisCoverage(NEVER).state).toBe('none');
+		expect(deriveDiagnosisCoverage(PARTIAL).state).toBe('partial');
+		expect(deriveDiagnosisCoverage(detectors()).state).toBe('full');
+		expect(deriveDiagnosisCoverage(PARTIAL).neverRan).toEqual(['detect:index_transition']);
+	});
+
+	it('aucun détecteur attendu vaut « none », jamais « full »', () => {
+		// Couper la planification d'un projet ne le rend pas sain : ça arrête de le regarder.
+		const c = deriveDiagnosisCoverage([]);
+		expect(c.state).toBe('none');
+		expect(c.expectedCount).toBe(0);
+	});
+
+	it('LE BUG : un projet jamais diagnostiqué ne se lit plus « ok »', () => {
+		// barberconcept au 2026-07-26 : collecte GSC fraîche, zéro finding, jamais détecté.
+		// Avant ce correctif, l'accueil l'affichait « Sain » — le plus sain du portefeuille.
+		const v = classifySignal({
+			openBySeverity: {},
+			activity: activity(),
+			pipeline: 'ok',
+			diagnosis: deriveDiagnosisCoverage(NEVER)
+		});
+		expect(v.state).toBe('unknown');
+		expect(v.state).not.toBe('ok');
+		expect(v.reasons[0]).toContain('jamais tourné');
+	});
+
+	it('la carte entière bascule en « unknown » et le dit dans sa phrase', () => {
+		const c = classifyProject(card({ slug: 'barberconcept', detectors: NEVER }));
+		// L'axe pipeline reste SAIN : c'est bien le signal qui manque, pas la collecte.
+		expect(c.pipeline.state).toBe('ok');
+		expect(c.signal.state).toBe('unknown');
+		expect(c.state).toBe('unknown');
+		expect(c.headline).toContain('État inconnu');
+		expect(c.headline).toContain('jamais tourné');
+		expect(c.diagnosis.state).toBe('none');
+	});
+
+	it('un diagnostic incomplet interdit « ok » mais laisse passer ce qui est su', () => {
+		// Rien trouvé côté mots-clés ne vaut rien pour l'indexation, jamais examinée.
+		const vide = classifySignal({
+			openBySeverity: {},
+			activity: activity(),
+			pipeline: 'ok',
+			diagnosis: deriveDiagnosisCoverage(PARTIAL)
+		});
+		expect(vide.state).toBe('watch');
+		expect(vide.state).not.toBe('ok');
+		expect(vide.reasons.join(' ')).toContain('diagnostic incomplet');
+		expect(vide.reasons.join(' ')).toContain(detectorLabel('detect:index_transition'));
+
+		// En revanche un critique RÉEL reste un critique : l'angle mort ne l'efface pas.
+		const critique = classifySignal({
+			openBySeverity: { critical: 1 },
+			activity: activity(),
+			pipeline: 'ok',
+			diagnosis: deriveDiagnosisCoverage(PARTIAL)
+		});
+		expect(critique.state).toBe('at_risk');
+		expect(critique.reasons.join(' ')).toContain('diagnostic incomplet');
+	});
+
+	it('une couverture complète et rien à signaler rend bien « ok »', () => {
+		// Le correctif ne doit pas rendre tout le portefeuille gris : sur un diagnostic
+		// réellement complet, le vert reste atteignable.
+		const c = classifyProject(card({ detectors: detectors() }));
+		expect(c.signal.state).toBe('ok');
+		expect(c.state).toBe('ok');
+		expect(c.headline).toBe('Collecte et performance au vert');
+	});
+
+	it('un projet jamais diagnostiqué passe AVANT un projet en surveillance', () => {
+		// `unknown` devance `watch` (STATE_RANK) : un projet muet peut cacher n'importe quoi.
+		const muet = classifyProject(card({ slug: 'muet', detectors: NEVER }));
+		const surveille = classifyProject(card({ slug: 'surveille', openBySeverity: { high: 2 } }));
+		expect(rankProjects([surveille, muet]).map((c) => c.slug)).toEqual(['muet', 'surveille']);
+	});
+
+	it('« jamais examiné » et « partiellement examiné » ne portent PAS le même badge', () => {
+		// Sans cette distinction, `detect:index_transition` n'ayant jamais tourné, les six
+		// projets viraient au violet et l'écran ne différenciait plus rien.
+		const jamais = classifyProject(card({ slug: 'jamais', detectors: NEVER }));
+		const partiel = classifyProject(card({ slug: 'partiel', detectors: PARTIAL }));
+		expect(jamais.state).toBe('unknown');
+		expect(partiel.state).toBe('watch');
+		expect(partiel.state).not.toBe(jamais.state);
+		// Et l'ordre reste celui de l'urgence : ne rien savoir passe devant.
+		expect(rankProjects([partiel, jamais]).map((c) => c.slug)).toEqual(['jamais', 'partiel']);
+	});
+
+	it('nomme le domaine, pas le type de job', () => {
+		expect(detectorLabel('detect:index_transition')).toBe('transitions d’indexation');
+		// Un détecteur inconnu s'affiche tel quel plutôt que de disparaître de la phrase.
+		expect(detectorLabel('detect:futur')).toBe('detect:futur');
 	});
 });
 

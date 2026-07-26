@@ -137,6 +137,62 @@ export function groupActivity(rows: { eventType: string; n: number }[]): Activit
 	return out;
 }
 
+// ── Couverture de diagnostic (« jamais regardé » ≠ « rien à signaler ») ──
+
+export type DiagnosisState = 'none' | 'partial' | 'full';
+
+/** Un domaine de diagnostic ATTENDU pour le projet, et son dernier passage réussi. */
+export interface DetectorCoverage {
+	/** Type de job détecteur, ex. `detect:keyword_opportunity`. */
+	detector: string;
+	/** Dernier succès, format DB — `null` si ce détecteur n'a JAMAIS tourné sur ce projet. */
+	lastSuccessAt: string | null;
+}
+
+export interface DiagnosisCoverage {
+	state: DiagnosisState;
+	/** Les détecteurs attendus qui n'ont jamais tourné. Vide si couverture complète. */
+	neverRan: string[];
+	/** Les détecteurs attendus qui ont tourné au moins une fois. */
+	ranCount: number;
+	expectedCount: number;
+}
+
+/**
+ * Nom lisible d'un détecteur, pour que la carte nomme le domaine et pas un type de job.
+ * Un détecteur inconnu retombe sur son propre type : mieux vaut un nom technique affiché
+ * qu'un domaine silencieusement absent de la phrase.
+ */
+const DETECTOR_LABELS: Record<string, string> = {
+	'detect:keyword_opportunity': 'opportunités de mots-clés',
+	'detect:index_transition': 'transitions d’indexation'
+};
+
+export function detectorLabel(detector: string): string {
+	return DETECTOR_LABELS[detector] ?? detector;
+}
+
+/**
+ * Dérive la couverture de diagnostic d'un projet.
+ *
+ * Le pipeline dit si la donnée ARRIVE ; il ne dit rien de ce qu'on en a fait. Un projet
+ * peut avoir une collecte GSC parfaitement fraîche et n'avoir jamais été passé au moindre
+ * détecteur — c'est le cas de `barberconcept` au 2026-07-26. Ses zéro findings ne sont pas
+ * un bulletin de santé : c'est une page blanche.
+ *
+ * `expected` est la liste des détecteurs que le CATALOGUE prévoit pour ce projet (même
+ * source que ce que le scheduler enfile). Un projet dont on aurait désactivé la cadence
+ * n'a donc aucun détecteur attendu → `none`, pas `full` : couper la planification ne rend
+ * pas un projet sain, ça arrête juste de le regarder.
+ */
+export function deriveDiagnosisCoverage(expected: DetectorCoverage[]): DiagnosisCoverage {
+	const neverRan = expected.filter((d) => !d.lastSuccessAt).map((d) => d.detector);
+	const ranCount = expected.length - neverRan.length;
+	const state: DiagnosisState =
+		ranCount === 0 ? 'none' : neverRan.length === 0 ? 'full' : 'partial';
+	return { state, neverRan, ranCount, expectedCount: expected.length };
+}
+
 // ── Compteurs : le nombre ET son lien, depuis un seul descripteur ────
 
 /**
@@ -267,6 +323,11 @@ export interface ProjectCardInput {
 	jobsDead: number;
 	/** Dernier succès de collecte GSC (canon), `null` si jamais collecté. */
 	gscLastSuccessAt: string | null;
+	/**
+	 * Les détecteurs ATTENDUS pour ce projet et leur dernier passage réussi. C'est ce qui
+	 * empêche « zéro finding » de se lire « zéro problème » sur un projet jamais examiné.
+	 */
+	detectors: DetectorCoverage[];
 	/** Borne basse de la période, au format DB — celle SOUS LAQUELLE l'activité a été comptée. */
 	sinceDb: string;
 	now: Date;
@@ -282,6 +343,8 @@ export interface ProjectCard {
 	pipeline: AxisVerdict<PipelineState>;
 	signal: AxisVerdict<SignalState>;
 	freshness: Freshness;
+	/** Ce qui a réellement été examiné — rendu à l'écran, pas seulement pris en compte. */
+	diagnosis: DiagnosisCoverage;
 	/** UNE phrase qui nomme l'axe en cause — ce qu'on lit en moins d'une minute. */
 	headline: string;
 	openBySeverity: Record<string, number>;
@@ -372,11 +435,25 @@ export function classifyPipeline(input: {
  * **`unknown`**, pas `ok`. Sans cette règle, un projet dont la collecte est morte
  * afficherait « 0 nouveau finding » et se lirait comme le projet le plus sain du
  * portefeuille — le pire mode de panne, celui qui ne se plaint pas.
+ *
+ * ⚠️ Même règle, DEUXIÈME cause, et c'est celle qui manquait : un pipeline sain ne
+ * suffit pas, encore faut-il que quelque chose ait REGARDÉ. `barberconcept` collectait
+ * bien et s'affichait « Sain » sans avoir jamais été diagnostiqué — zéro finding s'y
+ * lisait « zéro problème » alors que ça voulait dire « jamais ouvert le dossier ».
+ * D'où l'invariant : **`ok` n'est atteignable que sur un diagnostic complet.** Une
+ * couverture partielle laisse passer ce qui est POSITIVEMENT su (un critique reste un
+ * critique) mais ne peut plus conclure au vert — l'absence de finding n'est une bonne
+ * nouvelle que dans les domaines réellement examinés.
+ *
+ * Trois degrés, et ils ne se valent pas : rien d'examiné → `unknown` (on ne sait rien) ;
+ * partiellement examiné sans rien trouver → `watch` (on ne peut pas conclure) ; tout
+ * examiné → le verdict des findings, `ok` compris.
  */
 export function classifySignal(input: {
 	openBySeverity: Record<string, number>;
 	activity: ActivityCounts;
 	pipeline: PipelineState;
+	diagnosis: DiagnosisCoverage;
 }): AxisVerdict<SignalState> {
 	const critical = sumSeverities(input.openBySeverity, CRITICAL_SEVERITIES);
 	const high = sumSeverities(input.openBySeverity, HIGH_SEVERITIES);
@@ -393,6 +470,20 @@ export function classifySignal(input: {
 		return { state: 'unknown', reasons };
 	}
 
+	// Jamais diagnostiqué : on ne sait rien, et le dire est le seul verdict honnête. Ce cas
+	// est distinct du pipeline cassé — ici la donnée arrive, personne ne l'a jugée.
+	if (input.diagnosis.state === 'none') {
+		// « signal absent » et non « non fiable » (le cas pipeline cassé juste au-dessus) :
+		// là-bas une mesure existe mais ne vaut rien, ici il n'y en a jamais eu.
+		const reasons = [
+			input.diagnosis.expectedCount === 0
+				? 'signal absent : aucun diagnostic n’est planifié sur ce projet'
+				: 'signal absent : aucun diagnostic n’a jamais tourné sur ce projet'
+		];
+		if (critical > 0) reasons.push(`${critical} finding critique déjà ouvert`);
+		return { state: 'unknown', reasons };
+	}
+
 	const reasons: string[] = [];
 	if (critical > 0) reasons.push(`${critical} finding${critical > 1 ? 's' : ''} critique${critical > 1 ? 's' : ''}`);
 	if (high > 0) reasons.push(`${high} finding${high > 1 ? 's' : ''} de sévérité haute`);
@@ -401,6 +492,23 @@ export function classifySignal(input: {
 	let state: SignalState = 'ok';
 	if (critical > 0 || input.activity.aggravated > 0) state = 'at_risk';
 	else if (high > 0) state = 'watch';
+
+	// Diagnostic incomplet : ce qui a été trouvé reste vrai, mais « rien trouvé » ne vaut
+	// que pour les domaines examinés. Un `ok` affirmerait ici plus que la mesure → `watch`,
+	// « je ne peux pas dire que c'est propre ». Un `watch`/`at_risk` déjà acquis est
+	// conservé : il repose sur des findings réels, que l'angle mort ne rend pas moins vrais.
+	//
+	// `watch` et NON `unknown` : `unknown` est réservé au cas où l'on ne sait RIEN. Les
+	// confondre remplirait l'écran d'une seule couleur — au 2026-07-26,
+	// `detect:index_transition` n'ayant jamais tourné nulle part, les six projets viraient
+	// au violet et « 6 à traiter sur 6 » ne distinguait plus le projet jamais ouvert de
+	// celui qu'on suit depuis des semaines. Un cockpit uniforme ne se lit pas « en moins
+	// d'une minute » : il ne se lit plus du tout.
+	if (input.diagnosis.state === 'partial') {
+		const domains = input.diagnosis.neverRan.map(detectorLabel).join(', ');
+		reasons.push(`diagnostic incomplet : ${domains} — jamais exécuté`);
+		if (state === 'ok') state = 'watch';
+	}
 
 	// Une collecte dégradée n'annule pas le signal (la donnée arrive, en retard) mais on
 	// le dit : lire « ok » sur des mesures d'une semaine de trop serait trompeur.
@@ -429,10 +537,12 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 		freshness,
 		jobsDead: input.jobsDead
 	});
+	const diagnosis = deriveDiagnosisCoverage(input.detectors);
 	const signal = classifySignal({
 		openBySeverity: input.openBySeverity,
 		activity: input.activity,
-		pipeline: pipeline.state
+		pipeline: pipeline.state,
+		diagnosis
 	});
 
 	let state: ProjectState;
@@ -453,6 +563,7 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 		pipeline,
 		signal,
 		freshness,
+		diagnosis,
 		headline,
 		openBySeverity: input.openBySeverity,
 		openTotal: sumAll(input.openBySeverity),

@@ -346,6 +346,57 @@ async function main(): Promise<void> {
 			`liste=${await replayCounterHref(twiceHref)}`
 		);
 
+		// ── B-ter. Un projet jamais diagnostiqué ne se lit pas « sain » ──
+		// Ce que vitest ne peut PAS prouver : que la couverture lue en base correspond aux
+		// détecteurs réellement passés. Le bug d'origine (`barberconcept` affiché « Sain »
+		// sans avoir jamais été détecté) venait de là — le module pur n'avait simplement
+		// jamais reçu l'information.
+		section('B-ter. « Jamais diagnostiqué » ne se lit pas « sain »');
+		const cockpit = await loadHomeCockpit({ db });
+		check(
+			'aucune carte ne se dit « ok » sans couverture complète',
+			cockpit.projects.every((c) => c.state !== 'ok' || c.diagnosis.state === 'full'),
+			cockpit.projects.map((c) => `${c.slug}:${c.state}/${c.diagnosis.state}`).join(' · ')
+		);
+		for (const card of cockpit.projects) {
+			// La couverture rendue doit correspondre aux jobs détecteurs RÉELLEMENT réussis.
+			const ran = await scalar(sql`
+				SELECT count(DISTINCT type)::int AS n FROM "seostats"."jobs"
+				 WHERE project_id = ${card.projectId} AND status = 'succeeded' AND type LIKE 'detect:%'
+			`);
+			check(
+				`[${card.slug}] la couverture reflète les détecteurs réellement passés`,
+				card.diagnosis.ranCount === Math.min(ran, card.diagnosis.expectedCount),
+				`base=${ran} · carte=${card.diagnosis.ranCount}/${card.diagnosis.expectedCount} → ${card.diagnosis.state}`
+			);
+		}
+		const jamais = cockpit.projects.filter((c) => c.diagnosis.state === 'none');
+		check(
+			'un projet sans aucun détecteur passé vaut « unknown », jamais « ok »',
+			jamais.every((c) => c.signal.state === 'unknown'),
+			jamais.map((c) => `${c.slug}:${c.signal.state}`).join(' · ') || '(aucun projet dans ce cas)'
+		);
+		// Et l'inconnu vient bien du DIAGNOSTIC, pas de la collecte : sur les projets dont le
+		// pipeline est sain, la phrase doit nommer le diagnostic absent. Sans ce contrôle,
+		// l'assertion ci-dessus passerait aussi bien si le signal était `unknown` pour une
+		// tout autre raison — et l'intégration sentinelle de la section B en fabrique une.
+		const jamaisPipelineSain = jamais.filter(
+			(c) => c.pipeline.state === 'ok' || c.pipeline.state === 'degraded'
+		);
+		check(
+			'sur un pipeline sain, l’inconnu est imputé au diagnostic (pas à la collecte)',
+			jamaisPipelineSain.length > 0 &&
+				jamaisPipelineSain.every((c) => /diagnostic/.test(c.signal.reasons[0] ?? '')),
+			jamaisPipelineSain.map((c) => `${c.slug}: ${c.signal.reasons[0]}`).join(' · ') ||
+				'(aucun projet à pipeline sain jamais diagnostiqué)'
+		);
+		const partiels = cockpit.projects.filter((c) => c.diagnosis.state === 'partial');
+		check(
+			'un diagnostic partiel reste DISTINCT de « rien examiné » (pas le même badge)',
+			partiels.every((c) => c.state !== 'unknown' && c.state !== 'ok'),
+			partiels.map((c) => `${c.slug}:${c.state}`).join(' · ') || '(aucun projet dans ce cas)'
+		);
+
 		// ── C. Acceptation : chaque compteur ouvre une liste cohérente ─
 		section('C. Chaque compteur ouvre une liste filtrée cohérente');
 		let linked = 0;

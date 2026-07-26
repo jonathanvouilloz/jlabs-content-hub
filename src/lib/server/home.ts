@@ -31,6 +31,7 @@ import {
 	jobs,
 	monitoringRuns,
 	projectIntegrations,
+	projectProjections,
 	projects
 } from './db/schema.js';
 import type { AppDb } from './db/types.js';
@@ -50,10 +51,18 @@ import {
 	type ActivityCounts,
 	type Counter,
 	type CostSummary,
+	type DetectorCoverage,
 	type IntegrationSummary,
 	type PortfolioHealth,
 	type ProjectCard
 } from './home-state.js';
+import {
+	SCHEDULE_CADENCES,
+	catalogFor,
+	resolveScheduleConfig,
+	type CadenceSpec,
+	type ScheduleCadence
+} from './schedule-state.js';
 
 /**
  * Au-delà de ce délai sans succès de collecte GSC, le pipeline est dit « en retard ».
@@ -219,6 +228,96 @@ async function loadIntegrations(db: AppDb): Promise<Map<string, IntegrationSumma
 	return out;
 }
 
+/**
+ * Tous les types de job détecteur du catalogue, toutes cadences confondues.
+ *
+ * Dérivé du CATALOGUE et non écrit à la main : l'ensemble « ce qui diagnostique » ne peut
+ * donc pas diverger de « ce que le scheduler enfile ». Ajouter un `detect:*` au catalogue
+ * l'intègre d'office à la couverture — sans quoi un détecteur neuf ferait passer les
+ * projets pour couverts avant même d'avoir tourné une seule fois.
+ */
+export const DETECTOR_JOB_TYPES: string[] = [
+	...new Set(
+		SCHEDULE_CADENCES.flatMap((c) => catalogFor(c).map((e) => e.jobType)).filter((t) =>
+			t.startsWith('detect:')
+		)
+	)
+];
+
+/**
+ * Les détecteurs ATTENDUS par projet, selon les cadences activées pour lui.
+ *
+ * Une seule requête sur `project_projections` puis résolution en mémoire — jamais un
+ * `loadProjectScheduleConfig` par projet, qui rendrait six allers-retours à l'accueil.
+ * Même tolérance que le scheduler : un payload illisible retombe sur les défauts SPEC
+ * plutôt que de faire croire qu'un projet n'a rien de planifié.
+ */
+async function loadExpectedDetectors(db: AppDb): Promise<Map<string, string[]>> {
+	const rows = await db
+		.select({ projectId: projectProjections.projectId, payload: projectProjections.payload })
+		.from(projectProjections)
+		.where(eq(projectProjections.status, 'current'));
+
+	const overrides = new Map<string, Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> | null>();
+	for (const r of rows) {
+		let parsed: { schedules?: Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> } | null = null;
+		try {
+			parsed = r.payload ? JSON.parse(r.payload) : null;
+		} catch {
+			parsed = null;
+		}
+		overrides.set(r.projectId, parsed?.schedules ?? null);
+	}
+
+	const detectorsFor = (o: Partial<Record<ScheduleCadence, Partial<CadenceSpec>>> | null) => {
+		const config = resolveScheduleConfig(o);
+		const set = new Set<string>();
+		for (const cadence of SCHEDULE_CADENCES) {
+			if (!config[cadence].enabled) continue;
+			for (const entry of catalogFor(cadence)) {
+				if (entry.jobType.startsWith('detect:')) set.add(entry.jobType);
+			}
+		}
+		return [...set];
+	};
+
+	const defaults = detectorsFor(null);
+	const out = new Map<string, string[]>();
+	for (const [projectId, o] of overrides) out.set(projectId, detectorsFor(o));
+	// Les projets sans projection ne sont PAS absents de la couverture : ils tournent sur
+	// les défauts, donc tous les détecteurs les attendent. `home.ts` retombera dessus.
+	out.set('__default__', defaults);
+	return out;
+}
+
+/**
+ * Dernier passage RÉUSSI de chaque détecteur, par (projet, type de job).
+ *
+ * `succeeded` uniquement : un détecteur mort en dead-letter n'a rien diagnostiqué, et le
+ * compter comme passage ferait exactement l'erreur qu'on corrige — prendre l'absence de
+ * verdict pour un verdict vide.
+ */
+async function loadDetectorLastSuccess(db: AppDb): Promise<Map<string, Map<string, string | null>>> {
+	if (DETECTOR_JOB_TYPES.length === 0) return new Map();
+	const rows = await db
+		.select({
+			projectId: jobs.projectId,
+			type: jobs.type,
+			lastSuccessAt: sql<string | null>`max(${jobs.finishedAt})`
+		})
+		.from(jobs)
+		.where(and(inArray(jobs.type, DETECTOR_JOB_TYPES), eq(jobs.status, 'succeeded')))
+		.groupBy(jobs.projectId, jobs.type);
+
+	const out = new Map<string, Map<string, string | null>>();
+	for (const r of rows) {
+		const bucket = out.get(r.projectId) ?? new Map<string, string | null>();
+		bucket.set(r.type, r.lastSuccessAt);
+		out.set(r.projectId, bucket);
+	}
+	return out;
+}
+
 export interface RecentRun {
 	id: string;
 	projectId: string;
@@ -329,7 +428,9 @@ export async function loadHomeCockpit(input: {
 		recentRuns,
 		runStatusCounts,
 		periodRunCosts,
-		capacity
+		capacity,
+		expectedDetectors,
+		detectorLastSuccess
 	] = await Promise.all([
 		loadProjects(input.db),
 		loadOpenBySeverity(input.db),
@@ -341,7 +442,9 @@ export async function loadHomeCockpit(input: {
 		loadRecentRuns(input.db, RECENT_RUNS_LIMIT),
 		loadRunStatusCounts(input.db, sinceDb),
 		loadPeriodRunCosts(input.db, sinceDb),
-		loadCapacitySnapshot({ db: input.db, now })
+		loadCapacitySnapshot({ db: input.db, now }),
+		loadExpectedDetectors(input.db),
+		loadDetectorLastSuccess(input.db)
 	]);
 
 	const cards = projectRows.map((p) => {
@@ -351,6 +454,15 @@ export async function loadHomeCockpit(input: {
 		// n'importe quel provider ferait passer un projet pour frais parce que LinkedIn a
 		// publié un post.
 		const gsc = projectIntegrationList.find((i) => i.provider === FRESHNESS_PROVIDER);
+		// Ce que le catalogue prévoit pour CE projet, croisé au dernier succès réel. Un
+		// détecteur attendu mais jamais exécuté entre ici avec `lastSuccessAt: null` — c'est
+		// exactement ce qui interdit à la carte de conclure « au vert ».
+		const expected = expectedDetectors.get(p.id) ?? expectedDetectors.get('__default__') ?? [];
+		const lastSuccess = detectorLastSuccess.get(p.id);
+		const detectors: DetectorCoverage[] = expected.map((detector) => ({
+			detector,
+			lastSuccessAt: lastSuccess?.get(detector) ?? null
+		}));
 		return classifyProject({
 			projectId: p.id,
 			slug: p.slug,
@@ -363,6 +475,7 @@ export async function loadHomeCockpit(input: {
 			reviewsUnanswered: reviewsUnanswered.get(p.id) ?? 0,
 			jobsDead: jobsDead.get(p.id) ?? 0,
 			gscLastSuccessAt: gsc?.lastSuccessAt ?? null,
+			detectors,
 			sinceDb,
 			now,
 			staleAfterHours
