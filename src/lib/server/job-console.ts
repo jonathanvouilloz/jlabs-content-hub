@@ -37,6 +37,8 @@ export interface JobFilters {
 	errorClasses: ErrorClass[];
 	projectSlug: string | null;
 	type: string | null;
+	/** DASH-006 — restreint aux jobs d'un run logique (`?run=<id>`). */
+	runId: string | null;
 	limit: number;
 	offset: number;
 }
@@ -50,6 +52,7 @@ export interface RawJobFilters {
 	class?: string | null;
 	project?: string | null;
 	type?: string | null;
+	run?: string | null;
 	limit?: string | null;
 	offset?: string | null;
 }
@@ -68,7 +71,7 @@ function splitList(raw: string | null | undefined): string[] {
  * afficher la file, pas une erreur. La garantie qui compte est l'inverse — rien
  * d'inconnu ne descend jusqu'à la requête, donc le filtre ne peut pas devenir un
  * canal d'écriture arbitraire. `projectSlug` et `type` restent libres : ce sont
- * des valeurs LIÉES (`$n`), jamais concaténées.
+ * des valeurs LIÉES (`$n`), jamais concaténées — `run` de même.
  */
 export function normalizeJobFilters(raw: RawJobFilters): JobFilters {
 	const statuses = splitList(raw.status).filter((s): s is JobStatus =>
@@ -93,6 +96,7 @@ export function normalizeJobFilters(raw: RawJobFilters): JobFilters {
 		errorClasses: [...new Set(errorClasses)],
 		projectSlug: raw.project?.trim() || null,
 		type: raw.type?.trim() || null,
+		runId: raw.run?.trim() || null,
 		limit,
 		offset
 	};

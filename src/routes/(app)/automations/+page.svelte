@@ -1,0 +1,555 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { AlarmClockOff, CalendarClock, Gauge, ShieldCheck, ToggleLeft } from 'lucide-svelte';
+	import {
+		CADENCE_HEALTH_LABEL,
+		CADENCE_LABEL,
+		CAPACITY_STATE_LABEL,
+		PROVIDER_LABEL,
+		RUN_STATUS_LABEL,
+		STEP_STATUS_LABEL,
+		TRIGGER_LABEL,
+		formatDbTimestamp,
+		formatDuration,
+		formatQuota,
+		formatRelative,
+		formatScheduleSlot
+	} from '$lib/utils/job-format.js';
+
+	let { data } = $props();
+
+	let projectSlug = $state<string>('');
+	let runStatus = $state<string>('');
+	let cadence = $state<string>('');
+
+	// Les contrôles suivent l'URL, ils ne la devinent pas (même règle que `/jobs`) :
+	// sans cette synchro, un retour arrière laisserait des sélecteurs qui ne
+	// décrivent plus la liste affichée.
+	$effect(() => {
+		projectSlug = data.filters.projectSlug ?? '';
+		runStatus = data.filters.statuses[0] ?? '';
+		cadence = data.filters.cadence ?? '';
+	});
+
+	function buildParams(overrides: Record<string, string | null>) {
+		const params = new URLSearchParams(page.url.searchParams);
+		for (const [k, v] of Object.entries(overrides)) {
+			if (v === null || v === '') params.delete(k);
+			else params.set(k, v);
+		}
+		if (!('offset' in overrides)) params.delete('offset');
+		return params;
+	}
+
+	function applyFilters() {
+		goto(
+			`?${buildParams({
+				project: projectSlug || null,
+				status: runStatus || null,
+				cadence: cadence || null
+			})}`,
+			{ keepFocus: true }
+		);
+	}
+
+	function resetFilters() {
+		projectSlug = '';
+		runStatus = '';
+		cadence = '';
+		goto('?', { keepFocus: true });
+	}
+
+	function gotoOffset(newOffset: number) {
+		goto(`?${buildParams({ offset: newOffset === 0 ? null : String(newOffset) })}`, {
+			keepFocus: true
+		});
+	}
+
+	const totalPages = $derived(Math.ceil(data.totalRuns / data.filters.limit));
+	const currentPage = $derived(Math.floor(data.filters.offset / data.filters.limit) + 1);
+
+	// ── Calendrier ───────────────────────────────────────────────────
+	// Une cadence non câblée n'a rien à attendre : elle est nommée une fois, en
+	// note, plutôt que répétée sur chaque projet.
+	const tracked = $derived(data.cadences.filter((r) => r.wired));
+	const unwiredCadences = $derived([
+		...new Set(data.cadences.filter((r) => !r.wired).map((r) => r.cadence))
+	]);
+
+	const byProject = $derived(
+		tracked.reduce<Array<{ slug: string; name: string; rows: typeof tracked }>>((acc, row) => {
+			const last = acc.at(-1);
+			if (last && last.slug === row.projectSlug) last.rows.push(row);
+			else acc.push({ slug: row.projectSlug, name: row.projectName, rows: [row] });
+			return acc;
+		}, [])
+	);
+
+	const HEALTH_TONE: Record<string, string> = {
+		ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+		late: 'bg-amber-50 text-amber-700 border-amber-200',
+		missed: 'bg-red-50 text-red-700 border-red-200',
+		disabled: 'bg-surface-50 text-surface-500 border-surface-200',
+		unwired: 'bg-surface-50 text-surface-400 border-surface-200',
+		never_due: 'bg-violet-50 text-violet-700 border-violet-200'
+	};
+
+	const RUN_TONE: Record<string, string> = {
+		success: 'text-emerald-700',
+		partial: 'text-amber-700',
+		failed: 'text-red-700',
+		cancelled: 'text-surface-500',
+		running: 'text-blue-700',
+		queued: 'text-surface-500'
+	};
+
+	const STEP_TONE: Record<string, string> = {
+		success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+		failed: 'bg-red-50 text-red-700 border-red-200',
+		skipped: 'bg-violet-50 text-violet-700 border-violet-200',
+		provider_unavailable: 'bg-amber-50 text-amber-700 border-amber-200',
+		running: 'bg-blue-50 text-blue-700 border-blue-200',
+		queued: 'bg-surface-50 text-surface-600 border-surface-200'
+	};
+
+	const lookbackHours = $derived(Math.round(data.lookbackMs / 3_600_000));
+
+	const providerRows = $derived(data.rules.capacity.providers.filter((p) => p.provider !== 'none'));
+	const activeFlags = $derived(
+		Object.entries(data.rules.flags ?? {})
+			.filter(([, on]) => on)
+			.map(([name]) => name)
+	);
+</script>
+
+<div class="flex flex-col h-[calc(100vh-73px)] -mx-6 -my-6 lg:-mx-8">
+	<!-- Header -->
+	<div class="flex-shrink-0 px-6 pt-6 pb-4 lg:px-8">
+		<h1 class="text-xl font-semibold text-surface-900">Automatisations</h1>
+		<p class="mt-0.5 text-xs text-surface-400">
+			Ce que le cockpit devait déclencher, et ce qu'il a réellement déclenché. Créneaux en
+			<span class="font-medium">{data.timeZone}</span> (heure métier), horodatages en
+			<span class="font-medium">UTC</span>.
+		</p>
+	</div>
+
+	<!-- Résumé : la seule ligne qui se lit sans rien déplier -->
+	<div class="flex-shrink-0 px-6 lg:px-8 pb-3">
+		<div
+			class="rounded-lg border px-3 py-2 text-xs
+				{data.summary.missed > 0
+				? 'border-red-200 bg-red-50 text-red-800'
+				: data.summary.late > 0
+					? 'border-amber-200 bg-amber-50 text-amber-800'
+					: 'border-surface-200 bg-white text-surface-600'}"
+		>
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+				{#if data.summary.missed > 0}
+					<AlarmClockOff class="h-4 w-4 flex-shrink-0" />
+					<span class="font-semibold">
+						{data.summary.missed} créneau{data.summary.missed > 1 ? 'x' : ''} manqué{data.summary
+							.missed > 1
+							? 's'
+							: ''} hors fenêtre de rattrapage
+					</span>
+					<span>
+						— il{data.summary.missed > 1 ? 's' : ''} ne partira{data.summary.missed > 1
+							? 'ont'
+							: ''} jamais. Projets : {data.summary.projectsMissing.join(', ')}.
+					</span>
+				{:else if data.summary.late > 0}
+					<CalendarClock class="h-4 w-4 flex-shrink-0" />
+					<span class="font-semibold">{data.summary.late} créneau(x) en retard</span>
+					<span>— encore dans la fenêtre de {lookbackHours} h : le prochain tick les tirera.</span>
+				{:else}
+					<ShieldCheck class="h-4 w-4 flex-shrink-0 text-emerald-600" />
+					<span class="font-medium text-surface-900">Tous les créneaux dus ont été tirés.</span>
+					<span class="text-surface-400">
+						Ce verdict porte sur la PLANIFICATION seule — la réussite de ce qui a été tiré se lit
+						run par run ci-dessous.
+					</span>
+				{/if}
+			</div>
+			<div class="mt-1 text-[11px] opacity-80">
+				{data.summary.expected} cadence{data.summary.expected > 1 ? 's' : ''} attendue{data.summary
+					.expected > 1
+					? 's'
+					: ''} (câblée + activée) · {data.summary.ok} à l'heure · {data.summary.disabled} désactivée(s)
+				· {data.summary.neverDue} jamais due(s) · {data.summary.unwired} non câblée(s)
+			</div>
+		</div>
+	</div>
+
+	<div class="flex-1 overflow-y-auto px-6 lg:px-8 pb-8 space-y-4">
+		<!-- Calendrier : créneau attendu ↔ run observé -->
+		<section class="rounded-lg border border-surface-200 bg-white">
+			<div class="flex items-center gap-2 border-b border-surface-100 px-3 py-2">
+				<CalendarClock class="h-3.5 w-3.5 text-surface-400" />
+				<span class="text-xs font-medium text-surface-900">Calendrier</span>
+				<span class="text-[11px] text-surface-400">
+					le dernier créneau <span class="font-medium">dû</span> (calculé) contre le run
+					<span class="font-medium">observé</span> — un tick qui n'a pas tourné ne laisse aucune ligne
+					en base, c'est cette comparaison qui le révèle
+				</span>
+			</div>
+
+			<div class="overflow-x-auto">
+				<table class="w-full text-xs">
+					<thead class="border-b border-surface-100 text-left text-[11px] text-surface-400">
+						<tr>
+							<th class="px-3 py-1.5 font-medium">Projet / cadence</th>
+							<th class="px-3 py-1.5 font-medium">Dernier créneau dû</th>
+							<th class="px-3 py-1.5 font-medium">Planification</th>
+							<th class="px-3 py-1.5 font-medium">Run de ce créneau</th>
+							<th class="px-3 py-1.5 font-medium">Dernière réussite</th>
+							<th class="px-3 py-1.5 font-medium">Prochain créneau</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each byProject as project (project.slug)}
+							{#each project.rows as row, i (row.cadence)}
+								<tr class="border-b border-surface-50 last:border-0">
+									<td class="px-3 py-1.5">
+										{#if i === 0}
+											<a
+												href="/projects/{project.slug}"
+												class="font-semibold text-surface-900 hover:underline"
+											>
+												{project.name}
+											</a>
+										{/if}
+										<div class="text-surface-500">
+											{CADENCE_LABEL[row.cadence] ?? row.cadence}
+										</div>
+									</td>
+									<td class="px-3 py-1.5 tabular-nums text-surface-600">
+										{formatScheduleSlot(row.lastDueSlot)}
+										{#if row.lastDueDb}
+											<span class="text-surface-300">
+												· {formatRelative(row.lastDueDb, data.now)}
+											</span>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5">
+										<span
+											class="inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium
+												{HEALTH_TONE[row.verdict.health] ?? 'border-surface-200 text-surface-500'}"
+											title={row.verdict.reason}
+										>
+											{CADENCE_HEALTH_LABEL[row.verdict.health] ?? row.verdict.health}
+										</span>
+										{#if row.verdict.recoverable}
+											<span class="ml-1 text-[10px] text-surface-400">rattrapable</span>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5">
+										{#if row.lastRun}
+											<span class={RUN_TONE[row.lastRun.status] ?? 'text-surface-500'}>
+												{RUN_STATUS_LABEL[row.lastRun.status] ?? row.lastRun.status}
+											</span>
+										{:else}
+											<span class="text-surface-300">aucun</span>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5 tabular-nums text-surface-500">
+										{#if row.lastSuccess}
+											{formatScheduleSlot(row.lastSuccess.slot)}
+										{:else}
+											<span class="text-surface-300">jamais</span>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5 tabular-nums text-surface-500">
+										{#if row.nextSlot}
+											{formatScheduleSlot(row.nextSlot)}
+											<span class="text-surface-300">· {formatRelative(row.nextDb, data.now)}</span>
+										{:else}
+											<span class="text-surface-300">—</span>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			{#if unwiredCadences.length > 0}
+				<p class="border-t border-surface-100 px-3 py-1.5 text-[11px] text-surface-400">
+					Cadences sans job câblé (elles se calculent mais ne mettent rien en file, donc aucun run
+					n'est attendu) :
+					<span class="font-medium">
+						{unwiredCadences.map((c) => CADENCE_LABEL[c] ?? c).join(', ')}
+					</span>
+				</p>
+			{/if}
+		</section>
+
+		<!-- Runs -->
+		<section class="rounded-lg border border-surface-200 bg-white">
+			<div
+				class="flex flex-wrap items-center gap-2 border-b border-surface-100 px-3 py-2 text-xs"
+			>
+				<span class="font-medium text-surface-900">Runs</span>
+				<span class="text-[11px] text-surface-400">
+					{data.totalRuns} pour ces filtres
+				</span>
+
+				<div class="ml-auto flex flex-wrap items-center gap-1.5">
+					<select
+						bind:value={projectSlug}
+						onchange={applyFilters}
+						class="rounded border border-surface-200 px-1.5 py-1 text-[11px] text-surface-700"
+					>
+						<option value="">Tous les projets</option>
+						{#each data.projectList as p (p.slug)}
+							<option value={p.slug}>{p.name}</option>
+						{/each}
+					</select>
+					<select
+						bind:value={cadence}
+						onchange={applyFilters}
+						class="rounded border border-surface-200 px-1.5 py-1 text-[11px] text-surface-700"
+					>
+						<option value="">Toutes cadences</option>
+						{#each ['daily', 'weekly', 'hourly', 'monthly'] as c (c)}
+							<option value={c}>{CADENCE_LABEL[c]}</option>
+						{/each}
+					</select>
+					<select
+						bind:value={runStatus}
+						onchange={applyFilters}
+						class="rounded border border-surface-200 px-1.5 py-1 text-[11px] text-surface-700"
+					>
+						<option value="">Tous statuts</option>
+						{#each ['success', 'partial', 'failed', 'running', 'queued', 'cancelled'] as s (s)}
+							<option value={s}>{RUN_STATUS_LABEL[s]}</option>
+						{/each}
+					</select>
+					<button
+						onclick={resetFilters}
+						class="rounded border border-surface-200 px-1.5 py-1 text-[11px] text-surface-500 hover:bg-surface-50"
+					>
+						Réinitialiser
+					</button>
+				</div>
+			</div>
+
+			{#if data.filters.sinceDb}
+				<p class="border-b border-surface-100 px-3 py-1.5 text-[11px] text-surface-400">
+					Limité aux runs créés depuis
+					<span class="font-medium tabular-nums">{formatDbTimestamp(data.filters.sinceDb)} UTC</span>
+					— la borne vient du compteur de l'accueil qui a ouvert cette liste.
+				</p>
+			{/if}
+
+			{#if data.runs.length === 0}
+				<p class="px-3 py-4 text-center text-xs text-surface-400">Aucun run pour ces filtres.</p>
+			{:else}
+				<div class="overflow-x-auto">
+					<table class="w-full text-xs">
+						<thead class="border-b border-surface-100 text-left text-[11px] text-surface-400">
+							<tr>
+								<th class="px-3 py-1.5 font-medium">Projet</th>
+								<!-- « Type » et non « Cadence » : `manual` et `post_publish` sont des
+								     run_types sans cadran, et les ranger sous « cadence » ferait
+								     chercher un créneau qui n'existe pas. -->
+								<th class="px-3 py-1.5 font-medium">Type / créneau</th>
+								<th class="px-3 py-1.5 font-medium">Issue</th>
+								<th class="px-3 py-1.5 font-medium">Steps (dernière tentative)</th>
+								<th class="px-3 py-1.5 font-medium">Terminé</th>
+								<th class="px-3 py-1.5 font-medium"></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each data.runs as run (run.id)}
+								<tr class="border-b border-surface-50 align-top last:border-0">
+									<td class="px-3 py-1.5">
+										{#if run.projectSlug}
+											<a
+												href="/projects/{run.projectSlug}"
+												class="text-surface-700 hover:underline">{run.projectName}</a
+											>
+										{:else}
+											<span class="text-surface-400">—</span>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5 text-surface-600">
+										{CADENCE_LABEL[run.runType] ?? run.runType}
+										<span class="tabular-nums text-surface-400">
+											· {formatScheduleSlot(run.periodEnd)}
+										</span>
+										<div class="text-[10px] text-surface-400">
+											{TRIGGER_LABEL[run.triggeredBy] ?? run.triggeredBy}
+										</div>
+									</td>
+									<td class="px-3 py-1.5 font-medium {RUN_TONE[run.status] ?? 'text-surface-500'}">
+										{RUN_STATUS_LABEL[run.status] ?? run.status}
+									</td>
+									<td class="px-3 py-1.5">
+										{#if run.steps.length === 0}
+											<span class="text-surface-300">
+												aucun step conclu — les jobs de ce run n'ont pas encore abouti
+											</span>
+										{:else}
+											<div class="flex flex-wrap gap-1">
+												{#each run.steps as step (step.stepType)}
+													<span
+														class="inline-block rounded border px-1.5 py-0.5 text-[10px]
+															{STEP_TONE[step.status] ?? 'border-surface-200 text-surface-500'}"
+														title="{STEP_STATUS_LABEL[step.status] ?? step.status}{step.errorMessage
+															? ` — ${step.errorMessage}`
+															: ''}{step.durationMs ? ` (${formatDuration(step.durationMs)})` : ''}"
+													>
+														{step.stepType}
+													</span>
+												{/each}
+											</div>
+										{/if}
+									</td>
+									<td class="px-3 py-1.5 tabular-nums text-surface-500">
+										{formatDbTimestamp(run.finishedAt ?? run.createdAt)}
+									</td>
+									<td class="px-3 py-1.5 text-right">
+										<!-- La liste des jobs de CE run : le nombre affiché et la liste
+										     qu'il ouvre naissent du même identifiant. -->
+										<a
+											href="/jobs?run={run.id}"
+											class="text-[11px] text-primary-600 hover:underline">jobs →</a
+										>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+
+				{#if totalPages > 1}
+					<div
+						class="flex items-center justify-between border-t border-surface-100 px-3 py-1.5 text-[11px] text-surface-400"
+					>
+						<span>Page {currentPage} / {totalPages}</span>
+						<div class="flex gap-1">
+							<button
+								disabled={data.filters.offset === 0}
+								onclick={() => gotoOffset(data.filters.offset - data.filters.limit)}
+								class="rounded border border-surface-200 px-1.5 py-0.5 disabled:opacity-40"
+							>
+								Précédent
+							</button>
+							<button
+								disabled={currentPage >= totalPages}
+								onclick={() => gotoOffset(data.filters.offset + data.filters.limit)}
+								class="rounded border border-surface-200 px-1.5 py-0.5 disabled:opacity-40"
+							>
+								Suivant
+							</button>
+						</div>
+					</div>
+				{/if}
+			{/if}
+		</section>
+
+		<!-- Règles effectives -->
+		<section class="rounded-lg border border-surface-200 bg-white">
+			<div class="flex items-center gap-2 border-b border-surface-100 px-3 py-2">
+				<Gauge class="h-3.5 w-3.5 text-surface-400" />
+				<span class="text-xs font-medium text-surface-900">Règles effectives</span>
+				<span class="text-[11px] text-surface-400">
+					ce que la file appliquera réellement — lu, jamais recopié
+				</span>
+			</div>
+
+			<div class="grid gap-4 px-3 py-2 lg:grid-cols-3">
+				<!-- Quotas & plafonds -->
+				<div>
+					<div class="mb-1 text-[11px] font-semibold text-surface-900">Quotas providers</div>
+					{#each providerRows as p (p.provider)}
+						<div class="flex items-baseline justify-between gap-2 text-[11px]">
+							<span class="text-surface-600">{PROVIDER_LABEL[p.provider] ?? p.provider}</span>
+							<span class="tabular-nums text-surface-500">
+								{formatQuota(p.running, p.concurrencyLimit)}
+								<span
+									class={p.state === 'ok'
+										? 'text-surface-300'
+										: p.state === 'quota_limited'
+											? 'text-red-700'
+											: 'text-amber-700'}
+								>
+									· {CAPACITY_STATE_LABEL[p.state] ?? p.state}
+								</span>
+							</span>
+						</div>
+					{:else}
+						<p class="text-[11px] text-surface-400">Aucun provider externe sollicité.</p>
+					{/each}
+					<p class="mt-1 text-[10px] text-surface-400">
+						Plafond global : {formatQuota(
+							data.rules.capacity.global.running,
+							data.rules.capacity.global.limit
+						)}{data.rules.capacity.configured
+							? ' (overrides en base)'
+							: ' (défauts du code)'}. Réglable sans redéploiement (<code>system_settings</code>).
+					</p>
+				</div>
+
+				<!-- Flags -->
+				<div>
+					<div class="mb-1 flex items-center gap-1 text-[11px] font-semibold text-surface-900">
+						<ToggleLeft class="h-3 w-3 text-surface-400" />
+						Flags de migration
+					</div>
+					{#if data.rules.flags === null}
+						<p class="text-[11px] text-surface-400">
+							Non lisible dans ce contexte d'exécution — affiché comme tel plutôt que
+							« tous à false », qui serait une affirmation sans preuve.
+						</p>
+					{:else if activeFlags.length === 0}
+						<p class="text-[11px] text-surface-400">
+							Tous à <span class="font-medium">false</span> — c'est le défaut : rien ne s'active par
+							accident.
+						</p>
+					{:else}
+						<div class="flex flex-wrap gap-1">
+							{#each activeFlags as flag (flag)}
+								<span
+									class="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700"
+									>{flag}</span
+								>
+							{/each}
+						</div>
+					{/if}
+					<p class="mt-1 text-[10px] text-surface-400">
+						Valeurs GLOBALES (variables d'env). Les overrides par projet n'ont pas encore de table
+						(GOV-005) : aucun n'est appliqué, donc aucun n'est affiché.
+					</p>
+				</div>
+
+				<!-- Politiques d'avis -->
+				<div>
+					<div class="mb-1 text-[11px] font-semibold text-surface-900">Politiques d'avis</div>
+					{#each data.rules.reviewPolicies as policy (policy.projectId + (policy.locationId ?? ''))}
+						<div class="flex items-baseline justify-between gap-2 text-[11px]">
+							<span class="text-surface-600">
+								{policy.projectSlug ?? policy.projectId}
+								{#if policy.locationId}<span class="text-surface-300">· {policy.locationId}</span
+									>{/if}
+							</span>
+							<span class="text-surface-500">
+								{policy.mode}
+								{#if policy.killSwitch}
+									<span class="font-medium text-red-700">· kill switch</span>
+								{/if}
+							</span>
+						</div>
+					{:else}
+						<p class="text-[11px] text-surface-400">
+							Aucune politique promue : les envois automatiques d'avis restent à leur défaut sûr
+							(<span class="font-medium">draft_only</span>).
+						</p>
+					{/each}
+				</div>
+			</div>
+		</section>
+	</div>
+</div>

@@ -22,7 +22,8 @@
 		CalendarRange,
 		Search,
 		ListChecks,
-		Inbox
+		Inbox,
+		CalendarClock
 	} from 'lucide-svelte';
 	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
 	import SyncToast from '$lib/components/SyncToast.svelte';
@@ -158,6 +159,19 @@
 			>
 				<Inbox size={16} class="flex-shrink-0" />
 				{#if !collapsed}<span>Inbox</span>{/if}
+			</a>
+
+			<!-- Automatisations (calendrier + runs + règles effectives, cross-projet) :
+			     le seul écran qui montre un créneau qui N'A PAS eu lieu — un tick
+			     qui ne tourne pas ne laisse aucune ligne en base. -->
+			<a
+				href="/automations"
+				class="mb-0.5 flex items-center gap-2.5 rounded-md {collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-1.5'} text-sm font-medium transition-colors
+					{isActive('/automations') ? 'bg-surface-100 text-surface-900' : 'text-surface-500 hover:bg-surface-50 hover:text-surface-900'}"
+				title={collapsed ? 'Automatisations' : undefined}
+			>
+				<CalendarClock size={16} class="flex-shrink-0" />
+				{#if !collapsed}<span>Automatisations</span>{/if}
 			</a>
 
 			<!-- Jobs (console d'exploitation, cross-projet) -->

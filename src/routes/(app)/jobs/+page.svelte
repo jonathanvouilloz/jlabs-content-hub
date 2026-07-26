@@ -161,6 +161,19 @@
 			Horodatages en <span class="font-medium">UTC</span>. La file est planifiée et drainée au tick
 			horaire (<code>/api/cron/tick</code>).
 		</p>
+
+		<!-- DASH-006 — le filtre `run` n'a pas de contrôle dans la barre de filtres :
+		     il se pose depuis la vue automatisations. Un filtre actif qui ne se voit
+		     nulle part ferait lire « la file est presque vide » à qui regarde un run. -->
+		{#if data.filters.runId}
+			<p class="mt-1.5 inline-flex items-center gap-2 rounded border border-primary-200 bg-primary-50 px-2 py-1 text-[11px] text-primary-800">
+				<span>Restreint aux jobs du run <code>{data.filters.runId}</code></span>
+				<!-- Pas « voir CE run » : cette page ne connaît pas le projet du run, et
+				     le lien retomberait sur la liste complète en promettant mieux. -->
+				<a href="/automations" class="underline">automatisations</a>
+				<a href={`?${buildParams({ run: null })}`} class="underline">toute la file</a>
+			</p>
+		{/if}
 	</div>
 
 	<!-- Planification (JOB-005) -->

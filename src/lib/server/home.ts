@@ -393,6 +393,12 @@ export interface HomeCockpit {
 	counters: Counter[];
 	recentRuns: RecentRun[];
 	runStatusCounts: Record<string, number>;
+	/**
+	 * Les mêmes nombres que `runStatusCounts`, chacun avec le lien qui les
+	 * reproduit (DASH-006). Dérivés de la même map — il n'existe donc pas deux
+	 * définitions de « les runs `failed` de la période ».
+	 */
+	runCounters: Counter[];
 	/** Quotas/capacité — DÉRIVÉS (JOB-006), jamais lus dans un état persisté. */
 	capacity: CapacitySnapshot;
 	costs: CostSummary;
@@ -525,6 +531,11 @@ export async function loadHomeCockpit(input: {
 		counters,
 		recentRuns,
 		runStatusCounts,
+		// Le lien naît du MÊME `sinceDb` que le compte : c'est ce qui garantit que
+		// la liste ouverte contient exactement ce que le nombre annonce.
+		runCounters: Object.entries(runStatusCounts).map(([status, n]) =>
+			buildCounter(status, n, { kind: 'runs_period', status, sinceDb })
+		),
 		capacity,
 		costs: summarizeCosts(periodRunCosts)
 	};

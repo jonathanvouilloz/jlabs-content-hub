@@ -26,6 +26,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		class: url.searchParams.get('class'),
 		project: url.searchParams.get('project'),
 		type: url.searchParams.get('type'),
+		run: url.searchParams.get('run'),
 		limit: url.searchParams.get('limit'),
 		offset: url.searchParams.get('offset')
 	});
@@ -35,7 +36,8 @@ export const load: PageServerLoad = async ({ url }) => {
 		statuses: filters.statuses,
 		errorClasses: filters.errorClasses,
 		projectSlug: filters.projectSlug,
-		type: filters.type
+		type: filters.type,
+		runId: filters.runId
 	};
 
 	const now = new Date();
@@ -46,7 +48,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		// Les compteurs d'en-tête ignorent les filtres de statut/classe (ils SONT le
 		// filtre) mais respectent le projet : sinon cliquer « dead » afficherait
 		// « 0 queued » et laisserait croire que la file est vide.
-		countJobsByStatus({ db, projectSlug: filters.projectSlug }),
+		countJobsByStatus({ db, projectSlug: filters.projectSlug, runId: filters.runId }),
 		db
 			.execute(
 				sql`SELECT DISTINCT type FROM "seostats"."jobs" ORDER BY type`

@@ -64,6 +64,56 @@ export const STATUS_LABEL: Record<string, string> = {
 	skipped: 'ignoré (dépendance)'
 };
 
+/**
+ * Statut d'un RUN logique (`monitoring_runs`), en clair — DASH-006.
+ *
+ * Vit ici et non dans un module à part pour la raison qui a déjà mis
+ * `CADENCE_LABEL` dans ce fichier : `/jobs` et `/automations` rendent le même
+ * vocabulaire d'exploitation, et deux tables de traduction finiraient par
+ * nommer différemment le même état.
+ */
+export const RUN_STATUS_LABEL: Record<string, string> = {
+	queued: 'en attente',
+	running: 'en cours',
+	success: 'réussi',
+	// SPEC §7.3 : mix succès + échec. Ni l'un ni l'autre — c'est justement ce que
+	// la vue par job ne montrait pas.
+	partial: 'partiel',
+	failed: 'échoué',
+	cancelled: 'annulé'
+};
+
+/**
+ * Verdict de PLANIFICATION d'une cadence — DASH-006. Ne dit rien de la réussite
+ * de ce qui a été planifié : c'est l'autre axe, porté par `RUN_STATUS_LABEL`.
+ */
+export const CADENCE_HEALTH_LABEL: Record<string, string> = {
+	ok: 'à l’heure',
+	late: 'en retard',
+	missed: 'créneau manqué',
+	disabled: 'désactivée',
+	unwired: 'non câblée',
+	never_due: 'jamais dû'
+};
+
+/** Issue d'un STEP de run (`monitoring_steps`), en clair. */
+export const STEP_STATUS_LABEL: Record<string, string> = {
+	queued: 'en attente',
+	running: 'en cours',
+	success: 'réussi',
+	skipped: 'sauté',
+	failed: 'échoué',
+	provider_unavailable: 'provider indisponible'
+};
+
+/** Ce qui a déclenché un run (`monitoring_runs.triggered_by`). */
+export const TRIGGER_LABEL: Record<string, string> = {
+	schedule: 'planifié',
+	user: 'manuel',
+	agent: 'agent',
+	webhook: 'webhook'
+};
+
 /** État d'une capacité (provider ou projet), en clair — JOB-006. */
 export const CAPACITY_STATE_LABEL: Record<string, string> = {
 	ok: 'disponible',

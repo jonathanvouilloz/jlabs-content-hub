@@ -296,8 +296,13 @@
 	<!-- ── Exploitation : runs, quotas, coûts ────────────────────── -->
 	<div class="grid gap-4 lg:grid-cols-2">
 		<section>
-			<h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-surface-400">
-				Derniers runs
+			<h2 class="mb-2 flex items-baseline justify-between text-xs font-semibold uppercase tracking-wider text-surface-400">
+				<span>Derniers runs</span>
+				<!-- DASH-006 — ce panneau montrait des runs qu'aucun écran ne savait
+				     lister. Il en existe un. -->
+				<a href="/automations" class="text-[10px] font-medium normal-case text-primary-600 hover:underline">
+					automatisations →
+				</a>
 			</h2>
 			{#if cockpit.recentRuns.length === 0}
 				<div class="rounded-xl border border-dashed border-surface-200 py-8 text-center text-sm text-surface-400">
@@ -317,11 +322,18 @@
 					{/each}
 				</div>
 			{/if}
-			{#if Object.keys(cockpit.runStatusCounts).length > 0}
+			{#if cockpit.runCounters.length > 0}
 				<p class="mt-1 text-[11px] text-surface-400">
 					Sur la période :
-					{#each Object.entries(cockpit.runStatusCounts) as [status, n], i}
-						{i > 0 ? ' · ' : ''}{n} {status}
+					{#each cockpit.runCounters as counter, i (counter.label)}
+						{i > 0 ? ' · ' : ''}
+						{#if counter.href}
+							<a href={counter.href} class="text-surface-500 hover:underline"
+								>{counter.count} {counter.label}</a
+							>
+						{:else}
+							{counter.count} {counter.label}
+						{/if}
 					{/each}
 				</p>
 			{/if}

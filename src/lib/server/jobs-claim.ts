@@ -525,6 +525,12 @@ export interface JobQuery {
 	errorClasses?: string[];
 	projectSlug?: string | null;
 	type?: string | null;
+	/**
+	 * DASH-006 — les jobs d'UN run logique. Sans ce filtre, « les 6 jobs de ce
+	 * run » n'ouvrait aucune liste capable de les reproduire : `/jobs` ne savait
+	 * filtrer que par projet et par type, ce qui ramène aussi les runs voisins.
+	 */
+	runId?: string | null;
 	limit?: number;
 	offset?: number;
 }
@@ -606,7 +612,8 @@ function jobFilterSql(q: Omit<JobQuery, 'db' | 'limit' | 'offset'>) {
 			: sql``;
 	const projectFilter = q.projectSlug ? sql`AND p.slug = ${q.projectSlug}` : sql``;
 	const typeFilter = q.type ? sql`AND j.type = ${q.type}` : sql``;
-	return sql`${statusFilter} ${classFilter} ${projectFilter} ${typeFilter}`;
+	const runFilter = q.runId ? sql`AND j.run_id = ${q.runId}` : sql``;
+	return sql`${statusFilter} ${classFilter} ${projectFilter} ${typeFilter} ${runFilter}`;
 }
 
 /**
@@ -654,13 +661,20 @@ export async function countJobs(input: JobQuery): Promise<number> {
 export async function countJobsByStatus(input: {
 	db: AppDb;
 	projectSlug?: string | null;
+	/**
+	 * DASH-006 — même règle que `projectSlug` : quand la liste est restreinte à un
+	 * run, des compteurs comptés sur toute la file annonceraient des jobs que la
+	 * liste n'affiche pas.
+	 */
+	runId?: string | null;
 }): Promise<Record<string, number>> {
 	const projectFilter = input.projectSlug ? sql`AND p.slug = ${input.projectSlug}` : sql``;
+	const runFilter = input.runId ? sql`AND j.run_id = ${input.runId}` : sql``;
 	const res = await input.db.execute(sql`
 		SELECT j.status, count(*)::int AS n
 		  FROM "seostats"."jobs" AS j
 		  JOIN "seostats"."projects" AS p ON p.id = j.project_id
-		 WHERE 1 = 1 ${projectFilter}
+		 WHERE 1 = 1 ${projectFilter} ${runFilter}
 		 GROUP BY j.status
 	`);
 	const counts: Record<string, number> = {};

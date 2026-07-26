@@ -188,8 +188,21 @@ describe('compteurs : le nombre et son lien viennent du même filtre', () => {
 		expect(counterHref({ kind: 'reviews_unanswered', projectSlug: 'alpha' })).toBe(
 			'/projects/alpha/reviews'
 		);
-		// Aucun écran ne liste les runs d'une période (SPEC §13.4 le fera).
-		expect(counterHref({ kind: 'runs_period', status: 'failed', sinceDb: SINCE })).toBeNull();
+	});
+
+	it('DASH-006 — les runs de la période ouvrent la liste qui applique le MÊME filtre', () => {
+		// Ce compteur est resté muet jusqu'à ce qu'une liste de runs existe : `/jobs`
+		// liste des jobs, et l'y envoyer aurait ouvert un autre ensemble.
+		const url = new URL(
+			counterHref({ kind: 'runs_period', status: 'failed', sinceDb: SINCE })!,
+			'https://x'
+		);
+		expect(url.pathname).toBe('/automations');
+		expect(url.searchParams.get('status')).toBe('failed');
+		expect(url.searchParams.get('since')).toBe(SINCE);
+		// Sans projet, aucun paramètre projet : le compteur de l'accueil compte
+		// TOUS les projets, et en ajouter un ouvrirait un ensemble plus étroit.
+		expect(url.searchParams.get('project')).toBeNull();
 	});
 
 	it('buildCounter porte le filtre qui a servi à compter', () => {

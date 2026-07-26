@@ -273,11 +273,16 @@ export function counterHref(filter: CounterFilter): string | null {
 			p.set('status', 'dead');
 			return `/jobs?${p.toString()}`;
 		}
-		case 'runs_period':
-			// `/jobs` liste des JOBS, pas des runs : aucun écran ne liste les runs d'une
-			// période. Le compteur est donc muet plutôt que faussement cliquable (la vue
-			// automatisations de SPEC §13.4 lui donnera sa liste).
-			return null;
+		case 'runs_period': {
+			// DASH-006 — il existe enfin une liste de RUNS (`/automations`), et elle
+			// applique le même `created_at >= since` + `status` que ce compteur. Tant
+			// qu'elle n'existait pas, ce compteur restait muet : `/jobs` liste des
+			// jobs, et l'y envoyer aurait ouvert un autre ensemble que celui compté.
+			const p = withProject(new URLSearchParams(), filter.projectSlug);
+			p.set('status', filter.status);
+			p.set('since', filter.sinceDb);
+			return `/automations?${p.toString()}`;
+		}
 	}
 }
 
