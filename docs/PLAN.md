@@ -178,10 +178,27 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   compteur `runs_period` de l'accueil devient cliquable ; `/jobs?run=`. Aucun DDL · test **943/943**.
   **Ce que l'écran a dit aussitôt : 12 créneaux manqués sur 12** — plus rien depuis le 23.07, aucun
   run hebdomadaire n'ayant **jamais** existé (le tick vit sur cette branche, pas sur `main`).
-  Prochain : **DASH-006 lot 2** (pause/reprise auditable — trancher d'abord **où vit une pause** :
-  pas dans `project_projections`, qui est recompilée) ou **DASH-003 lot 2** (quels onglets).
-  ⚠️ La règle de couverture ne vaut que pour l'accueil — `project-cockpit-state.ts` porte
-  son propre jugement, non revu.
+  Puis **DASH-006 lot 2**, qui **clôt l'epic** : une automatisation s'arrête désormais **sur décision,
+  pas sur panne**. Une pause est une **décision** (auteur, cause, date), donc ni dans
+  `project_projections` — projection **recompilée**, la pause y serait effacée sans bruit — ni dans
+  `system_settings`, KV qui se réécrit sur place et rendrait l'auditabilité infalsifiable. D'où
+  `automation_pauses`, **journal append-only** dont l'état se **dérive** : aucun booléen ne peut
+  diverger de son historique, **parce qu'il n'y a aucun booléen**. Trois portées
+  (`project_cadence`/`project`/`provider`), **union et non préséance**. ⭐ L'acceptation du BACKLOG
+  tenue littéralement : couper `gsc` fait sauter ses 3 collecteurs **et** leur dépendant obligatoire,
+  pendant que `findings:lifecycle` **reste en file** — le `skipped` étant ce que JOB-004 lit comme
+  prérequis mort, la propagation est gratuite. Les jobs déjà en file sont **conclus** (4ᵉ passe
+  `pauseOnce`, avant `settleOnce`) **et** empêchés (garde dans `claimJob`) : conclure seul laisserait
+  une fenêtre, empêcher seul les ferait dormir à vie. L'expiration `until` est **dérivée, jamais
+  écrite**. Seul DDL : **60 tables** · test **997/997** · preuve **24/24** sur Neon.
+  **À l'œil** : suspendre `barberconcept/hebdomadaire` fait passer le bandeau de **12 manqués / 12
+  attendues** à **11 / 11 + 1 suspendue** — la décision sort du dénominateur *et* du décompte d'échecs.
+  Prochain : **DASH-003 lot 2** (trancher quels onglets) ou **E11/exécution** (approuver n'exécute
+  toujours rien).
+  ⚠️ La règle de couverture ne vaut que pour l'accueil, et celle des deux axes que pour
+  `/automations` — `project-cockpit-state.ts` porte son propre jugement, **toujours non revu**.
+  ⚠️ Un run dont **tous** les steps sont `skipped` se lit `success` (`STEP_TERMINAL_OK`, sémantique
+  JOB-004) : bien plus atteignable depuis ce lot.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

@@ -393,6 +393,8 @@ export const ADMISSION_HOLD_REASONS = [
 	'global_concurrency',
 	'project_concurrency',
 	'project_lap',
+	'provider_paused',
+	'project_paused',
 	'provider_concurrency',
 	'provider_cooldown',
 	'provider_budget'
@@ -440,6 +442,20 @@ export interface PlanAdmissionInput {
 	 * L'app ne le passe jamais.
 	 */
 	typesForProvider?: (provider: JobProvider) => string[];
+	/**
+	 * DASH-006 lot 2 — providers et projets SUSPENDUS par décision humaine.
+	 *
+	 * Ce n'est pas une limite, et c'est pourquoi ça n'entre pas dans `JobLimits` : une
+	 * limite se règle (`system_settings`), une pause se décide et se journalise. Elles
+	 * se rejoignent seulement ici, à la porte, parce que la réclamation n'a qu'une porte.
+	 *
+	 * ⚠️ Cette garde EMPÊCHE, elle ne conclut pas. Un job qu'elle écarte resterait
+	 * `queued` à vie si `settlePausedJobs` ne venait pas le terminer — les deux sont
+	 * nécessaires, et pour des raisons opposées : l'une ferme la fenêtre entre deux
+	 * passes, l'autre empêche l'attente éternelle des dépendants.
+	 */
+	pausedProviders?: readonly JobProvider[];
+	pausedProjectIds?: readonly string[];
 	/** Référence de temps, INJECTÉE (rejouable, testable). */
 	now: number;
 }
@@ -489,9 +505,24 @@ export function planAdmission(input: PlanAdmissionInput): AdmissionPlan {
 	// écarté l'est par ses TYPES — la réclamation ne connaît pas la notion de provider.
 	const excludedTypes = new Set<string>();
 	const typesOf = input.typesForProvider ?? jobTypesForProvider;
+	const paused = new Set<string>(input.pausedProviders ?? []);
 	for (const provider of JOB_PROVIDERS) {
 		const types = typesOf(provider);
 		if (types.length === 0) continue;
+
+		// La pause d'ABORD : c'est la cause la plus forte (une décision humaine, sans
+		// échéance de capacité) et la plus explicative. La classer après le
+		// refroidissement ferait dire à l'écran « au repos encore 900 s » d'un provider
+		// que personne ne compte rallumer.
+		if (paused.has(provider)) {
+			types.forEach((t) => excludedTypes.add(t));
+			holds.push({
+				reason: 'provider_paused',
+				subject: provider,
+				detail: `${provider} suspendu par décision : aucun job de ce provider n’est réclamé.`
+			});
+			continue;
+		}
 
 		const running = snapshot.runningByProvider[provider] ?? 0;
 		const concurrency = limits.perProviderConcurrency[provider] ?? 0;
@@ -547,6 +578,17 @@ export function planAdmission(input: PlanAdmissionInput): AdmissionPlan {
 		}
 	}
 
+	// DASH-006 lot 2 — les projets gelés. Même garde que les providers suspendus, et pour
+	// la même raison : fermer la fenêtre entre deux passes de `settlePausedJobs`.
+	const byPause = new Set<string>(input.pausedProjectIds ?? []);
+	for (const projectId of byPause) {
+		holds.push({
+			reason: 'project_paused',
+			subject: projectId,
+			detail: 'projet suspendu par décision : aucun de ses jobs n’est réclamé.'
+		});
+	}
+
 	let fairness = input.fairness;
 	let lapOpened = false;
 	let byLap = lapExhaustedProjects(limits, fairness, input.projectLimits);
@@ -554,7 +596,14 @@ export function planAdmission(input: PlanAdmissionInput): AdmissionPlan {
 	// Le tour se rouvre quand tout projet AYANT du travail réclamable a consommé sa
 	// part — et seulement à cause de l'équité : un projet retenu par sa concurrence
 	// n'est pas « servi », il est occupé, et rouvrir un tour ne le libérerait pas.
-	const claimable = snapshot.projectsWithClaimableWork.filter((p) => !byConcurrency.has(p));
+	//
+	// ⚠️ Un projet SUSPENDU est retiré du calcul au même titre. Le laisser dedans
+	// bloquerait la réouverture du tour pour tous les autres — il a du travail en file,
+	// il ne le prendra jamais, donc `every(… byLap)` resterait faux à jamais. Une pause
+	// sur un projet gèlerait alors l'équité du parc entier.
+	const claimable = snapshot.projectsWithClaimableWork.filter(
+		(p) => !byConcurrency.has(p) && !byPause.has(p)
+	);
 	if (claimable.length > 0 && claimable.every((p) => byLap.has(p))) {
 		fairness = { lap: fairness.lap + 1, takenThisLap: {} };
 		byLap = new Set<string>();
@@ -577,7 +626,7 @@ export function planAdmission(input: PlanAdmissionInput): AdmissionPlan {
 		saturated: globalFull,
 		reservedOnly,
 		excludedTypes: [...excludedTypes],
-		excludedProjectIds: [...new Set([...byConcurrency, ...byLap])],
+		excludedProjectIds: [...new Set([...byConcurrency, ...byLap, ...byPause])],
 		fairness,
 		lapOpened,
 		holds,

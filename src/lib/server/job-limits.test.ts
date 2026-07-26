@@ -587,3 +587,84 @@ describe('computeCapacity', () => {
 		expect(report.projects[0]).toMatchObject({ projectId: 'p-a', running: 0, state: 'saturated' });
 	});
 });
+
+// ── Pauses (DASH-006 lot 2) ─────────────────────────────────────────
+
+describe('planAdmission — pauses', () => {
+	it('un provider suspendu exclut TOUS ses types, et eux seuls', () => {
+		const plan = planAdmission({
+			limits: limits(),
+			snapshot: snapshot(),
+			fairness: openFairness(),
+			pausedProviders: ['gsc'],
+			now: NOW
+		});
+		// L'acceptation BACKLOG, à la porte de la réclamation : ce qui ne sort pas de
+		// Postgres doit continuer de passer.
+		expect(plan.excludedTypes.sort()).toEqual(jobTypesForProvider('gsc').sort());
+		expect(plan.excludedTypes).not.toContain('findings:lifecycle');
+		expect(plan.excludedTypes).not.toContain('propose:actions');
+		expect(plan.excludedTypes).not.toContain('detect:index_transition');
+		expect(plan.holds.map((h) => h.reason)).toContain('provider_paused');
+	});
+
+	it('la pause l’emporte sur le refroidissement : une seule cause, la bonne', () => {
+		// Classer le repos avant la pause ferait annoncer « au repos encore 900 s » d'un
+		// provider que personne ne compte rallumer.
+		const plan = planAdmission({
+			limits: limits({ cooldownMs: 900_000 }),
+			snapshot: snapshot({
+				lastQuotaFailureMsByProvider: { ...zeroByProvider(), gsc: NOW - 1000 }
+			}),
+			fairness: openFairness(),
+			pausedProviders: ['gsc'],
+			now: NOW
+		});
+		const gscHolds = plan.holds.filter((h) => h.subject === 'gsc').map((h) => h.reason);
+		expect(gscHolds).toEqual(['provider_paused']);
+		expect(plan.cooldownUntilByProvider.gsc).toBeUndefined();
+	});
+
+	it('un projet gelé est exclu — les autres passent', () => {
+		const plan = planAdmission({
+			limits: limits(),
+			snapshot: snapshot({ runningByProject: { 'p-gele': 0, 'p-actif': 1 }, running: 1 }),
+			fairness: openFairness(),
+			pausedProjectIds: ['p-gele'],
+			now: NOW
+		});
+		expect(plan.excludedProjectIds).toEqual(['p-gele']);
+		expect(plan.holds.map((h) => h.reason)).toContain('project_paused');
+	});
+
+	it('un projet gelé ne BLOQUE PAS la réouverture du tour des autres', () => {
+		// Le piège : il a du travail réclamable qu'il ne prendra jamais. Le laisser dans
+		// le calcul rendrait `every(… byLap)` faux à jamais — une pause sur un projet
+		// gèlerait l'équité du parc entier.
+		let fairness = openFairness();
+		for (let i = 0; i < LIMIT_DEFAULTS.perProjectPerLap; i += 1) {
+			fairness = recordClaim(fairness, 'p-actif');
+		}
+		const plan = planAdmission({
+			limits: limits(),
+			snapshot: snapshot({ projectsWithClaimableWork: ['p-actif', 'p-gele'] }),
+			fairness,
+			pausedProjectIds: ['p-gele'],
+			now: NOW
+		});
+		expect(plan.lapOpened).toBe(true);
+		expect(plan.excludedProjectIds).toEqual(['p-gele']);
+	});
+
+	it('aucune pause → comportement strictement inchangé', () => {
+		const plan = planAdmission({
+			limits: limits(),
+			snapshot: snapshot(),
+			fairness: openFairness(),
+			now: NOW
+		});
+		expect(plan.excludedTypes).toEqual([]);
+		expect(plan.excludedProjectIds).toEqual([]);
+		expect(plan.holds).toEqual([]);
+	});
+});

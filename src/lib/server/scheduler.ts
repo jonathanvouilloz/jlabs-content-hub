@@ -22,6 +22,8 @@ import type { AppDb } from './db/types.js';
 import { createRun, enqueueJob } from './monitoring.js';
 import { deriveIdempotencyKey } from './monitoring-state.js';
 import { resolveDependencies, validateCatalogGraph } from './job-graph.js';
+import { loadPauseStates } from './pauses.js';
+import { applyPauseToSpec, resolveCadencePause, type PauseStates } from './pause-state.js';
 import { toDbTimestamp } from './timestamps.js';
 import {
 	BUSINESS_TIMEZONE,
@@ -156,6 +158,19 @@ export interface PlanResult {
 	 * les cadences qui, elles, travaillent. Listées ici : écartées, jamais tues.
 	 */
 	cadencesWithoutJob: ScheduleCadence[];
+	/**
+	 * DASH-006 lot 2 — Couples projet×cadence écartés parce qu'une pause ACTIVE les
+	 * couvre. Écartés, jamais tus : même discipline que `cadencesWithoutJob`. Sans cette
+	 * liste, un tick silencieux sur un projet suspendu serait indistinguable d'un tick
+	 * qui n'a rien eu à faire — et c'est justement la confusion que ce lot supprime.
+	 */
+	pausedCadences: Array<{
+		slug: string;
+		cadence: ScheduleCadence;
+		scope: string;
+		reason: string;
+		until: string | null;
+	}>;
 	/** Projets dont la planification a échoué — le batch continue (isolation). */
 	failures: Array<{ slug: string; error: string }>;
 }
@@ -178,6 +193,12 @@ export interface PlanDueJobsInput {
 	 * jamais : elle prend le catalogue réel.
 	 */
 	catalog?: (cadence: ScheduleCadence) => CatalogEntry[];
+	/**
+	 * États de pause de substitution — même porte que `catalog`, et pour la même raison :
+	 * une preuve doit pouvoir démontrer l'effet d'une pause sans en poser une vraie sur la
+	 * production. L'app ne le passe jamais : elle lit la base.
+	 */
+	pauses?: PauseStates;
 }
 
 /**
@@ -207,6 +228,12 @@ export async function planDueJobs(input: PlanDueJobsInput = {}): Promise<PlanRes
 	// Le tick, lui, continue de drainer (`planDueJobs` est appelée sous try/catch).
 	for (const cadence of SCHEDULE_CADENCES) validateCatalogGraph(catalog(cadence));
 
+	// DASH-006 lot 2 — les pauses, lues UNE fois pour tout le batch (une requête, un
+	// `DISTINCT ON`). Les relire par projet ferait varier l'état au fil de la boucle :
+	// une reprise concurrente rendrait le tick partiellement suspendu, ce qui ne
+	// correspondrait à aucune décision jamais prise.
+	const pauses = input.pauses ?? (await loadPauseStates(db, new Date(nowMs)));
+
 	const all = await listSchedulableProjects(db);
 	const targets = input.onlyProjectSlug
 		? all.filter((p) => p.slug === input.onlyProjectSlug)
@@ -227,6 +254,7 @@ export async function planDueJobs(input: PlanDueJobsInput = {}): Promise<PlanRes
 			jobsReused: 0
 		},
 		cadencesWithoutJob: SCHEDULE_CADENCES.filter((c) => catalog(c).length === 0),
+		pausedCadences: [],
 		failures: []
 	};
 
@@ -240,9 +268,25 @@ export async function planDueJobs(input: PlanDueJobsInput = {}): Promise<PlanRes
 				// créneau de chaque projet.
 				if (catalog(cadence).length === 0) continue;
 
+				// DASH-006 lot 2 — la pause se superpose à la configuration, elle ne la
+				// remplace pas : `loadProjectScheduleConfig` reste intacte. Une pause est une
+				// DÉCISION, `enabled` une configuration ; les fondre en un seul booléen
+				// persisté rendrait le motif du silence indistinguable à l'écran — et une
+				// pause écrite dans la projection serait effacée à la prochaine compilation.
+				const pause = resolveCadencePause({ states: pauses, projectId: project.id, cadence });
+				if (pause.paused && pause.by) {
+					result.pausedCadences.push({
+						slug: project.slug,
+						cadence,
+						scope: pause.by.target.scope,
+						reason: pause.by.reason,
+						until: pause.by.until
+					});
+				}
+
 				const due = dueOccurrences({
 					cadence,
-					spec: config[cadence],
+					spec: applyPauseToSpec(config[cadence], pause.paused),
 					since: sinceMs,
 					until: nowMs,
 					timeZone
@@ -364,9 +408,12 @@ export interface NextOccurrenceRow {
 	projectSlug: string;
 	projectName: string;
 	cadence: ScheduleCadence;
+	/** Configuration (`project_projections.payload.schedules`) — PAS la pause. */
 	enabled: boolean;
 	/** Faux quand la cadence n'a aucun job câblé : elle se calcule, mais ne produit rien. */
 	wired: boolean;
+	/** DASH-006 lot 2 — une DÉCISION humaine active la couvre. Distinct de `enabled`. */
+	paused: boolean;
 	/** Créneau local Europe/Zurich, ou null si la cadence est désactivée. */
 	localSlot: string | null;
 	/** Même instant, au format DB (UTC) — comparable au `now` de la page. */
@@ -382,10 +429,12 @@ export async function listNextOccurrences(input: {
 	db?: AppDb;
 	now?: Date | number;
 	timeZone?: string;
+	pauses?: PauseStates;
 } = {}): Promise<NextOccurrenceRow[]> {
 	const db = await resolveDb(input.db);
 	const timeZone = input.timeZone ?? BUSINESS_TIMEZONE;
 	const nowMs = input.now === undefined ? Date.now() : toMs(input.now);
+	const pauses = input.pauses ?? (await loadPauseStates(db, new Date(nowMs)));
 
 	const targets = await listSchedulableProjects(db);
 	const rows: NextOccurrenceRow[] = [];
@@ -394,7 +443,15 @@ export async function listNextOccurrences(input: {
 		const config = await loadProjectScheduleConfig(db, project.id);
 		for (const cadence of SCHEDULE_CADENCES) {
 			const spec = config[cadence];
-			const next = nextOccurrence({ cadence, spec, after: nowMs, timeZone });
+			// Une cadence suspendue n'a PAS de prochaine exécution : afficher la date
+			// qu'elle aurait eue promettrait un run que le tick ne tirera pas.
+			const pause = resolveCadencePause({ states: pauses, projectId: project.id, cadence });
+			const next = nextOccurrence({
+				cadence,
+				spec: applyPauseToSpec(spec, pause.paused),
+				after: nowMs,
+				timeZone
+			});
 			rows.push({
 				projectId: project.id,
 				projectSlug: project.slug,
@@ -402,6 +459,7 @@ export async function listNextOccurrences(input: {
 				cadence,
 				enabled: spec.enabled,
 				wired: catalogFor(cadence).length > 0,
+				paused: pause.paused,
 				localSlot: next?.localSlot ?? null,
 				instantDb: next ? toDbTimestamp(new Date(next.instantMs)) : null
 			});

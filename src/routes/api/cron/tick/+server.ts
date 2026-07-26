@@ -101,6 +101,9 @@ export const GET: RequestHandler = async ({ request }) => {
 					projects: plan.projects,
 					...plan.counters,
 					cadencesWithoutJob: plan.cadencesWithoutJob,
+					// Écartées PAR DÉCISION, jamais tues : sans cette ligne, un tick silencieux
+					// sur un projet suspendu serait indistinguable d'un tick qui n'avait rien à faire.
+					paused: plan.pausedCadences,
 					planned: plan.occurrences.map((o) => ({
 						project: o.projectSlug,
 						cadence: o.cadence,

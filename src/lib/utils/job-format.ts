@@ -23,9 +23,11 @@ export const OUTCOME_LABEL: Record<string, string> = {
 	deferred: 'REPORTÉE (quota)',
 	requeued: 'RELANCÉE (manuel)',
 	cancelled: 'ANNULÉE',
-	// JOB-004 — pas une tentative : le job n'a jamais tourné, son prérequis obligatoire
-	// ayant échoué pour de bon. C'est le FAIT qui est journalisé, pas un essai.
-	skipped: 'SAUTÉE (dépendance)',
+	// JOB-004 / DASH-006 — pas une tentative : le job n'a jamais tourné, son prérequis
+	// obligatoire ayant échoué pour de bon, ou une pause lui ayant retiré l'autorisation
+	// de partir. C'est le FAIT qui est journalisé, pas un essai. Le `worker_id` de la
+	// ligne (`system:dependency` ou `system:pause`) dit laquelle des deux.
+	skipped: 'SAUTÉE',
 	dead: 'DEAD-LETTER'
 };
 
@@ -61,8 +63,31 @@ export const STATUS_LABEL: Record<string, string> = {
 	cancelled: 'annulé',
 	// Distinct d'`annulé`, qui est une décision humaine : ici personne n'a rien décidé,
 	// c'est la conséquence mécanique d'un prérequis perdu.
+	//
+	// ⚠️ Depuis DASH-006 lot 2, `skipped` a DEUX causes : la dépendance et la pause. Ce
+	// libellé nomme la plus fréquente ; quand le code d'erreur est connu, passer par
+	// `skipReasonLabel` — sinon un job suspendu par décision se lirait « dépendance »,
+	// et on chercherait un prérequis mort qui n'existe pas.
 	skipped: 'ignoré (dépendance)'
 };
+
+/**
+ * Ce qui a fait sauter un job, d'après son `last_error_code`.
+ *
+ * Deux causes seulement, et elles n'appellent PAS le même geste : une dépendance morte
+ * se répare en relançant le prérequis, une pause se lève en reprenant. Les confondre
+ * enverrait chercher un problème technique là où il y a une décision.
+ */
+export const SKIP_REASON_LABEL: Record<string, string> = {
+	DependencySkipped: 'dépendance',
+	PausedByOperator: 'pause'
+};
+
+/** `ignoré (pause)` / `ignoré (dépendance)` — le suffixe suit le code d'erreur réel. */
+export function skipReasonLabel(errorCode: string | null | undefined): string {
+	const cause = errorCode ? SKIP_REASON_LABEL[errorCode] : null;
+	return cause ? `ignoré (${cause})` : 'ignoré';
+}
 
 /**
  * Statut d'un RUN logique (`monitoring_runs`), en clair — DASH-006.
@@ -92,6 +117,9 @@ export const CADENCE_HEALTH_LABEL: Record<string, string> = {
 	late: 'en retard',
 	missed: 'créneau manqué',
 	disabled: 'désactivée',
+	// « suspendue » et non « en pause » : le mot dit une DÉCISION réversible, là où
+	// « désactivée » dit une configuration. Les deux silences ne se réparent pas pareil.
+	paused: 'suspendue',
 	unwired: 'non câblée',
 	never_due: 'jamais dû'
 };
@@ -138,6 +166,10 @@ export const HOLD_REASON_LABEL: Record<string, string> = {
 	global_concurrency: 'plafond global atteint',
 	project_concurrency: 'plafond du projet atteint',
 	project_lap: 'part du tour consommée',
+	// DASH-006 lot 2 — une DÉCISION, pas une limite. Le libellé ne parle ni de plafond ni
+	// de repos : rien ne se libérera tout seul, il faut reprendre.
+	provider_paused: 'provider suspendu (décision)',
+	project_paused: 'projet suspendu (décision)',
 	provider_concurrency: 'plafond du provider atteint',
 	provider_cooldown: 'provider au repos (quota)',
 	provider_budget: 'budget du provider épuisé'

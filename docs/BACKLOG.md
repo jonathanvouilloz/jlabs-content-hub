@@ -1057,10 +1057,11 @@ Acceptation :
 
 ## DASH-006 — Vue automatisations et jobs
 
-**Priorité :** P1 · **Taille :** M · **État :** **LOT 1 DONE** (2026-07-26 — page `/automations`,
-modules `automations-state.ts` (pur) + `automations.ts` (lecture), filtre `run` sur `/jobs`,
-compteur `runs_period` de l'accueil enfin cliquable ; **aucun DDL**. Reste le **lot 2** :
-pause/reprise autorisée et auditable. Détail : `docs/features/e00-fondations-cockpit.md`) ·
+**Priorité :** P1 · **Taille :** M · **État :** **DONE** (2026-07-26 — lot 1 : page `/automations`,
+modules `automations-state.ts` (pur) + `automations.ts` (lecture), filtre `run` sur `/jobs`, compteur
+`runs_period` de l'accueil enfin cliquable, **aucun DDL** · lot 2 : `automation_pauses`, journal
+**append-only** dont l'état effectif se DÉRIVE, trois portées, 4ᵉ passe worker + garde d'admission —
+**1 DDL**, 59 → 60 tables. Détail : `docs/features/e00-fondations-cockpit.md`) ·
 **Dépendances :** JOB-007 (**DONE depuis le 2026-07-22** — la mention `BLOCKED` qui figurait ici
 était périmée)
 
@@ -1070,15 +1071,22 @@ Travail :
 - ~~exposer queue, dead-letter et retries~~ (déjà couvert par `/jobs`, JOB-007 ; le lot 1 y
   ajoute le filtre par run) ;
 - ~~montrer flags, quotas et policies effectives~~ (lot 1, panneau « Règles effectives ») ;
-- permettre pause/reprise autorisée → **lot 2**.
+- ~~permettre pause/reprise autorisée~~ (lot 2, trois portées : cadence, projet, provider).
 
 Acceptation :
 
 - une panne est diagnostiquable sans accès serveur → **tenue au lot 1**, et au-delà de ce qui
   était visé : un job mort laissait une ligne, un **créneau jamais tiré** n'en laisse aucune.
   Seul le croisement créneau calculé ↔ run observé le révèle ;
-- pause et reprise sont auditables → **lot 2** ;
-- la désactivation d'un provider n'annule pas les autres steps → **lot 2**.
+- pause et reprise sont auditables → **tenue au lot 2** : `automation_pauses` est un journal
+  append-only (auteur, cause, date, échéance) dont l'état effectif se **dérive** — il n'existe aucun
+  état persisté qui puisse diverger de son historique. Raison **obligatoire dans les deux sens**,
+  reprise comprise. Rejouer un geste est un **non-événement** (idempotence dans la transaction), pas
+  une erreur ;
+- la désactivation d'un provider n'annule pas les autres steps → **tenue au lot 2**, et prouvée en
+  base : couper `gsc` fait sauter ses 3 collecteurs **et** leur dépendant obligatoire (propagation
+  JOB-004, le `skipped` étant lu comme prérequis mort), pendant que `findings:lifecycle` **reste en
+  file** — il ne sort pas de Postgres. Le run vaut `partial`, jamais `failed`.
 
 ## DASH-007 — Vue coûts et capacité
 

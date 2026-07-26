@@ -24,6 +24,26 @@ export function toDbTimestamp(date: Date | string = new Date()): string {
 	return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+/** Forme canonique attendue : `YYYY-MM-DD HH:MM:SS`. */
+const DB_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+/**
+ * Rend une valeur comparable aux colonnes `text`, **sans jamais re-parser une chaîne
+ * déjà canonique**.
+ *
+ * C'est la différence avec `toDbTimestamp`, et elle est load-bearing : ECMA-262 parse
+ * une date-time sans `Z` ni offset en heure LOCALE. Repasser `'2026-07-26 12:00:00'`
+ * (une valeur relue de la base, donc UTC) par `new Date()` puis `toISOString()` la
+ * décale donc d'une à deux heures à Zurich — et le décalage change deux fois l'an.
+ *
+ * Règle : une valeur qui SORT de la base ou qui est déjà au format DB passe par ici ;
+ * un `Date` construit par le code passe indifféremment par l'une ou l'autre.
+ */
+export function normalizeDbTimestamp(value: Date | string): string {
+	if (typeof value === 'string' && DB_TIMESTAMP_RE.test(value)) return value;
+	return toDbTimestamp(value);
+}
+
 /** Même instant décalé de `ms` (backoff, bail…), au format DB. */
 export function toDbTimestampPlus(ms: number, from: Date | string = new Date()): string {
 	const base = typeof from === 'string' ? new Date(from) : from;

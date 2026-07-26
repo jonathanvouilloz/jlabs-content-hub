@@ -60,6 +60,9 @@ import {
 } from './jobs-lease.js';
 import { concludeJobStep } from './monitoring.js';
 import { settleBlockedJobs } from './jobs-graph.js';
+import { settlePausedJobs } from './jobs-pause.js';
+import { loadPauseStates } from './pauses.js';
+import { pausedProviders } from './pause-state.js';
 import {
 	openFairness,
 	planAdmission,
@@ -473,8 +476,18 @@ export interface WorkerStats {
 	abandonedByKind: Record<AbandonKind, number>;
 	/** JOB-003 — jobs REPORTÉS pour cause de quota (tentative rendue, pas un échec). */
 	deferred: number;
-	/** JOB-004 — jobs SAUTÉS faute d'un prérequis obligatoire (jamais tentés). */
+	/**
+	 * Jobs SAUTÉS, toutes causes confondues (jamais tentés) : prérequis obligatoire mort
+	 * (JOB-004) ou pause active (DASH-006 lot 2).
+	 */
 	skipped: number;
+	/**
+	 * DASH-006 lot 2 — la part de `skipped` due à une DÉCISION humaine. Compteur SÉPARÉ,
+	 * comme `deferrals` l'est d'`attempts` : un tick qui saute dix jobs parce qu'un
+	 * provider est suspendu n'a rien en commun avec un tick qui en saute dix parce que la
+	 * collecte est morte, et le total seul confondrait les deux.
+	 */
+	pausedSkipped: number;
 	/** JOB-003 — répartition des échecs par nature (lisible sans requêter la DB). */
 	failedByClass: Record<ErrorClass, number>;
 	/**
@@ -505,6 +518,8 @@ function emptyHoldCounters(): Record<AdmissionHoldReason, number> {
 		global_concurrency: 0,
 		project_concurrency: 0,
 		project_lap: 0,
+		provider_paused: 0,
+		project_paused: 0,
 		provider_concurrency: 0,
 		provider_cooldown: 0,
 		provider_budget: 0
@@ -574,6 +589,7 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 		abandonedByKind: { worker_death: 0, lease_stall: 0 },
 		deferred: 0,
 		skipped: 0,
+		pausedSkipped: 0,
 		failedByClass: emptyClassCounters(),
 		heldByReason: emptyHoldCounters(),
 		quotaPushed: 0,
@@ -587,6 +603,11 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 	// redémarrage après crash — les jobs que ce worker (ou son prédécesseur) a
 	// laissés « running » doivent repartir tout de suite, pas au premier tour à vide.
 	await reapOnce(options.db, reapLimit, leaseMs, stats);
+	// Puis les PAUSES, avant les dépendances : une pause posée depuis le dernier tick a
+	// laissé des jobs en file que plus personne ne doit prendre. Les conclure ICI fait
+	// que la passe suivante les lira comme des prérequis morts et propagera le skip dans
+	// le MÊME drain — inversées, le run du créneau resterait inachevé un tick de plus.
+	await pauseOnce(options.db, settleLimit, stats);
 	// Puis les dépendances : un prérequis mort pendant que ce worker était arrêté doit
 	// libérer (ou conclure) ses dépendants avant la première réclamation, sans quoi le
 	// tour sera à vide alors que la file a du travail à trancher.
@@ -644,6 +665,9 @@ export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
 			// Tour à vide = le bon moment pour réparer la file : rien d'autre à faire,
 			// et un bail mort remis en queue redevient réclamable au tour suivant.
 			await reapOnce(options.db, reapLimit, leaseMs, stats);
+			// Les pauses AVANT les dépendances, pour la raison donnée au démarrage : le
+			// skip qu'elles posent est ce que la passe suivante lit comme prérequis mort.
+			await pauseOnce(options.db, settleLimit, stats);
 			// Le tour à vide est SOUVENT dû à une dépendance : le prérequis vient de
 			// finir dans ce même tour de drain. La passe est donc jouée AVANT le `break`
 			// de `once`, pour qu'un tick conclue le run du créneau qu'il a planifié.
@@ -718,6 +742,36 @@ async function reapOnce(
  * réclamable (la garde SQL le retient) et ne le sera jamais. Sans cette passe il
  * resterait `queued` à vie, et son run inachevé avec lui.
  */
+/**
+ * DASH-006 lot 2 — Une passe de conclusion des jobs suspendus, bornée et non bloquante.
+ *
+ * Troisième jumelle de `reapOnce` / `settleOnce`, et pour la même raison. Ce qu'elle
+ * ferme : une pause posée APRÈS la planification laisserait ses jobs partir (« en pause »
+ * à l'écran, mais pas en réalité), ou dormir à vie si on se contentait de les rendre non
+ * réclamables — et leurs dépendants obligatoires avec eux.
+ *
+ * ⚠️ Elle est appelée AVANT `settleOnce`, jamais après : le skip qu'elle pose est ce que
+ * la passe de dépendances lit ensuite comme « prérequis mort ». Inversée, la propagation
+ * attendrait un tour de plus, et le run du créneau resterait inachevé jusqu'au tick suivant.
+ */
+async function pauseOnce(db: AppDb, limit: number, stats: WorkerStats): Promise<void> {
+	if (limit <= 0) return;
+	try {
+		const res = await settlePausedJobs({ db, limit });
+		if (res.skipped.length === 0) return;
+		stats.skipped += res.skipped.length;
+		stats.pausedSkipped += res.skipped.length;
+		logger.warn('jobs sautés pour cause de pause', {
+			skipped: res.skipped.length,
+			types: res.skipped.map((s) => s.type)
+		});
+	} catch (err) {
+		logger.error('passe de pauses échouée (la boucle continue)', {
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
 async function settleOnce(db: AppDb, limit: number, stats: WorkerStats): Promise<void> {
 	if (limit <= 0) return;
 	try {
@@ -760,6 +814,13 @@ class CapacityGovernor {
 	private snapshot: QueueSnapshot | null = null;
 	private fairness: FairnessState = openFairness();
 	private sinceRefresh = 0;
+	/**
+	 * DASH-006 lot 2 — pauses actives, reprises au même rythme que la photo de la file.
+	 * Elles ne sont PAS une limite (une limite se règle, une pause se décide) : elles
+	 * voyagent seulement avec, parce que la réclamation n'a qu'une porte.
+	 */
+	private pausedProviders: JobProvider[] = [];
+	private pausedProjectIds: string[] = [];
 	/** Dernières fins de refroidissement calculées — la passe de cooldown les consomme. */
 	cooldownUntilByProvider: Partial<Record<JobProvider, number>> = {};
 
@@ -788,6 +849,14 @@ class CapacityGovernor {
 			this.projectLimits = ctx.projectLimits;
 			this.snapshot = ctx.snapshot;
 			this.sinceRefresh = 0;
+
+			// Les pauses, lues dans la même passe : une pause posée pendant un long drain
+			// doit mordre au rafraîchissement suivant, sans attendre le prochain tick.
+			const states = await loadPauseStates(this.db);
+			this.pausedProviders = pausedProviders(states);
+			this.pausedProjectIds = [...states.values()]
+				.filter((p) => p.target.scope === 'project' && p.target.projectId)
+				.map((p) => p.target.projectId as string);
 		} catch (err) {
 			logger.error('lecture de capacité échouée (la boucle continue)', {
 				error: err instanceof Error ? err.message : String(err)
@@ -810,6 +879,8 @@ class CapacityGovernor {
 			snapshot: this.snapshot,
 			projectLimits: this.projectLimits,
 			fairness: this.fairness,
+			pausedProviders: this.pausedProviders,
+			pausedProjectIds: this.pausedProjectIds,
 			now: Date.now()
 		});
 		this.fairness = admission.fairness;

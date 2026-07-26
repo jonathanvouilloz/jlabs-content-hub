@@ -251,6 +251,7 @@ function row(over: Partial<CadenceRow> & { health: CadenceRow['verdict']['health
 		verdict: { health, reason: '', recoverable: health === 'late' },
 		lastRun: null,
 		lastSuccess: null,
+		pauseScope: health === 'paused' ? 'project_cadence' : null,
 		...rest
 	};
 }
@@ -342,5 +343,141 @@ describe('runsHref', () => {
 
 	it('sans filtre, pointe la page nue', () => {
 		expect(runsHref({})).toBe('/automations');
+	});
+});
+
+// ── Pauses (DASH-006 lot 2) ─────────────────────────────────────────
+
+/** Verdict de pause tel que `resolveCadencePause` le rend. */
+function pauseVerdict(over: { scope?: string; reason?: string } = {}) {
+	return {
+		paused: true,
+		by: {
+			key: 'k',
+			target: {
+				scope: (over.scope ?? 'project_cadence') as 'project_cadence' | 'project' | 'provider',
+				projectId: 'p1',
+				cadence: 'weekly' as const,
+				provider: null
+			},
+			reason: over.reason ?? 'jamais diagnostiqué',
+			actor: 'user:contact@jonlabs.ch',
+			since: '2026-07-25 09:00:00',
+			until: null,
+			eventId: 'e1'
+		}
+	};
+}
+
+describe('classifyCadence — pauses', () => {
+	it('une cadence suspendue se lit `paused`, avec sa cause et son auteur', () => {
+		const verdict = classifyCadence({
+			spec: spec(),
+			wired: true,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: at('2026-01-01T00:00:00Z'),
+			pause: pauseVerdict()
+		});
+		expect(verdict.health).toBe('paused');
+		expect(verdict.reason).toMatch(/jamais diagnostiqué/);
+		expect(verdict.pause?.actor).toBe('user:contact@jonlabs.ch');
+	});
+
+	it('une pause n’est JAMAIS rattrapable : reprendre ne rejoue aucun créneau', () => {
+		const verdict = classifyCadence({
+			spec: spec(),
+			wired: true,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: null,
+			pause: pauseVerdict()
+		});
+		expect(verdict.recoverable).toBe(false);
+	});
+
+	it('une pause de PROJET le dit, plutôt que d’accuser la cadence', () => {
+		const verdict = classifyCadence({
+			spec: spec(),
+			wired: true,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: null,
+			pause: pauseVerdict({ scope: 'project', reason: 'client gelé' })
+		});
+		expect(verdict.reason).toMatch(/^Projet suspendu/);
+	});
+
+	it('`unwired` passe AVANT la pause : rien n’est câblé, il n’y a rien à suspendre', () => {
+		const verdict = classifyCadence({
+			spec: spec(),
+			wired: false,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: null,
+			pause: pauseVerdict()
+		});
+		expect(verdict.health).toBe('unwired');
+	});
+
+	it('`disabled` passe AVANT la pause : reprendre ne rallumerait rien', () => {
+		// L'ordre est celui du scheduler (`applyPauseToSpec` ne s'applique qu'à un
+		// `enabled` déjà vrai). Inversé, l'écran offrirait un bouton qui marche et
+		// après lequel rien ne repart.
+		const verdict = classifyCadence({
+			spec: spec({ enabled: false }),
+			wired: true,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: null,
+			pause: pauseVerdict()
+		});
+		expect(verdict.health).toBe('disabled');
+	});
+
+	it('sans pause, le verdict est strictement celui d’avant', () => {
+		const base = {
+			spec: spec(),
+			wired: true,
+			lastDue: null,
+			runStatus: null,
+			nowMs: at('2026-07-26T12:00:00Z'),
+			projectCreatedAtMs: null
+		};
+		expect(classifyCadence(base)).toEqual(
+			classifyCadence({ ...base, pause: { paused: false, by: null } })
+		);
+	});
+});
+
+describe('summarizeAutomations — pauses', () => {
+	it('une pause n’est NI un échec NI une attente : compteur à part', () => {
+		const s = summarizeAutomations([row({ health: 'ok' }), row({ health: 'paused' })]);
+		expect(s.paused).toBe(1);
+		expect(s.missed).toBe(0);
+		expect(s.late).toBe(0);
+		// Le point du lot : une décision ne peut pas peindre le cockpit en rouge.
+		expect(isFailing('paused')).toBe(false);
+	});
+
+	it('une cadence suspendue sort du dénominateur des ATTENDUES', () => {
+		// Sinon « 2 attendues, 1 ok » se lirait comme un manque, alors que l'autre est
+		// éteinte exprès.
+		const s = summarizeAutomations([row({ health: 'ok' }), row({ health: 'paused' })]);
+		expect(s.expected).toBe(1);
+	});
+
+	it('nomme les projets suspendus, dédupliqués et triés', () => {
+		const s = summarizeAutomations([
+			row({ health: 'paused', projectSlug: 'zeta', cadence: 'weekly' }),
+			row({ health: 'paused', projectSlug: 'alpha', cadence: 'daily' }),
+			row({ health: 'paused', projectSlug: 'zeta', cadence: 'monthly' })
+		]);
+		expect(s.projectsPaused).toEqual(['alpha', 'zeta']);
 	});
 });

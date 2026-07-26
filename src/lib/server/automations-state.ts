@@ -39,6 +39,7 @@ import {
 	type ScheduleCadence
 } from './schedule-state.js';
 import { RUN_STATUSES } from './monitoring-state.js';
+import type { CadencePauseVerdict } from './pause-state.js';
 
 // ── Le dernier créneau attendu ──────────────────────────────────────
 
@@ -93,18 +94,38 @@ export function lastDueOccurrence(input: {
  *
  *   - `unwired`   : la cadence se calcule mais n'enfile aucun job — rien à attendre ;
  *   - `disabled`  : la cadence est éteinte pour ce projet — muet, pas cassé ;
+ *   - `paused`    : une DÉCISION humaine la suspend — muet, pas cassé, et réversible ;
  *   - `never_due` : aucun créneau ne lui a encore été dû (projet trop jeune) ;
  *   - `ok`        : le dernier créneau dû a bien ouvert son run ;
  *   - `late`      : le créneau a été manqué mais reste DANS la fenêtre de
  *                   rattrapage — le prochain tick le tirera ;
  *   - `missed`    : le créneau est manqué HORS fenêtre. Il ne reviendra jamais.
  */
-export type CadenceHealth = 'ok' | 'late' | 'missed' | 'disabled' | 'unwired' | 'never_due';
+export type CadenceHealth =
+	| 'ok'
+	| 'late'
+	| 'missed'
+	| 'disabled'
+	| 'paused'
+	| 'unwired'
+	| 'never_due';
 
 export interface CadenceVerdict {
 	health: CadenceHealth;
 	/** Ce qu'on affirme, en une phrase — jamais un code d'état nu. */
 	reason: string;
+	/**
+	 * DASH-006 lot 2 — la pause qui explique le silence, quand il y en a une. Porte le
+	 * scope : c'est lui qui décide si un bouton « Reprendre » a un sens ICI, ou s'il
+	 * faudrait lever une pause de portée supérieure.
+	 */
+	pause?: {
+		scope: string;
+		reason: string;
+		actor: string;
+		since: string;
+		until: string | null;
+	} | null;
 	/**
 	 * Le prochain tick rattrapera-t-il ce créneau ? Faux dès qu'il sort de la
 	 * fenêtre : `dueOccurrences` ne regarde en arrière que de `lookbackMs`, donc
@@ -135,6 +156,11 @@ export interface ClassifyCadenceInput {
 	projectCreatedAtMs: number | null;
 	/** Fenêtre de rattrapage du tick (défaut : celle de `planDueJobs`). */
 	lookbackMs?: number;
+	/**
+	 * DASH-006 lot 2 — verdict de pause pour ce couple projet×cadence, tel que
+	 * `resolveCadencePause` le rend. `null` = aucune décision ne le couvre.
+	 */
+	pause?: CadencePauseVerdict | null;
 }
 
 export function classifyCadence(input: ClassifyCadenceInput): CadenceVerdict {
@@ -154,6 +180,30 @@ export function classifyCadence(input: ClassifyCadenceInput): CadenceVerdict {
 			health: 'disabled',
 			reason: 'Cadence désactivée pour ce projet : aucun créneau n’est tiré. Muet, pas cassé.',
 			recoverable: false
+		};
+	}
+	// DASH-006 lot 2 — la pause vient APRÈS `disabled`, et l'ordre est le même que côté
+	// scheduler (`applyPauseToSpec` ne s'applique qu'à un `enabled` déjà vrai). Inversé,
+	// l'écran offrirait « Reprendre » sur une cadence que la configuration éteint de
+	// toute façon : le bouton marcherait, et rien ne repartirait.
+	if (input.pause?.paused && input.pause.by) {
+		const by = input.pause.by;
+		return {
+			health: 'paused',
+			reason:
+				by.target.scope === 'project'
+					? `Projet suspendu (${by.reason}) : aucune de ses cadences n’est tirée.`
+					: `Cadence suspendue (${by.reason}) : aucun créneau n’est tiré.`,
+			// Reprendre ne rattrape RIEN : les créneaux tombés pendant la pause sont
+			// hors fenêtre. Le promettre ferait attendre des runs qui ne viendront pas.
+			recoverable: false,
+			pause: {
+				scope: by.target.scope,
+				reason: by.reason,
+				actor: by.actor,
+				since: by.since,
+				until: by.until
+			}
 		};
 	}
 	if (!input.lastDue) {
@@ -206,7 +256,14 @@ export function classifyCadence(input: ClassifyCadenceInput): CadenceVerdict {
 	};
 }
 
-/** Les états qui appellent une intervention — les seuls. */
+/**
+ * Les états qui appellent une intervention — les seuls.
+ *
+ * ⚠️ `paused` n'en fait PAS partie, et c'est le point du lot 2 : une pause est une
+ * décision, pas une panne. L'y ajouter ferait compter un arrêt volontaire comme un
+ * cockpit cassé — c'est-à-dire remettre exactement la confusion que ce lot supprime,
+ * après l'avoir supprimée.
+ */
 export const FAILING_HEALTHS: readonly CadenceHealth[] = ['missed', 'late'];
 
 export function isFailing(health: CadenceHealth): boolean {
@@ -237,19 +294,35 @@ export interface CadenceRow {
 	lastRun: { id: string; status: string; finishedAt: string | null } | null;
 	/** Dernier run RÉUSSI de cette cadence, quel que soit son créneau (SPEC §13.4). */
 	lastSuccess: { id: string; slot: string | null; finishedAt: string | null } | null;
+	/**
+	 * DASH-006 lot 2 — la pause s'applique-t-elle ICI, ou vient-elle d'une portée
+	 * supérieure ? C'est ce qui décide si la ligne peut offrir « Reprendre » : une
+	 * cadence couverte par un gel de PROJET ne le peut pas, le bouton lèverait une
+	 * pause qui n'est pas celle qui la retient.
+	 */
+	pauseScope: string | null;
 }
 
 export interface AutomationsSummary {
-	/** Cadences réellement attendues (câblées ET activées) — le dénominateur honnête. */
+	/**
+	 * Cadences réellement attendues (câblées, activées ET non suspendues) — le
+	 * dénominateur honnête. Une cadence en pause n'est pas « attendue » : la compter
+	 * ferait afficher « 11 attendues, 8 ok » sur un parc dont 3 sont éteintes exprès,
+	 * et le manque se lirait comme une panne.
+	 */
 	expected: number;
 	ok: number;
 	late: number;
 	missed: number;
 	disabled: number;
+	/** Suspendues par décision. Compteur SÉPARÉ : ni un échec, ni une désactivation. */
+	paused: number;
 	unwired: number;
 	neverDue: number;
 	/** Projets ayant au moins une cadence `missed`. */
 	projectsMissing: string[];
+	/** Projets ayant au moins une cadence suspendue — pour l'en-tête de l'écran. */
+	projectsPaused: string[];
 }
 
 export function summarizeAutomations(rows: CadenceRow[]): AutomationsSummary {
@@ -259,14 +332,17 @@ export function summarizeAutomations(rows: CadenceRow[]): AutomationsSummary {
 		late: 0,
 		missed: 0,
 		disabled: 0,
+		paused: 0,
 		unwired: 0,
 		neverDue: 0,
-		projectsMissing: []
+		projectsMissing: [],
+		projectsPaused: []
 	};
 	const missing = new Set<string>();
+	const paused = new Set<string>();
 
 	for (const row of rows) {
-		if (row.wired && row.spec.enabled) out.expected += 1;
+		if (row.wired && row.spec.enabled && row.verdict.health !== 'paused') out.expected += 1;
 		switch (row.verdict.health) {
 			case 'ok':
 				out.ok += 1;
@@ -281,6 +357,10 @@ export function summarizeAutomations(rows: CadenceRow[]): AutomationsSummary {
 			case 'disabled':
 				out.disabled += 1;
 				break;
+			case 'paused':
+				out.paused += 1;
+				paused.add(row.projectSlug);
+				break;
 			case 'unwired':
 				out.unwired += 1;
 				break;
@@ -291,6 +371,7 @@ export function summarizeAutomations(rows: CadenceRow[]): AutomationsSummary {
 	}
 
 	out.projectsMissing = [...missing].sort();
+	out.projectsPaused = [...paused].sort();
 	return out;
 }
 

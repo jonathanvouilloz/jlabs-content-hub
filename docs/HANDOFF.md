@@ -8,9 +8,8 @@
 
 ## Reprendre ici
 **Cutover d'abord** — 2 gestes manuels : variable Vercel `DATABASE_URL` → Neon, **puis**
-`git merge --ff-only feat/neon` sur `main`. `/automations` vient de le confirmer à l'écran :
-**12 créneaux manqués sur 12**, aucun run hebdomadaire jamais tiré — le cron `/tick` vit sur
-la branche, pas en prod.
-**Puis E00** — DASH-006 lot 2 (pause/reprise auditable : trancher **où vit une pause**, pas dans
-`project_projections` qui est recompilée) ou DASH-003 lot 2 (quels onglets).
-Commit : `492d9c8` [hub] add: le cockpit voit enfin le créneau qui N'A PAS eu lieu (DASH-006 lot 1)
+`git merge --ff-only feat/neon` sur `main`. Sans lui, aucune automatisation ne tourne en prod.
+**Puis E00** — **DASH-006 est CLOS** (lot 2 : pause/reprise auditable). Suivant : **DASH-003 lot 2**
+(trancher **quels onglets** — le BACKLOG et le bloc DASH-003 lot 1 ne listent pas les mêmes, et
+`project-cockpit-state.ts` n'a toujours pas été revu), ou **E11/exécution** (approuver n'exécute rien).
+Commit : `à venir` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)

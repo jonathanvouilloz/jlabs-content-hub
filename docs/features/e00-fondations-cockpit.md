@@ -4,6 +4,97 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-26 (DASH-006 lot 2 — arrêter une automatisation sans que ça ressemble à une panne)
+
+**Fait :** DASH-006 **lot 2**, qui ferme l'epic DASH-006. Le lot 1 avait appris au cockpit à voir le
+créneau **qui n'a pas eu lieu** ; il ne savait pas dire **pourquoi**, et les deux causes n'ont rien à
+voir : un cron mort est un incident, un projet suspendu est une décision. Les confondre, c'est soit
+s'alarmer pour rien, soit ranger un vrai incident sous « c'est normal ». **1 seul DDL** (59 → **60**
+tables).
+
+- **LE point du lot : une pause est une DÉCISION, pas une configuration.** C'est ce qui la disqualifie
+  des deux endroits où on aurait spontanément voulu l'écrire. `project_projections.payload.schedules`
+  est une **projection recompilée** : une pause y serait effacée **sans bruit** à la compilation
+  suivante — un monitoring qui redémarre tout seul sans que personne l'ait décidé. `system_settings`
+  est un KV qui se **réécrit sur place** : le geste précédent disparaît, donc « pause et reprise sont
+  auditables » devient infalsifiable. D'où `automation_pauses`, **journal append-only** calqué sur
+  `finding_events`, dont l'état effectif se **dérive**. L'auditabilité est structurelle, pas
+  déclarative : il n'existe aucun booléen qui puisse diverger de son historique, **parce qu'il
+  n'existe aucun booléen**.
+- **Trois portées, une seule mécanique** (`project_cadence` / `project` / `provider`) : un journal, un
+  dérivateur. Une cadence est suspendue si **l'une des deux premières** la couvre — **union, pas
+  préséance**, donc rien à arbitrer et rien qui puisse diverger entre l'écran et le scheduler. Quand
+  les deux existent, c'est la **plus large** qui est nommée : c'est elle qu'il faudra lever, et
+  proposer « Reprendre » sur la cadence ferait cliquer dans le vide. **Prouvé en base (section E).**
+- **⭐ L'acceptation du BACKLOG, littéralement : « la désactivation d'un provider n'annule pas les
+  autres steps ».** Une pause provider ne suspend **aucune** cadence — le run s'ouvre, et seuls ses
+  jobs sautent. Le `skipped` n'est pas un choix esthétique : c'est le statut que
+  `classifyDependencyGate` lit comme « prérequis mort », donc **la propagation JOB-004 est gratuite et
+  déjà prouvée**. Vérifié sur Neon : couper `gsc` fait sauter les 3 collecteurs **et**
+  `detect:keyword_opportunity` (prérequis obligatoire), pendant que `findings:lifecycle` reste
+  `queued` — il ne sort pas de Postgres, il n'a aucune raison d'attendre.
+- **Trois options existaient pour les jobs déjà en file, deux étaient des pièges.** Les laisser partir
+  : « en pause » à l'écran ne voudrait rien dire en réalité. Les rendre seulement non réclamables :
+  ils dormiraient **à vie**, et leurs dépendants obligatoires avec eux — le trou exact que JOB-004 a
+  fermé. D'où **les deux** : la 4ᵉ passe `pauseOnce` **conclut** (jumelle de `reapOnce`/`settleOnce`/
+  `coolDownOnce`, appelée **avant** `settleOnce` pour que le skip se propage dans le **même drain**),
+  et la garde d'admission **empêche** (`provider_paused`/`project_paused` dans `claimJob`, où vit
+  déjà celle de JOB-006). ⚠️ Un projet gelé est **retiré du calcul de réouverture du tour** : l'y
+  laisser bloquerait l'équité du parc entier (il a du travail réclamable qu'il ne prendra jamais).
+- **L'expiration est DÉRIVÉE, jamais écrite.** Une pause `until` échue n'est plus active à la lecture,
+  sans qu'aucune ligne ne bouge (compté avant/après en base) — donc aucun moyen qu'une pause « expirée
+  en base » et une pause « expirée à l'écran » se contredisent. Même discipline que `isSnoozeExpired`.
+- **Un vrai piège de fuseau trouvé par un test, corrigé à la racine.** `new Date('2026-07-26 12:00:00')`
+  est parsé en heure **locale** (ECMA-262) : repasser par `toDbTimestamp` une chaîne **déjà** au format
+  DB la décalait d'une à deux heures à Zurich. Une pause échéant à 12:00 se serait lue active jusqu'à
+  14:00, et le bug n'aurait été visible qu'aux abords de l'échéance, **deux fois l'an avec une
+  amplitude différente**. → `normalizeDbTimestamp` dans `timestamps.ts`, sa vraie maison.
+
+**Ce que l'écran a dit, à l'œil, en session admin :** suspendre `barberconcept/hebdomadaire` fait
+passer le bandeau de **12 manqués / 12 attendues** à **11 / 11 + 1 suspendue** — la décision sort du
+dénominateur **et** du décompte d'échecs, badge bleu et non rouge, dernier et prochain créneau à `—`.
+La reprise revient à 12/12 **et le journal garde les deux lignes**. Refus vérifié sans raison
+(« Une raison est requise. »).
+
+**Vérifs :** 997 tests (40 neufs sur `pause-state`, + pauses dans `automations-state` et `job-limits`)
+· `npm run check` 0 erreur · `scripts/apply-dash-006.ts` **60 tables, 0 unique hors PK** ·
+`scripts/dash-006-pause-proof.ts` **24/24 sur Neon** (dont les 3 contre-épreuves ⭐) · non-régression
+`dash-006-automations`, `job-004-dag`, `job-005-schedule`, `job-006-limits`, `job-007-console`,
+`dash-002-home`, `dash-003-project` — **0 échec chacune** · base laissée **propre** (0 résidu de
+preuve, 6 projets).
+
+**Prochain :** **DASH-003 lot 2** — trancher d'abord **quels onglets** (le BACKLOG et le bloc de
+session DASH-003 lot 1 de ce fichier ne listent pas les mêmes), et **revoir `project-cockpit-state.ts`**
+qui traîne deux pièges hérités : il n'applique ni la règle des deux axes (DASH-006) ni celle de la
+couverture de diagnostic (DASH-002). Sinon **E11/exécution** : approuver une proposition n'exécute
+toujours rien.
+
+**Pièges :**
+- **⚠️ Un run dont TOUS les steps sont `skipped` se lit `success`** (`STEP_TERMINAL_OK` contient
+  `skipped`, sémantique JOB-004 préexistante). Ce n'est pas faux — rien n'a échoué — mais un projet
+  gelé en cours de run affichera « réussi ». C'est la règle des deux axes une fois de plus : le
+  statut du run dit « rien n'a échoué », `/automations` dit **pourquoi rien n'a tourné**. Bien plus
+  atteignable depuis ce lot qu'avant.
+- **La pause vient APRÈS `disabled`** dans `classifyCadence`, et l'ordre réplique celui du scheduler
+  (`applyPauseToSpec` ne s'applique qu'à un `enabled` déjà vrai). Inversé, l'écran offrirait un bouton
+  « Reprendre » qui marche et après lequel **rien ne repart**.
+- **`paused` n'entre PAS dans `FAILING_HEALTHS`** : une décision n'est pas une panne. L'y ajouter
+  remettrait la confusion que ce lot supprime.
+- **La preuve emprunte un slug de `core.entities`** (`bc-chenois`) faute de pouvoir en inventer un :
+  `projects.slug` porte une FK cross-schéma vers le registre possédé par `invoices`, que seo-stats ne
+  modifie jamais (loi n°3). Garde posée : si un projet réel porte déjà ce slug, la preuve **s'arrête**,
+  et le nettoyage ne supprime que la ligne créée, **par son id, jamais par son slug**.
+- **`PausedByOperator` entre au vocabulaire d'erreur** aux côtés de `DependencySkipped`. Il ne
+  consomme **pas** de tentative (`attempt_no` inchangé) : le job n'a rien raté, on lui a retiré
+  l'autorisation de partir — l'incrémenter le rapprocherait de la dead-letter pour une décision humaine.
+- Inchangé : `RUN_TYPES` (`monitoring-state.ts`) ne contient pas `hourly` · `npm run build` échoue à
+  l'adaptateur Vercel sous Windows (**préexistant**) · **rien n'est déployé** (cutover Phase 5A en
+  attente), donc une pause posée ici ne suspend rien en prod — puisque rien n'y tourne.
+
+**Commit :** `à venir` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)
+
+---
+
 ## Etat session 2026-07-26 (DASH-006 lot 1 — le cockpit voit le créneau qui N'A PAS eu lieu)
 
 **Fait :** DASH-006, **lot 1** (calendrier + runs + règles effectives). Le cockpit savait montrer
@@ -2716,12 +2807,21 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-26 (DASH-006 lot 1 — vue automatisations)
+> Mise à jour : 2026-07-26 (DASH-006 lot 2 — pause/reprise auditable)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/pause-state.ts`** (+ `.test.ts`) *(DASH-006 lot 2)* | **Le jugement des pauses, pur.** `derivePauseStates` plie le **dernier événement par cible** en état effectif : une pause `until` échue en est **absente**, donc l'expiration est **dérivée et jamais écrite** (borne `<=`, comme `isSnoozeExpired`). `resolveCadencePause` fait l'**UNION** de `project_cadence` et `project` — pas de préséance à arbitrer, donc rien qui puisse diverger entre l'écran et le scheduler — et nomme la **plus large**, celle qu'il faudra lever. `resolveJobPause` réutilise `providerForJobType` (jamais une seconde table de types, qui divergerait au premier handler ajouté) ; un job **sans run** échappe à une pause de cadence, il n'appartient à aucun cadran. `normalizePauseTarget` est **STRICTE** à l'inverse de `resolveScheduleConfig` : une pause qui ne met rien en pause est pire qu'un refus, parce qu'elle a l'air d'avoir marché. `none` est refusé comme provider — c'est son **absence**. **40 tests.** |
+| **`src/lib/server/pauses.ts`** *(DASH-006 lot 2)* | **L'accès base, sans une règle.** `loadPauseStates` = **une** requête `DISTINCT ON` : le dernier événement par cible, jamais le journal entier — la borne est le nombre de **cibles**, pas le volume d'historique. `recordPauseDecision` porte **l'idempotence DANS la transaction** (relit l'état dérivé, n'insère rien si l'état voulu est déjà là, rend `idempotent: true`) — contrat d'`approveProposal` : un double clic est un **non-événement**, jamais une erreur. ⚠️ Les conditions de `listPauseJournal` sont écrites sur **l'alias `p`** : les colonnes drizzle se rendent en nom pleinement qualifié, que Postgres refuse dès qu'un alias existe (42P01). |
+| **`src/lib/server/jobs-pause.ts`** *(DASH-006 lot 2)* | **La 4ᵉ passe du worker**, jumelle de `jobs-graph.ts`. Conclut en `skipped` + `job_attempts` les jobs `queued` couverts par une pause, sous la garde `status='queued'` (course perdue = **no-op** : une pause arrête ce qui n'a pas commencé, elle n'interrompt pas ce qui court). Le `skipped` est ce que `classifyDependencyGate` lit comme **prérequis mort** → la propagation JOB-004 est **gratuite**. `LEFT JOIN` sur `monitoring_runs` : un job sans run doit **ressortir**, il reste soumis aux pauses provider et projet. **Zéro requête quand rien n'est suspendu** (le cas courant ne taxe aucun tour à vide). |
+| `src/lib/server/job-runner.ts` *(DASH-006 lot 2)* | `pauseOnce` **avant** `settleOnce`, au démarrage et à chaque tour à vide : le skip qu'elle pose est ce que la passe suivante propage, **dans le même drain**. Compteur `pausedSkipped` **séparé** de `skipped` (comme `deferrals` l'est d'`attempts`) : dix jobs sautés par décision n'ont rien en commun avec dix jobs sautés par une collecte morte. Le `CapacityGovernor` relit les pauses **avec** la photo de la file. |
+| `src/lib/server/job-limits.ts` (+ `.test.ts`) *(DASH-006 lot 2)* | `pausedProviders` / `pausedProjectIds` entrent dans `planAdmission` — **pas dans `JobLimits`** : une limite se règle, une pause se décide. La pause est évaluée **AVANT** le refroidissement (sinon l'écran annoncerait « au repos encore 900 s » d'un provider que personne ne compte rallumer). ⚠️ Un projet gelé est **retiré du calcul de réouverture du tour** : il a du travail réclamable qu'il ne prendra jamais, l'y laisser gèlerait l'équité du **parc entier**. |
+| `src/lib/server/timestamps.ts` *(DASH-006 lot 2)* | `normalizeDbTimestamp` : rend une chaîne **déjà canonique** telle quelle. `new Date('2026-07-26 12:00:00')` est parsé en heure **LOCALE** (ECMA-262) — la repasser par `toDbTimestamp` la décale d'une à deux heures à Zurich, avec une amplitude qui change deux fois l'an. Toute valeur qui **sort** de la base passe par là. |
+| `src/lib/server/scheduler.ts` · `automations.ts` · `automations-state.ts` *(DASH-006 lot 2)* | L'overlay `applyPauseToSpec` vit **au call site** : `loadProjectScheduleConfig` reste intacte, parce que « désactivée » (configuration) et « en pause » (décision) doivent rester **lisibles séparément**. Les pauses sont lues **une seule fois** par écran et par batch — deux lectures pourraient tomber de part et d'autre d'une reprise concurrente et afficher un état qui n'a jamais existé. `health: 'paused'` vient **après `disabled`** (ordre du scheduler) et **hors `FAILING_HEALTHS`** ; une cadence suspendue sort du dénominateur des « attendues ». |
+| `src/routes/api/ops/automations/pause/+server.ts` *(DASH-006 lot 2)* | La seule porte humaine. Raison **obligatoire dans les deux sens** — y compris pour reprendre : « pourquoi le monitoring a-t-il redémarré le 12 août » est la question qu'on se posera, et une reprise sans motif y répond par un blanc. L'échéance se saisit en **jours** et se convertit ici : laisser le client envoyer une date inviterait deux formats dont la comparaison lexicale ne veut plus rien dire. |
+| `src/lib/server/db/schema.ts` → `automation_pauses` *(DASH-006 lot 2, seul DDL — 60 tables)* | Journal **append-only**, calqué sur `finding_events`. **Aucun unique, volontairement** : rejouer un geste ne doit pas *échouer*, il ne doit *rien écrire* — une contrainte transformerait un double clic en erreur. `project_id` **nullable** : NULL ⇔ `scope='provider'`, une pause provider n'appartenant à aucun projet (l'attacher à l'un d'eux la rendrait invisible depuis les cinq autres, alors qu'elle les coupe tous). |
 | **`src/lib/server/automations-state.ts`** (+ `.test.ts`) *(DASH-006 lot 1)* | **Purs DASH-006.** `lastDueOccurrence` **délègue à `dueOccurrences`** au lieu de réénumérer les créneaux : deux énumérations divergeraient au premier changement d'heure, et l'écran accuserait le cron d'un créneau qu'il n'a jamais eu à tirer. `classifyCadence` porte **l'axe PLANIFICATION seul** — un run `failed`, `partial` ou `cancelled` laisse `ok`, parce que le créneau, lui, **a bien été tiré** ; fusionner les deux axes peindrait en rouge un projet dont l'automatisation marche et en vert celui qui n'a plus rien tiré depuis trois semaines. ⚠️ **L'ordre des règles est celui de `planDueJobs`** : `unwired` **avant** `disabled`, le scheduler écartant les cadences sans handler avant de lire `enabled` — inversé, deux raisons pour un même silence, dont une fausse. **`late` vs `missed` se joue sur `DEFAULT_LOOKBACK_MS` importée**, jamais recopiée : au-delà, `dueOccurrences` ne regarde plus en arrière et le créneau est perdu **pour de bon** (borne testée à la milliseconde, `instantMs > since` ⇒ un créneau **sur** la borne est déjà `missed`). Un créneau antérieur à `projects.created_at` vaut `never_due`, mais une date **inconnue** ne blanchit rien. `normalizeAutomationFilters` n'accepte un `since` **qu'au format DB** — une chaîne libre irait dans un `>=` sur une colonne `text`, où elle écarterait des lignes au hasard. **25 tests.** |
 | **`src/lib/server/automations.ts`** *(DASH-006 lot 1)* | **Lecture DASH-006 — le CROISEMENT.** Les créneaux d'abord, la base ensuite : on ne va chercher que les runs des créneaux **attendus**, au lieu de ramener un historique et d'y deviner ce qui manque. La jointure porte sur `(project_id, run_type, period_end)`, où `period_end` est le **créneau LOCAL** écrit par `planOne` — et non un intervalle autour de l'instant, qui apparierait un run au créneau voisin le jour du changement d'heure, précisément là où la question se pose. Premier lecteur de **`monitoring_runs`/`monitoring_steps`** depuis DATA-003 : les steps sont réduits à la **dernière tentative** par `step_type` (sinon un step relancé avec succès se lit comme un demi-échec permanent), et « dernière réussite » est un `DISTINCT ON (project_id, run_type)`. ⚠️ **`flags.ts` est importé en DYNAMIQUE** (il tire `$env/dynamic/private`) et rend **`null` hors SvelteKit** — « non lisible », jamais « tous à false », qui serait une affirmation sans preuve. |
 | **`src/routes/(app)/automations/+page.*`** *(DASH-006 lot 1)* | La page cross-projet : bandeau de résumé (le seul élément qui se lit sans rien déplier), calendrier créneau attendu ↔ run observé, liste de runs filtrable, panneau « Règles effectives » (quotas JOB-006 · flags GOV-005 · politiques d'avis DATA-007). Le loader ne juge rien. Colonne **« Type / créneau »** et non « Cadence » : `manual` et `post_publish` sont des `run_type` **sans cadran**, les ranger sous « cadence » ferait chercher un créneau qui n'existe pas. |

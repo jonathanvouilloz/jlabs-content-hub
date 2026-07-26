@@ -1676,3 +1676,83 @@ export const systemSettings = seostats.table('system_settings', {
 	description: text('description'),
 	updatedAt: text('updated_at').notNull().default(nowText)
 });
+
+// ── DASH-006 lot 2 — Journal des PAUSES d'automatisation (BACKLOG « pause et reprise auditables ») ──
+//
+// Une pause est une DÉCISION, pas une configuration : elle a un auteur, une cause, une
+// date, parfois une échéance. C'est ce qui la disqualifie des deux endroits où on aurait
+// spontanément voulu l'écrire :
+//
+//   - `project_projections.payload.schedules.enabled` : la projection est RECOMPILÉE
+//     (`source_hash`, `status current|stale`). Une pause écrite là serait effacée sans
+//     bruit à la compilation suivante — et un monitoring qui redémarre tout seul sans que
+//     personne l'ait décidé est exactement le contraire de ce que ce lot promet.
+//   - `system_settings` : un KV se réécrit sur place. Le geste précédent disparaît, donc
+//     « pause et reprise sont auditables » devient infalsifiable.
+//
+// D'où la forme : APPEND-ONLY strict, calquée sur `finding_events` (§7.7). Jamais d'UPDATE,
+// jamais de DELETE. L'état effectif d'une cible se DÉRIVE de son dernier événement
+// (`pause-state.ts`), ce qui donne l'auditabilité par construction : l'historique n'est pas
+// une colonne à tenir à jour à côté de la vérité, il EST la vérité.
+//
+// Trois portées, une seule mécanique — `scope` + la cible correspondante :
+//
+//   - `project_cadence` (project_id + cadence) : « suspendre le hebdo de barberconcept » ;
+//   - `project`         (project_id)           : « geler ce client » ;
+//   - `provider`        (provider)             : « couper GSC », transverse à tous les projets.
+//
+// Une cadence est en pause si N'IMPORTE laquelle des deux premières la couvre (union, pas
+// préséance : rien à arbitrer, donc rien qui puisse diverger entre l'écran et le scheduler).
+// Une pause `provider` ne suspend AUCUNE cadence : le run s'ouvre, et seuls les jobs de ce
+// provider sont sautés — c'est littéralement l'acceptation « la désactivation d'un provider
+// n'annule pas les autres steps ».
+//
+// `until` est une ÉCHÉANCE, pas un état : son expiration se dérive à la lecture (même
+// discipline que `findings.snoozed_until` / `isSnoozeExpired`). Aucun job de réveil, aucune
+// écriture au passage de l'heure — donc aucun moyen qu'une pause « expirée en base » et une
+// pause « expirée à l'écran » se contredisent.
+//
+// Aucun `updated_at`, et AUCUN unique : rejouer le même geste ne doit pas ÉCHOUER, il ne doit
+// rien écrire. L'idempotence est portée par la transaction de `recordPauseDecision` (qui relit
+// l'état dérivé avant d'insérer), comme `approveProposal` — jamais par une contrainte, qui
+// transformerait un double clic en erreur au lieu d'un non-événement.
+export const automationPauses = seostats.table(
+	'automation_pauses',
+	{
+		id: text('id').primaryKey(),
+		/** Vocabulaire FERMÉ (`PAUSE_SCOPES`) : project_cadence | project | provider. */
+		scope: text('scope').notNull(),
+		/** Renseigné pour `project_cadence` et `project` ; NULL pour `provider` (transverse). */
+		projectId: text('project_id').references(() => projects.id),
+		/** Cadence visée (`SCHEDULE_CADENCES`) — renseignée ssi scope = 'project_cadence'. */
+		cadence: text('cadence'),
+		/** Provider visé (`JOB_PROVIDERS`) — renseigné ssi scope = 'provider'. */
+		provider: text('provider'),
+		/** `paused` | `resumed` (`PAUSE_EVENT_TYPES`). */
+		eventType: text('event_type').notNull(),
+		/**
+		 * La CAUSE, jamais nullable — même exigence que la raison obligatoire de
+		 * `/api/ops/findings/[id]/transition`. Une pause sans motif est un trou de
+		 * monitoring que personne ne saura relire dans trois semaines.
+		 */
+		reason: text('reason').notNull(),
+		/** Échéance de reprise automatique (format DB). NULL = jusqu'à reprise explicite. */
+		until: text('until'),
+		/** `user:{email}` | `system` | `schedule` — l'AUTEUR (`PAUSE_ACTORS`). */
+		actor: text('actor').notNull().default('system'),
+		payloadJson: text('payload_json'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		// L'ordre EXACT du `DISTINCT ON` de `loadPauseStates` : dernier événement par cible,
+		// en une requête, sans jamais scanner le journal entier.
+		index('idx_automation_pauses_key').on(
+			table.scope,
+			table.projectId,
+			table.cadence,
+			table.provider,
+			table.createdAt
+		),
+		index('idx_automation_pauses_created').on(table.createdAt)
+	]
+);

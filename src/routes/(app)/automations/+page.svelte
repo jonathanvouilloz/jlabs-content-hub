@@ -1,7 +1,14 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import { AlarmClockOff, CalendarClock, Gauge, ShieldCheck, ToggleLeft } from 'lucide-svelte';
+	import {
+		AlarmClockOff,
+		CalendarClock,
+		Gauge,
+		PauseCircle,
+		ShieldCheck,
+		ToggleLeft
+	} from 'lucide-svelte';
 	import {
 		CADENCE_HEALTH_LABEL,
 		CADENCE_LABEL,
@@ -53,6 +60,78 @@
 		);
 	}
 
+	// ── Pauses (DASH-006 lot 2) ─────────────────────────────────────────
+	//
+	// Aucune form action : la discipline du repo est `load` en lecture seule puis POST
+	// JSON vers `/api/ops/**` (cf. inbox findings). La RAISON saisie tient lieu de
+	// confirmation — pas de `window.confirm`, qui bloquerait sans rien journaliser.
+
+	/**
+	 * Les providers qu'on peut suspendre. `none` en est exclu : ce n'est pas un provider
+	 * mais son absence — le suspendre couperait détecteurs, veilles et producteur sous un
+	 * libellé qui promet le contraire (l'endpoint le refuse aussi).
+	 */
+	const PAUSABLE_PROVIDERS = ['gsc', 'dataforseo', 'gmb', 'llm'] as const;
+
+	/** Cible du formulaire ouvert, ou null. Une seule à la fois : le geste est délibéré. */
+	let pauseForm = $state<{
+		scope: 'project_cadence' | 'project' | 'provider';
+		eventType: 'paused' | 'resumed';
+		projectId?: string;
+		cadence?: string;
+		provider?: string;
+		label: string;
+	} | null>(null);
+	let pauseReason = $state('');
+	let pauseUntilDays = $state('');
+	let busy = $state(false);
+	let feedback = $state<{ ok: boolean; message: string } | null>(null);
+
+	function openPauseForm(target: NonNullable<typeof pauseForm>) {
+		pauseForm = target;
+		pauseReason = '';
+		pauseUntilDays = '';
+		feedback = null;
+	}
+
+	async function submitPause() {
+		if (!pauseForm || busy) return;
+		// Exigée par l'endpoint aussi : la demander ici évite un aller-retour pour rien.
+		const reason = pauseReason.trim();
+		if (!reason) {
+			feedback = { ok: false, message: 'Une raison est requise.' };
+			return;
+		}
+		busy = true;
+		try {
+			const res = await fetch('/api/ops/automations/pause', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					eventType: pauseForm.eventType,
+					scope: pauseForm.scope,
+					projectId: pauseForm.projectId ?? null,
+					cadence: pauseForm.cadence ?? null,
+					provider: pauseForm.provider ?? null,
+					reason,
+					untilDays: pauseForm.eventType === 'paused' ? pauseUntilDays || null : null
+				})
+			});
+			const payload = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				feedback = { ok: false, message: payload.error ?? 'Échec de la décision.' };
+				return;
+			}
+			feedback = { ok: true, message: payload.note ?? 'Enregistré.' };
+			pauseForm = null;
+			pauseReason = '';
+			pauseUntilDays = '';
+			await invalidateAll();
+		} finally {
+			busy = false;
+		}
+	}
+
 	function resetFilters() {
 		projectSlug = '';
 		runStatus = '';
@@ -91,6 +170,10 @@
 		late: 'bg-amber-50 text-amber-700 border-amber-200',
 		missed: 'bg-red-50 text-red-700 border-red-200',
 		disabled: 'bg-surface-50 text-surface-500 border-surface-200',
+		// Bleu, jamais rouge ni ambre : une pause est une décision qui tient, pas un
+		// incident à traiter. La peindre en alerte remettrait la confusion que ce lot
+		// existe pour supprimer.
+		paused: 'bg-sky-50 text-sky-700 border-sky-200',
 		unwired: 'bg-surface-50 text-surface-400 border-surface-200',
 		never_due: 'bg-violet-50 text-violet-700 border-violet-200'
 	};
@@ -175,8 +258,9 @@
 				{data.summary.expected} cadence{data.summary.expected > 1 ? 's' : ''} attendue{data.summary
 					.expected > 1
 					? 's'
-					: ''} (câblée + activée) · {data.summary.ok} à l'heure · {data.summary.disabled} désactivée(s)
-				· {data.summary.neverDue} jamais due(s) · {data.summary.unwired} non câblée(s)
+					: ''} (câblée, activée, non suspendue) · {data.summary.ok} à l'heure · {data.summary
+					.paused} suspendue(s) · {data.summary.disabled} désactivée(s) · {data.summary.neverDue} jamais
+				due(s) · {data.summary.unwired} non câblée(s)
 			</div>
 		</div>
 	</div>
@@ -204,6 +288,7 @@
 							<th class="px-3 py-1.5 font-medium">Run de ce créneau</th>
 							<th class="px-3 py-1.5 font-medium">Dernière réussite</th>
 							<th class="px-3 py-1.5 font-medium">Prochain créneau</th>
+							<th class="px-3 py-1.5 font-medium">Pause</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -218,6 +303,35 @@
 											>
 												{project.name}
 											</a>
+											<!-- Le geste PROJET vit sur la ligne de tête, une seule fois : le
+											     répéter par cadence laisserait croire qu'il porte sur elle. -->
+											{#if project.rows.some((r) => r.pauseScope === 'project')}
+												<button
+													class="ml-1.5 text-[10px] text-sky-700 hover:underline"
+													onclick={() =>
+														openPauseForm({
+															scope: 'project',
+															eventType: 'resumed',
+															projectId: row.projectId,
+															label: `projet ${project.slug}`
+														})}
+												>
+													dégeler
+												</button>
+											{:else}
+												<button
+													class="ml-1.5 text-[10px] text-surface-300 hover:text-surface-600 hover:underline"
+													onclick={() =>
+														openPauseForm({
+															scope: 'project',
+															eventType: 'paused',
+															projectId: row.projectId,
+															label: `projet ${project.slug}`
+														})}
+												>
+													geler
+												</button>
+											{/if}
 										{/if}
 										<div class="text-surface-500">
 											{CADENCE_LABEL[row.cadence] ?? row.cadence}
@@ -267,6 +381,45 @@
 											<span class="text-surface-300">—</span>
 										{/if}
 									</td>
+									<td class="px-3 py-1.5">
+										{#if row.verdict.health === 'paused' && row.pauseScope === 'project'}
+											<!-- La pause qui la retient n'est pas la sienne : offrir « Reprendre »
+											     ici ferait cliquer dans le vide, le gel projet subsistant. -->
+											<span class="text-[10px] text-surface-400">via pause projet</span>
+										{:else if row.verdict.health === 'paused'}
+											<button
+												class="text-[11px] text-sky-700 hover:underline"
+												onclick={() =>
+													openPauseForm({
+														scope: 'project_cadence',
+														eventType: 'resumed',
+														projectId: row.projectId,
+														cadence: row.cadence,
+														label: `${project.slug} · ${CADENCE_LABEL[row.cadence] ?? row.cadence}`
+													})}
+											>
+												Reprendre
+											</button>
+										{:else if row.wired && row.spec.enabled}
+											<button
+												class="text-[11px] text-surface-400 hover:text-surface-700 hover:underline"
+												onclick={() =>
+													openPauseForm({
+														scope: 'project_cadence',
+														eventType: 'paused',
+														projectId: row.projectId,
+														cadence: row.cadence,
+														label: `${project.slug} · ${CADENCE_LABEL[row.cadence] ?? row.cadence}`
+													})}
+											>
+												Suspendre
+											</button>
+										{:else}
+											<!-- Rien à suspendre : non câblée, ou déjà désactivée. Un bouton ici
+											     promettrait un effet qu'aucune décision ne produirait. -->
+											<span class="text-surface-300">—</span>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						{/each}
@@ -283,6 +436,165 @@
 					</span>
 				</p>
 			{/if}
+		</section>
+
+		<!-- Pauses : décision, formulaire, journal (DASH-006 lot 2) -->
+		<section class="rounded-lg border border-surface-200 bg-white">
+			<div class="flex flex-wrap items-center gap-2 border-b border-surface-100 px-3 py-2 text-xs">
+				<PauseCircle class="h-3.5 w-3.5 text-surface-400" />
+				<span class="font-medium text-surface-900">Pauses</span>
+				<span class="text-[11px] text-surface-400">
+					{data.summary.paused} cadence{data.summary.paused > 1 ? 's' : ''} suspendue{data.summary
+						.paused > 1
+						? 's'
+						: ''}
+					· {data.rules.providerPauses.length} provider{data.rules.providerPauses.length > 1
+						? 's'
+						: ''}
+				</span>
+			</div>
+
+			{#if feedback}
+				<p
+					class="px-3 py-1.5 text-[11px] {feedback.ok ? 'text-emerald-700' : 'text-red-700'}"
+				>
+					{feedback.message}
+				</p>
+			{/if}
+
+			<!-- Formulaire : la RAISON tient lieu de confirmation. Pas de window.confirm,
+			     qui bloquerait la page sans rien journaliser. -->
+			{#if pauseForm}
+				<div class="border-b border-surface-100 bg-surface-50 px-3 py-2">
+					<p class="text-[11px] font-medium text-surface-900">
+						{pauseForm.eventType === 'paused' ? 'Suspendre' : 'Reprendre'} — {pauseForm.label}
+					</p>
+					<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+						<input
+							bind:value={pauseReason}
+							placeholder="Raison (obligatoire) — relue dans trois semaines"
+							class="min-w-[22rem] flex-1 rounded border border-surface-200 px-2 py-1 text-[11px]"
+						/>
+						{#if pauseForm.eventType === 'paused'}
+							<input
+								bind:value={pauseUntilDays}
+								type="number"
+								min="1"
+								max="365"
+								placeholder="jours"
+								title="Échéance facultative : la reprise sera automatique, sans autre geste."
+								class="w-20 rounded border border-surface-200 px-2 py-1 text-[11px]"
+							/>
+						{/if}
+						<button
+							disabled={busy}
+							onclick={submitPause}
+							class="rounded bg-surface-900 px-2 py-1 text-[11px] text-white disabled:opacity-40"
+						>
+							{busy ? 'Enregistrement…' : 'Confirmer'}
+						</button>
+						<button
+							disabled={busy}
+							onclick={() => (pauseForm = null)}
+							class="px-2 py-1 text-[11px] text-surface-500 hover:underline disabled:opacity-40"
+						>
+							Annuler
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Providers : transverses à TOUS les projets, donc sans ligne de cadence où
+			     vivre. Sans ce panneau, une coupure GSC se lirait comme six collectes
+			     cassées, et la décision unique qui les coupe resterait invisible. -->
+			<div class="border-b border-surface-100 px-3 py-2">
+				<p class="text-[11px] font-medium text-surface-500">Providers</p>
+				<div class="mt-1 flex flex-wrap items-center gap-2">
+					{#each PAUSABLE_PROVIDERS as provider (provider)}
+						{@const active = data.rules.providerPauses.find(
+							(p) => p.target.provider === provider
+						)}
+						<span
+							class="inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[10px]
+								{active ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-surface-200 text-surface-500'}"
+						>
+							{PROVIDER_LABEL[provider] ?? provider}
+							{#if active}
+								<span class="text-sky-500" title={active.reason}>
+									suspendu{active.until ? ` jusqu’au ${formatDbTimestamp(active.until)}` : ''}
+								</span>
+								<button
+									class="text-sky-700 hover:underline"
+									onclick={() =>
+										openPauseForm({
+											scope: 'provider',
+											eventType: 'resumed',
+											provider,
+											label: `provider ${provider}`
+										})}
+								>
+									reprendre
+								</button>
+							{:else}
+								<button
+									class="text-surface-300 hover:text-surface-600 hover:underline"
+									onclick={() =>
+										openPauseForm({
+											scope: 'provider',
+											eventType: 'paused',
+											provider,
+											label: `provider ${provider}`
+										})}
+								>
+									suspendre
+								</button>
+							{/if}
+						</span>
+					{/each}
+				</div>
+				<p class="mt-1 text-[10px] text-surface-400">
+					Suspendre un provider ne suspend aucune cadence : le run s'ouvre, et seuls les jobs de
+					ce provider sont sautés. Les steps qui n'en dépendent pas continuent.
+				</p>
+			</div>
+
+			<!-- Journal : c'est LUI l'acceptation « pause et reprise sont auditables ».
+			     L'état effectif s'en dérive, il n'est stocké nulle part. -->
+			<div class="px-3 py-2">
+				<p class="text-[11px] font-medium text-surface-500">Journal des décisions</p>
+				{#if data.pauseJournal.length === 0}
+					<p class="mt-1 text-[11px] text-surface-300">
+						Aucune décision de pause à ce jour.
+					</p>
+				{:else}
+					<ul class="mt-1 space-y-0.5">
+						{#each data.pauseJournal as entry (entry.id)}
+							<li class="text-[11px] text-surface-600">
+								<span class="tabular-nums text-surface-400">
+									{formatDbTimestamp(entry.createdAt)}
+								</span>
+								<span class={entry.eventType === 'paused' ? 'text-sky-700' : 'text-emerald-700'}>
+									{entry.eventType === 'paused' ? 'suspend' : 'reprend'}
+								</span>
+								<span class="font-medium">
+									{entry.scope === 'provider'
+										? `provider ${entry.provider}`
+										: entry.scope === 'project'
+											? `projet ${entry.projectSlug ?? entry.projectId}`
+											: `${entry.projectSlug ?? entry.projectId} · ${CADENCE_LABEL[entry.cadence ?? ''] ?? entry.cadence}`}
+								</span>
+								<span class="text-surface-400">— {entry.reason}</span>
+								<span class="text-surface-300">({entry.actor})</span>
+								{#if entry.until}
+									<span class="text-surface-300">
+										· échéance {formatDbTimestamp(entry.until)}
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
 		</section>
 
 		<!-- Runs -->

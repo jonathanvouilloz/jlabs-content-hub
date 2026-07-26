@@ -26,6 +26,15 @@ import {
 } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { loadProjectScheduleConfig } from './scheduler.js';
+import { listPauseJournal, loadPauseStates, type PauseJournalEntry } from './pauses.js';
+import {
+	applyPauseToSpec,
+	pausedProviders,
+	resolveCadencePause,
+	type ActivePause,
+	type CadencePauseVerdict,
+	type PauseStates
+} from './pause-state.js';
 import { loadCapacitySnapshot, type CapacitySnapshot } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import {
@@ -238,6 +247,8 @@ export async function loadCadenceRows(input: {
 	now: Date;
 	projectSlug?: string | null;
 	timeZone?: string;
+	/** États injectables (preuves) — même porte que le `catalog` de `planDueJobs`. */
+	pauses?: PauseStates;
 }): Promise<CadenceRow[]> {
 	const { db, now } = input;
 	const timeZone = input.timeZone ?? BUSINESS_TIMEZONE;
@@ -267,21 +278,33 @@ export async function loadCadenceRows(input: {
 		cadence: ScheduleCadence;
 		spec: CadenceSpec;
 		wired: boolean;
+		pause: CadencePauseVerdict;
 		lastDue: Occurrence | null;
 		next: Occurrence | null;
 	}> = [];
+
+	// DASH-006 lot 2 — les pauses, lues UNE fois pour tout l'écran, comme dans
+	// `planDueJobs`. C'est la MÊME fonction de résolution des deux côtés : l'écran ne
+	// peut donc pas annoncer suspendu ce que le scheduler planifierait quand même.
+	const pauses = input.pauses ?? (await loadPauseStates(db, now));
 
 	for (const project of scoped) {
 		const config = await loadProjectScheduleConfig(db, project.id);
 		for (const cadence of SCHEDULE_CADENCES) {
 			const spec = config[cadence];
+			const pause = resolveCadencePause({ states: pauses, projectId: project.id, cadence });
+			// Le créneau attendu et le prochain se calculent sur le spec APRÈS pause :
+			// une cadence suspendue n'a ni dernier créneau dû, ni prochaine exécution.
+			// Les calculer sur le spec brut afficherait une date que rien ne tirera.
+			const effective = applyPauseToSpec(spec, pause.paused);
 			pending.push({
 				project,
 				cadence,
 				spec,
 				wired: catalogFor(cadence).length > 0,
-				lastDue: lastDueOccurrence({ cadence, spec, now: nowMs, timeZone }),
-				next: nextOccurrence({ cadence, spec, after: nowMs, timeZone })
+				pause,
+				lastDue: lastDueOccurrence({ cadence, spec: effective, now: nowMs, timeZone }),
+				next: nextOccurrence({ cadence, spec: effective, after: nowMs, timeZone })
 			});
 		}
 	}
@@ -322,10 +345,12 @@ export async function loadCadenceRows(input: {
 				lastDue: p.lastDue,
 				runStatus: run?.status ?? null,
 				nowMs,
-				projectCreatedAtMs: parseDb(p.project.createdAt)
+				projectCreatedAtMs: parseDb(p.project.createdAt),
+				pause: p.pause
 			}),
 			lastRun: run ? { id: run.id, status: run.status, finishedAt: run.finishedAt } : null,
-			lastSuccess: success
+			lastSuccess: success,
+			pauseScope: p.pause.by?.target.scope ?? null
 		} satisfies CadenceRow;
 	});
 }
@@ -440,6 +465,13 @@ export interface EffectiveRules {
 		version: number;
 		promotedAt: string | null;
 	}>;
+	/**
+	 * DASH-006 lot 2 — les pauses PROVIDER en vigueur. Elles n'ont aucune ligne de
+	 * cadence où s'afficher (elles sont transverses à tous les projets), donc sans ce
+	 * panneau une coupure de GSC serait invisible : on verrait six projets dont les
+	 * collectes sautent, sans jamais voir la décision unique qui les fait sauter.
+	 */
+	providerPauses: ActivePause[];
 }
 
 /**
@@ -463,7 +495,9 @@ export async function loadEffectiveRules(input: {
 	db: AppDb;
 	now: Date;
 	projectSlug?: string | null;
+	pauses?: PauseStates;
 }): Promise<EffectiveRules> {
+	const states = input.pauses ?? (await loadPauseStates(input.db, input.now));
 	const [capacity, flags, policies] = await Promise.all([
 		loadCapacitySnapshot({ db: input.db, now: input.now }),
 		loadFlagsSafely(),
@@ -497,7 +531,13 @@ export async function loadEffectiveRules(input: {
 		flags,
 		reviewPolicies: input.projectSlug
 			? policies.filter((p) => p.projectSlug === input.projectSlug)
-			: policies
+			: policies,
+		// PAS filtrées par projet, à l'inverse du reste : une pause provider coupe TOUS
+		// les projets. La masquer en vue projet ferait chercher une panne locale là où il
+		// y a une décision globale.
+		providerPauses: [...states.values()]
+			.filter((p) => p.target.scope === 'provider')
+			.sort((a, b) => (a.target.provider ?? '').localeCompare(b.target.provider ?? ''))
 	};
 }
 
@@ -514,6 +554,8 @@ export interface AutomationsView {
 	runs: RunRow[];
 	totalRuns: number;
 	rules: EffectiveRules;
+	/** DASH-006 lot 2 — l'historique des décisions de pause : qui, quand, pourquoi. */
+	pauseJournal: PauseJournalEntry[];
 }
 
 export async function loadAutomations(input: {
@@ -524,11 +566,18 @@ export async function loadAutomations(input: {
 	const now = input.now ?? new Date();
 	const { db, filters } = input;
 
-	const [cadences, runs, totalRuns, rules] = await Promise.all([
-		loadCadenceRows({ db, now, projectSlug: filters.projectSlug }),
+	// Les pauses sont lues UNE fois et passées aux deux consommateurs. Deux lectures
+	// séparées pourraient tomber de part et d'autre d'une reprise concurrente, et la
+	// page afficherait alors une cadence suspendue sous un provider actif — un état
+	// qui n'a jamais existé.
+	const pauses = await loadPauseStates(db, now);
+
+	const [cadences, runs, totalRuns, rules, pauseJournal] = await Promise.all([
+		loadCadenceRows({ db, now, projectSlug: filters.projectSlug, pauses }),
 		listRuns({ db, filters }),
 		countRuns({ db, filters }),
-		loadEffectiveRules({ db, now, projectSlug: filters.projectSlug })
+		loadEffectiveRules({ db, now, projectSlug: filters.projectSlug, pauses }),
+		listPauseJournal({ db, limit: 25 })
 	]);
 
 	return {
@@ -539,7 +588,8 @@ export async function loadAutomations(input: {
 		summary: summarizeAutomations(cadences),
 		runs,
 		totalRuns,
-		rules
+		rules,
+		pauseJournal
 	};
 }
 
