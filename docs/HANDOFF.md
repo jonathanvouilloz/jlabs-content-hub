@@ -12,4 +12,5 @@
 **Puis E00** — **DASH-006 est CLOS** (lot 2 : pause/reprise auditable). Suivant : **DASH-003 lot 2**
 (trancher **quels onglets** — le BACKLOG et le bloc DASH-003 lot 1 ne listent pas les mêmes, et
 `project-cockpit-state.ts` n'a toujours pas été revu), ou **E11/exécution** (approuver n'exécute rien).
-Commit : `95db447` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)
+Commit : `8d3da2c` docs: recap de clôture DASH-006 (code : `95db447`)
+Cerveau : `5d5dbbb` — journal `10-Projets/seo-stats/seo-stats-log.md` créé (entrée DASH-006).
