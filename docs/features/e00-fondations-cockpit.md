@@ -91,7 +91,7 @@ toujours rien.
   l'adaptateur Vercel sous Windows (**préexistant**) · **rien n'est déployé** (cutover Phase 5A en
   attente), donc une pause posée ici ne suspend rien en prod — puisque rien n'y tourne.
 
-**Commit :** `à venir` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)
+**Commit :** `95db447` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)
 
 ---
 
