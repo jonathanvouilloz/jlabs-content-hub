@@ -88,8 +88,11 @@ toujours rien.
   consomme **pas** de tentative (`attempt_no` inchangé) : le job n'a rien raté, on lui a retiré
   l'autorisation de partir — l'incrémenter le rapprocherait de la dead-letter pour une décision humaine.
 - Inchangé : `RUN_TYPES` (`monitoring-state.ts`) ne contient pas `hourly` · `npm run build` échoue à
-  l'adaptateur Vercel sous Windows (**préexistant**) · **rien n'est déployé** (cutover Phase 5A en
-  attente), donc une pause posée ici ne suspend rien en prod — puisque rien n'y tourne.
+  l'adaptateur Vercel sous Windows (**préexistant**) · **le cockpit n'est toujours pas déployé**, donc
+  une pause posée ici ne suspend rien en prod. ⚠️ **La raison a changé le 2026-07-26 14:35 UTC** : le
+  cutover Phase 5A est fait, la prod tourne sur Neon — mais `main` porte le socle epics 1-23, **pas**
+  `feat/cockpit`. Il n'y a ni `/jobs`, ni `/inbox`, ni cron `tick` en prod. « Rien n'y tourne » reste
+  vrai ; ce n'est plus « rien n'est déployé ».
 
 **Commit :** `95db447` [hub] add: une automatisation s'arrête sur décision, pas sur panne (DASH-006 lot 2)
 

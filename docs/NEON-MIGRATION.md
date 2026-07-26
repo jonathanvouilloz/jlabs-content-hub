@@ -1,14 +1,15 @@
 # seo-stats → Neon — Migration (1 base, 3 schémas)
 
-> **Statut (2026-07-26) : migrée SUR LA BRANCHE, pas en production.** Le code Neon vit sur
-> `feat/neon`, absorbé dans `feat/cockpit`. **`main` — ce que Vercel déploie — porte encore le code
-> libsql** (`git show main:src/lib/server/db/index.ts`, dernier commit `af6da45` du 2026-07-15).
-> **Donc Turso EST toujours la base de production** et reçoit encore les écritures des crons.
+> **Statut (2026-07-26, 14:35 UTC) : EN PRODUCTION.** Le cutover est fait : `main` porte `e5efc83`
+> (fast-forward de `feat/neon`), Vercel a bâti et déployé avec `DATABASE_URL` = Neon.
+> **Neon `seostats` EST la base de production** ; Turso n'est plus lu ni écrit par personne.
 > Décision : **une seule base Neon (`neondb`), trois schémas Postgres** `core` / `invoices` / `seostats`.
 >
-> Le bandeau précédent disait « migration TERMINÉE côté code et données » : vrai pour l'arbre de
-> travail, faux pour la prod. C'est cet écart qui a laissé passer 5 jours de dérive Turso→Neon.
-> **Reste : Phase 5A (cutover), puis Phase 6 (rotation du password, décommissionnement de Turso).**
+> Le bandeau d'avant-cutover disait « migration TERMINÉE côté code et données » : c'était vrai pour
+> l'arbre de travail et faux pour la prod, et c'est cet écart qui avait laissé passer 5 jours de
+> dérive Turso→Neon. Il est refermé — la vérification de bascule ne porte plus sur le code présent
+> dans l'arbre mais sur **le commit que la prod annonce elle-même** (`/api/whoami` → `version`).
+> **Reste : Phase 6 seule** (rotation du password, décommissionnement de Turso) — plus rien ne la bloque.
 
 ## ⚡ Résumé de l'état (à jour)
 
@@ -22,11 +23,12 @@
   dates texte→timestamptz). FK `projects_slug_fk → core.entities.slug` posée, **0 orphelin**. Vérif par
   `scripts/migrate/03-verify-state.mjs`. Le doc précédent marquait cette phase « à faire » à tort.
 - ✅ **Phase 5** (app déplacée dans le noyau) — **FAIT** : le repo vit à `noyau/seo-stats`.
-- ⏳ **Phase 5A** (cutover) — **RESTE**. Données rattrapées le 2026-07-26 ; il reste les deux gestes de
-  bascule (variable Vercel + merge/push). Détail → section « Phase 5A » ci-dessous.
-- ⏳ **Phase 6** — **deux gestes d'INFRA** (aucun code concerné), **bloqués par 5A** : on ne rote pas le
-  password ni ne supprime Turso tant que Turso *est* la prod. `.env` local repointé sur Neon le
-  2026-07-21 ; `@libsql/client` et `DATABASE_AUTH_TOKEN` retirés du repo (sur `feat/neon`, pas sur `main`).
+- ✅ **Phase 5A** (cutover) — **FAIT 2026-07-26 14:35 UTC**. Variable Vercel puis `merge --ff-only` :
+  `af6da45..e5efc83`. Prod vérifiée sur Neon (détail → section « Phase 5A » ci-dessous).
+- ⏳ **Phase 6** — **deux gestes d'INFRA** (aucun code concerné), **débloqués** depuis le cutover :
+  roter le password, décommissionner Turso après quelques jours de prod Neon verte. `.env` local
+  repointé sur Neon le 2026-07-21 ; `@libsql/client` et `DATABASE_AUTH_TOKEN` retirés du repo — et
+  désormais **de `main` aussi**, donc de la prod.
 - ✅ **Ex-bloquant** : canonicalisation `bis-repetita → bisrepetita` — résolue au load (Phase 4).
 
 ## Décision d'architecture
@@ -129,7 +131,7 @@ neondb
 - [ ] `npm ci`, `npm run build`, smoke test dashboard + une route API skill.
 - [ ] Mettre à jour `projects.yaml` (`repo_path` seo-stats) + `_MIGRATION.md` (§4 → fait).
 
-### Phase 5A — Cutover (mettre la prod sur Neon) — ⏳ RESTE
+### Phase 5A — Cutover (mettre la prod sur Neon) — ✅ FAIT 2026-07-26 14:35 UTC
 
 Périmètre tranché le 2026-07-26 : **merger `feat/neon` seul**, pas `feat/cockpit`. `main → feat/neon`
 est un **fast-forward** ; `vercel.json` est identique des deux côtés (aucun cron ne change). E00 étant
@@ -144,43 +146,68 @@ en cours, `feat/cockpit` reste devant et se mergera epic fini.
       les semaines 2026-07-06 et 2026-07-13 déjà recollectées par le job cockpit, qui pagine mieux que
       le cron prod (ex. 13 591 lignes contre 11 579 pour le même projet-semaine). Les insérer
       violerait l'unique `(project_id, week_start)` — et surtout dédoublerait les agrégats de la semaine.
-- [ ] **Vercel → Production → `DATABASE_URL` = URL Neon (`ep-soft-wave`), supprimer `DATABASE_AUTH_TOKEN`.**
-      À faire **avant** le push : une variable Vercel ne s'applique qu'aux déploiements suivants, donc
-      ce geste seul ne touche pas la prod en cours. C'est ce décalage qui rend la bascule sans coupure.
-      Le build lui-même exige `DATABASE_URL` (le module `db/index.ts` jette à l'import, pendant l'analyse
-      de prerender) : sans la variable, le déploiement échoue au build — sans casser la prod en place.
-- [ ] `git switch main && git merge --ff-only feat/neon && git push origin main` → Vercel bâtit et
-      déploie avec la nouvelle variable. Bascule atomique, aucune fenêtre code/URL contradictoires.
-- [ ] Rejouer `06-backfill-delta.mjs` après la bascule pour absorber les écritures de la fenêtre de build.
-- [ ] Vérifs prod : `/api/projects` (6 projets), login réel (adaptateur Better Auth `pg`), une route GSC,
-      logs sans `libsql`, puis le cron `gmb-publish` du lendemain 09:00 UTC écrivant bien dans Neon.
+- [x] **Vercel → Production → `DATABASE_URL` = URL Neon (`ep-soft-wave`), supprimer `DATABASE_AUTH_TOKEN`.**
+      Fait par Jonathan **avant** le push : une variable Vercel ne s'applique qu'aux déploiements
+      suivants, donc ce geste seul n'a pas touché la prod en cours. C'est ce décalage qui a rendu la
+      bascule sans coupure. Le build lui-même exige `DATABASE_URL` (le module `db/index.ts` jette à
+      l'import, pendant l'analyse de prerender) : sans la variable, le déploiement échouait au build —
+      sans casser la prod en place.
+- [x] `git switch main && git merge --ff-only feat/neon && git push origin main` → **`af6da45..e5efc83`**,
+      fast-forward de 4 commits. `vercel.json` étant identique des deux côtés, aucun cron n'a changé.
+- [x] Rejouer `06-backfill-delta.mjs` après la bascule — **0 ligne insérable**. Le dernier cron avait
+      tiré à 09:00 UTC et le push est parti à 14:2x : la fenêtre de build n'a produit **aucune**
+      écriture Turso. `05-drift-report.mjs` ne voit plus que le delta déjà tranché (25 986 lignes des
+      semaines 2026-07-06 / 07-13, volontairement non rattrapées).
+- [x] Vérifs prod (2026-07-26 ~14:40 UTC), toutes sur `https://jlabs-content-hub.vercel.app` :
+      **`/api/whoami` → `{env: "production", version: "e5efc83", project_count: 6}`** — c'est la vérif
+      qui *décide*, les autres ne font que confirmer : elle fait dire à la prod **quel commit elle
+      sert**, au lieu de déduire l'état d'un `curl` qui aurait répondu pareil avant et après.
+      `/api/projects` 6 projets · `/gsc/history` renvoie les vraies semaines 07-06 / 07-13 ·
+      `/gsc/actions` 200 · `/api/auth/get-session` → `null` + **HTTP 200**, donc l'adaptateur Better
+      Auth `pg` charge et interroge Neon sans erreur (un adaptateur cassé rendrait 500).
+      Pas de `libsql` possible dans les logs : le paquet n'est plus une dépendance.
+- [ ] **Login réel dans le navigateur** — reste à faire (Jonathan). `get-session` prouve que
+      l'adaptateur répond, **pas** que la lecture du hash dans `account` fonctionne.
+- [ ] **Cron `gmb-publish` du 2026-07-27 09:00 UTC** — premier tir automatique sur Neon. Puis
+      `gmb-weekly-digest` lundi 08:00.
 
-**Créneau** : un après-midi UTC. Les 4 crons tirent entre 06:00 et 09:00 UTC ; éviter le lundi matin.
+**Créneau retenu** : dimanche 2026-07-26 après-midi UTC — après la fenêtre des crons (06:00–09:00) et
+hors lundi matin, comme prévu.
 
-**Rollback** : Turso reste intact. `git revert` du merge + push, restaurer `DATABASE_URL` libsql et
-`DATABASE_AUTH_TOKEN` en Production Vercel, redéployer. Les deux valeurs sont conservées en commentaire
-dans le `.env` local (c'est aussi d'elles que `05`/`06` tirent leur accès Turso).
+⚠️ **`hub.jonlabs.ch` ne résout pas** (NXDOMAIN confirmé sur 8.8.8.8 ; `jonlabs.ch` résout, lui).
+**Sans rapport avec le cutover** — le domaine custom n'est pas/plus branché sur Vercel — mais les docs
+le citent comme URL de prod. L'URL qui répond est `jlabs-content-hub.vercel.app`.
 
-⚠️ **Ne jamais lancer `npm run db:push` depuis `main`.** Après le merge, `main` déclare **29 tables**
-dans `schema.ts` alors que Neon `seostats` en porte **59** : drizzle-kit proposerait de dropper les 30
-tables cockpit (`jobs`, `findings`, `observations`, `index_selection`…). Le `schemaFilter
-['core','seostats']` ne protège de rien ici — il filtre les schémas, pas les tables. Interdit tant que
-`feat/cockpit` n'est pas mergé.
+**Rollback** (toujours ouvert tant que Turso n'est pas décommissionné) : Turso reste intact et **figé
+au 2026-07-26 09:00 UTC** — depuis la bascule il ne reçoit plus rien, donc revenir en arrière
+**perdrait toutes les écritures faites sur Neon depuis**. `git revert` du merge + push, restaurer
+`DATABASE_URL` libsql et `DATABASE_AUTH_TOKEN` en Production Vercel, redéployer. Les deux valeurs sont
+conservées en commentaire dans le `.env` local (c'est aussi d'elles que `05`/`06` tirent leur accès Turso).
+
+⚠️ **Ne jamais lancer `npm run db:push` depuis `main`** — et c'est désormais un risque de **prod**, plus
+de branche. `main` déclare **29 tables** dans `schema.ts` alors que Neon `seostats` en porte **60** :
+drizzle-kit proposerait de dropper les 31 tables cockpit (`jobs`, `findings`, `observations`,
+`index_selection`, `automation_pauses`…). Le `schemaFilter ['core','seostats']` ne protège de rien ici —
+il filtre les schémas, pas les tables. Interdit tant que `feat/cockpit` n'est pas mergé.
 
 ⚠️ **Aucun lockfile n'est commité** (`package-lock.json` est dans `.gitignore`) et 5 dépendances sont
 épinglées sur `"latest"`. Vercel résout donc les versions **au moment du build** : le déploiement de
-cutover ne tirera pas les versions du dernier build prod (2026-07-15). Constaté en local le 2026-07-26 —
+cutover n'a pas tiré les versions du dernier build prod (2026-07-15). Constaté en local le 2026-07-26 —
 un `npm install` frais donne `@sveltejs/kit` 2.70.1 et `better-auth` 1.6.25 contre 2.57.1 / 1.6.7
-installés. Non bloquant (un build raté ne déploie rien), mais c'est le vrai risque du push.
+installés. C'était **le** vrai risque du push ; il **ne s'est pas matérialisé** (build passé, prod
+verte). Il reste entier pour **tout déploiement futur** : chaque build rejoue la résolution, donc un
+build peut casser sans qu'aucun commit n'ait bougé.
 
-### Phase 6 — Nettoyage — ⏳ deux gestes d'INFRA, BLOQUÉS par 5A
+### Phase 6 — Nettoyage — ⏳ deux gestes d'INFRA, DÉBLOQUÉS depuis le cutover
 - [x] `.env` **local** repointé Turso → Neon (2026-07-21). Le code (`neon()`) ne parle plus que Postgres.
 - [x] `@libsql/client` retiré des dépendances, `DATABASE_AUTH_TOKEN` retiré de `.env` / `.env.example`.
-- [ ] **Roter le mot de passe Neon** (`npg_k4teo0HIxPKF...`) — exposé en clair en chat les 2026-07-20/21.
-      **Volontairement pas encore roté** (décision Jonathan 2026-07-21). ⚠️ `neondb` est **partagée avec
-      `noyau/invoices`** : la rotation casse les deux apps si elle n'est pas propagée en une passe —
-      Vercel Production de `jlabs-content-hub` **et** de l'app invoices, plus les deux `.env` locaux.
-- [ ] Décommissionner Turso **après** la Phase 5A et quelques jours de prod Neon verte. ⚠️ Avant de
+- [ ] **Roter le mot de passe Neon** (`npg_k4teo0HIxPKF...`) — exposé en clair en chat les 2026-07-20/21,
+      **et de nouveau le 2026-07-26** au moment du cutover. **Volontairement pas encore roté** (décision
+      Jonathan 2026-07-21), mais l'enjeu a changé de nature : ce mot de passe ouvre maintenant **la base
+      de production**, plus une copie de travail. ⚠️ `neondb` est **partagée avec `noyau/invoices`** : la
+      rotation casse les deux apps si elle n'est pas propagée en une passe — Vercel Production de
+      `jlabs-content-hub` **et** de l'app invoices, plus les deux `.env` locaux.
+- [ ] Décommissionner Turso après quelques jours de prod Neon verte. ⚠️ Avant de
       supprimer : `05-drift-report.mjs` et `06-backfill-delta.mjs` lisent Turso, et `01-export-turso.mjs`
       ne tourne plus tel quel (`@libsql/client` a été retiré des dépendances). Faire un dernier export
       via l'API HTTP libsql, comme le font `05`/`06`, avant de couper.
