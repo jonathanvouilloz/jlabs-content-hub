@@ -1057,20 +1057,28 @@ Acceptation :
 
 ## DASH-006 — Vue automatisations et jobs
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** JOB-007
+**Priorité :** P1 · **Taille :** M · **État :** **LOT 1 DONE** (2026-07-26 — page `/automations`,
+modules `automations-state.ts` (pur) + `automations.ts` (lecture), filtre `run` sur `/jobs`,
+compteur `runs_period` de l'accueil enfin cliquable ; **aucun DDL**. Reste le **lot 2** :
+pause/reprise autorisée et auditable. Détail : `docs/features/e00-fondations-cockpit.md`) ·
+**Dépendances :** JOB-007 (**DONE depuis le 2026-07-22** — la mention `BLOCKED` qui figurait ici
+était périmée)
 
 Travail :
 
-- afficher calendrier, prochain run et derniers résultats ;
-- exposer queue, dead-letter et retries ;
-- montrer flags, quotas et policies effectives ;
-- permettre pause/reprise autorisée.
+- ~~afficher calendrier, prochain run et derniers résultats~~ (lot 1) ;
+- ~~exposer queue, dead-letter et retries~~ (déjà couvert par `/jobs`, JOB-007 ; le lot 1 y
+  ajoute le filtre par run) ;
+- ~~montrer flags, quotas et policies effectives~~ (lot 1, panneau « Règles effectives ») ;
+- permettre pause/reprise autorisée → **lot 2**.
 
 Acceptation :
 
-- une panne est diagnostiquable sans accès serveur ;
-- pause et reprise sont auditables ;
-- la désactivation d'un provider n'annule pas les autres steps.
+- une panne est diagnostiquable sans accès serveur → **tenue au lot 1**, et au-delà de ce qui
+  était visé : un job mort laissait une ligne, un **créneau jamais tiré** n'en laisse aucune.
+  Seul le croisement créneau calculé ↔ run observé le révèle ;
+- pause et reprise sont auditables → **lot 2** ;
+- la désactivation d'un provider n'annule pas les autres steps → **lot 2**.
 
 ## DASH-007 — Vue coûts et capacité
 

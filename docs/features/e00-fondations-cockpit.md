@@ -4,6 +4,84 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-26 (DASH-006 lot 1 — le cockpit voit le créneau qui N'A PAS eu lieu)
+
+**Fait :** DASH-006, **lot 1** (calendrier + runs + règles effectives). Le cockpit savait montrer
+ce qui avait tourné ; il ne savait pas montrer ce qui **n'avait pas** tourné. Un job mort laisse
+une ligne, et `/jobs` la voit — mais un **tick qui ne tourne pas ne laisse rien** : ni run, ni job,
+ni erreur. L'absence n'a pas de ligne. **Zéro DDL.**
+
+- **LE point du lot : la panne se révèle par un CROISEMENT, pas par une lecture.** Le dernier
+  créneau **attendu** est calculé par `schedule-state.ts` — la fonction même du scheduler, jamais
+  une réimplémentation, sinon les deux énumérations divergeraient au premier changement d'heure et
+  l'écran accuserait le cron d'un créneau qu'il n'a jamais eu à tirer. Le run **observé** est joint
+  sur `monitoring_runs.period_end`, qui porte le **créneau local** — et non sur un intervalle autour
+  de l'instant, qui apparierait un run au créneau voisin le jour du changement d'heure, précisément
+  là où la question se pose.
+- **Deux axes qui ne fusionnent jamais**, comme à l'accueil : `health` répond « le créneau a-t-il été
+  **tiré** ? », le statut du run répond « ce qui a été tiré a-t-il **réussi** ? ». Les fondre
+  peindrait en rouge un projet dont le run hebdo est parti à l'heure et a échoué faute de quota — et
+  en vert celui dont le dernier run est `success` mais qui n'a plus rien tiré depuis trois semaines,
+  qui est la panne qu'on cherche. **Contre-épreuve en base** : poser un run `failed` sur le créneau
+  manquant passe la planification à `ok` **tout en affichant l'échec** ; le retirer la fait retomber
+  à `missed`.
+- **`late` vs `missed` se joue sur `DEFAULT_LOOKBACK_MS`, importée du scheduler et jamais recopiée.**
+  Au-delà de la fenêtre, `dueOccurrences` ne regarde plus en arrière : le créneau est perdu **pour de
+  bon**. Deux valeurs distinctes feraient promettre à l'écran un rattrapage que le tick ne ferait
+  pas. La bascule est testée **pile sur la borne**, du bon côté (`instantMs > since` : un créneau sur
+  la borne n'est PAS repris, donc il est déjà `missed`).
+- **L'ordre des règles est celui de `planDueJobs`** — non câblée avant désactivée, parce que le
+  scheduler écarte les cadences sans handler **avant** de lire `enabled`. Inversé, l'écran donnerait
+  deux raisons au même silence, dont une fausse. Et un créneau **antérieur à la création du projet**
+  ne lui est pas reproché, sans qu'une date inconnue ne blanchisse quoi que ce soit.
+- **`monitoring_runs`/`monitoring_steps` n'avaient AUCUN lecteur** depuis DATA-003. Les steps sont
+  réduits à la **dernière tentative** de chaque `step_type` : un step échoué puis relancé avec succès
+  se lirait sinon comme un demi-échec permanent.
+- **Deux effets de bord.** (1) Le compteur « runs de la période » de l'accueil **cesse d'être muet** :
+  il n'avait pas de lien faute de liste capable de reproduire son filtre — il ouvre `/automations`
+  avec le même `since` et le même `status`, **nombre et URL nés du même descripteur**. (2) `/jobs`
+  accepte `?run=`, compteurs d'en-tête restreints comme pour le filtre projet, et **bandeau visible** :
+  un filtre actif qu'aucun contrôle n'affiche ferait lire « la file est presque vide ».
+
+**Ce que la page a dit au premier chargement, sur les vraies données :** **12 créneaux manqués sur
+12**. Le quotidien n'a plus rien tiré depuis le **23.07**, et **aucun run hebdomadaire n'a jamais
+existé**, sur aucun projet. Cohérent avec le cutover en attente — `/api/cron/tick` vit sur cette
+branche, pas sur `main` — donc les 8 runs quotidiens des 22-23 juillet viennent de lancements
+locaux, pas du cron. **Aucune automatisation ne tourne en production**, et c'est exactement ce que
+cet écran existe pour dire.
+
+**Vérifs :** 943 tests (25 neufs sur `automations-state`) · `npm run check` 0 erreur ·
+`scripts/dash-006-automations-proof.ts` **13/13 sur Neon** (dont la contre-épreuve B et la
+réduction des steps) · non-régression `dash-002-home-proof`, `dash-003-project-proof`,
+`job-005-schedule-proof`, `job-006-limits-proof`, `job-007-console-proof` — **0 échec chacune** ·
+**page parcourue à l'œil** en session admin, y compris le clic du compteur de l'accueil (11 → 11
+lignes) et `/jobs?run=` (1 job, compteurs restreints).
+
+**Prochain :** **DASH-006 lot 2** — pause/reprise autorisée et **auditable**. Trancher d'abord **où
+vit une pause** : `project_projections.payload.schedules` est une **projection recompilée**
+(`source_hash`, `status current/stale`), donc une pause écrite là serait effacée sans bruit à la
+prochaine compilation. Une pause est une **décision**, pas une configuration — la forme pressentie
+est un journal append-only dont l'état effectif se **dérive** (comme `findings`/`finding_events`),
+ce qui donne l'auditabilité par construction. Sinon **DASH-003 lot 2** (trancher quels onglets).
+
+**Pièges :**
+- **La règle des deux axes vaut pour `/automations` uniquement.** `project-cockpit-state.ts`
+  (DASH-003) n'a toujours pas été revu — piège hérité de la session précédente, inchangé.
+- **`RUN_TYPES` (`monitoring-state.ts`) ne contient pas `hourly`**, alors que `CADENCE_RUN_TYPE` le
+  mappe. Sans effet aujourd'hui (`hourly` n'est pas câblée, donc aucun run `hourly` n'existe), mais
+  câbler la cadence écrirait un `run_type` hors vocabulaire.
+- **Le lot 1 n'exécute aucune action** : la page montre et filtre, elle ne met rien en pause et ne
+  relance rien. Le seul geste depuis `/automations` est un lien vers `/jobs`.
+- **La colonne « Type / créneau » des runs affiche `manual` et sa date brute** : `manual` et
+  `post_publish` sont des `run_type` sans cadran, donc `formatScheduleSlot` rend la chaîne telle
+  quelle. Voulu — mais ne pas la lire comme un créneau.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **rien
+  n'est déployé**.
+
+**Commit :** `492d9c8` [hub] add: le cockpit voit enfin le créneau qui N'A PAS eu lieu (DASH-006 lot 1)
+
+---
+
 ## Etat session 2026-07-26 (DASH-002 — « jamais regardé » cesse de se lire « rien à signaler »)
 
 **Fait :** le point produit laissé ouvert par la revue visuelle. `barberconcept` s'affichait
@@ -2638,12 +2716,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-26 (couverture de diagnostic DASH-002)
+> Mise à jour : 2026-07-26 (DASH-006 lot 1 — vue automatisations)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/automations-state.ts`** (+ `.test.ts`) *(DASH-006 lot 1)* | **Purs DASH-006.** `lastDueOccurrence` **délègue à `dueOccurrences`** au lieu de réénumérer les créneaux : deux énumérations divergeraient au premier changement d'heure, et l'écran accuserait le cron d'un créneau qu'il n'a jamais eu à tirer. `classifyCadence` porte **l'axe PLANIFICATION seul** — un run `failed`, `partial` ou `cancelled` laisse `ok`, parce que le créneau, lui, **a bien été tiré** ; fusionner les deux axes peindrait en rouge un projet dont l'automatisation marche et en vert celui qui n'a plus rien tiré depuis trois semaines. ⚠️ **L'ordre des règles est celui de `planDueJobs`** : `unwired` **avant** `disabled`, le scheduler écartant les cadences sans handler avant de lire `enabled` — inversé, deux raisons pour un même silence, dont une fausse. **`late` vs `missed` se joue sur `DEFAULT_LOOKBACK_MS` importée**, jamais recopiée : au-delà, `dueOccurrences` ne regarde plus en arrière et le créneau est perdu **pour de bon** (borne testée à la milliseconde, `instantMs > since` ⇒ un créneau **sur** la borne est déjà `missed`). Un créneau antérieur à `projects.created_at` vaut `never_due`, mais une date **inconnue** ne blanchit rien. `normalizeAutomationFilters` n'accepte un `since` **qu'au format DB** — une chaîne libre irait dans un `>=` sur une colonne `text`, où elle écarterait des lignes au hasard. **25 tests.** |
+| **`src/lib/server/automations.ts`** *(DASH-006 lot 1)* | **Lecture DASH-006 — le CROISEMENT.** Les créneaux d'abord, la base ensuite : on ne va chercher que les runs des créneaux **attendus**, au lieu de ramener un historique et d'y deviner ce qui manque. La jointure porte sur `(project_id, run_type, period_end)`, où `period_end` est le **créneau LOCAL** écrit par `planOne` — et non un intervalle autour de l'instant, qui apparierait un run au créneau voisin le jour du changement d'heure, précisément là où la question se pose. Premier lecteur de **`monitoring_runs`/`monitoring_steps`** depuis DATA-003 : les steps sont réduits à la **dernière tentative** par `step_type` (sinon un step relancé avec succès se lit comme un demi-échec permanent), et « dernière réussite » est un `DISTINCT ON (project_id, run_type)`. ⚠️ **`flags.ts` est importé en DYNAMIQUE** (il tire `$env/dynamic/private`) et rend **`null` hors SvelteKit** — « non lisible », jamais « tous à false », qui serait une affirmation sans preuve. |
+| **`src/routes/(app)/automations/+page.*`** *(DASH-006 lot 1)* | La page cross-projet : bandeau de résumé (le seul élément qui se lit sans rien déplier), calendrier créneau attendu ↔ run observé, liste de runs filtrable, panneau « Règles effectives » (quotas JOB-006 · flags GOV-005 · politiques d'avis DATA-007). Le loader ne juge rien. Colonne **« Type / créneau »** et non « Cadence » : `manual` et `post_publish` sont des `run_type` **sans cadran**, les ranger sous « cadence » ferait chercher un créneau qui n'existe pas. |
+| **`src/lib/server/home-state.ts` · `home.ts` · `(app)/+page.svelte`** *(DASH-006 lot 1)* | Le compteur **`runs_period` cesse d'être muet** : il rendait `href: null` faute de liste capable de reproduire son filtre (`/jobs` liste des **jobs**), et il ouvre désormais `/automations` avec le **même `since` et le même `status`**. `runCounters` est **dérivé de `runStatusCounts`** — il n'existe donc pas deux définitions de « les runs `failed` de la période ». Sans slug : **aucun paramètre projet**, le compteur de l'accueil comptant tous les projets. |
+| **`src/lib/server/job-console.ts` · `jobs-claim.ts` · `(app)/jobs/+page.*`** *(DASH-006 lot 1)* | Filtre **`?run=`** sur la console : « les 6 jobs de ce run » n'ouvrait aucune liste capable de les reproduire (projet + type ramènent aussi les runs voisins). `countJobsByStatus` le respecte **comme `projectSlug`** — des compteurs comptés sur toute la file annonceraient des jobs que la liste n'affiche pas. Bandeau visible dans l'en-tête : ce filtre n'a **aucun contrôle** dans la barre (il se pose depuis `/automations`), et un filtre actif invisible ferait lire « la file est presque vide ». |
+| **`scripts/dash-006-automations-proof.ts`** | **Preuve DASH-006 sur Neon (13 vérifs)** : chaque verdict confronté à une requête **indépendante** sur `monitoring_runs`, et l'invariant « pas de run ⇒ jamais `ok` » ; **le point du lot** — un run sentinelle `failed` posé sur le créneau manquant passe la planification à `ok` **tout en affichant l'échec**, et son retrait la fait retomber **exactement** dans son état d'avant ; deux tentatives d'un même step réduites à la dernière ; le compteur de l'accueil **rejoué depuis son URL** (11 → 11) ; `/jobs?run=` égal à un `count(*)` direct. Ce qui n'est pas prouvable faute de donnée est **nommé** (`⏭️`), jamais compté comme un succès. Sentinelle `__test_dash006:`, nettoyage enfants d'abord. |
 | **`src/lib/server/home-state.ts`** (+ `.test.ts`) *(couverture de diagnostic)* | **`deriveDiagnosisCoverage` + `classifySignal` étendu** — la seconde moitié de « une intégration cassée est distincte d'une baisse de performance ». Le pipeline dit si la donnée **arrive** ; il ne dit rien de ce qu'on en a **fait**. `barberconcept` collectait bien et s'affichait « Sain » sans avoir jamais été détecté : ses zéro findings étaient une page blanche, pas un bulletin de santé. **L'invariant : `ok` n'est atteignable que sur un diagnostic complet** — ce qui est POSITIVEMENT su passe toujours (un critique reste un critique malgré l'angle mort), c'est la conclusion au vert qui exige d'avoir tout examiné. ⚠️ **Trois degrés qui ne se confondent PAS** : rien d'examiné → `unknown`, partiellement examiné sans rien trouver → **`watch`**, tout examiné → le verdict des findings. La 1re version renvoyait `unknown` dans les deux cas — vérifié sur Neon, `detect:index_transition` n'ayant jamais tourné nulle part, **les 6 projets viraient au violet** et « 6 à traiter sur 6 » ne distinguait plus le projet jamais ouvert de celui suivi depuis des semaines. `expectedCount === 0` vaut **`none`, pas `full`** : couper la planification d'un projet ne le rend pas sain. **46 tests.** |
 | **`src/lib/server/home.ts`** *(couverture de diagnostic)* | **`DETECTOR_JOB_TYPES` dérivé du CATALOGUE** (`SCHEDULE_CATALOG` filtré sur `detect:*`) et non d'une liste tenue à la main — ajouter un détecteur l'intègre d'office à la couverture, sinon un détecteur neuf ferait passer les projets pour **couverts avant d'avoir tourné une seule fois**. `loadExpectedDetectors` lit `project_projections` en **UNE** requête puis résout en mémoire (un `loadProjectScheduleConfig` par projet rendrait six allers-retours à l'accueil) ; `loadDetectorLastSuccess` ne compte que les jobs **`succeeded`** — un détecteur mort en dead-letter n'a rien diagnostiqué, le compter comme passage referait l'erreur qu'on corrige. Projet sans projection ⇒ défauts SPEC via la clé `__default__`. |
 | **`scripts/dash-002-home-proof.ts`** *(section B-ter)* | Ce que vitest **ne peut pas** prouver : que la couverture rendue correspond aux jobs détecteurs **réellement** réussis en base (comparé par un `count(DISTINCT type)` indépendant, projet par projet), qu'aucune carte ne se dit `ok` sans couverture complète, et que **sur un pipeline sain l'inconnu est imputé au DIAGNOSTIC et non à la collecte** — sans ce dernier contrôle l'assertion passerait aussi bien pour une tout autre cause, et l'intégration sentinelle de la section B en fabrique justement une (première rédaction du test : rouge sur `barberconcept`, cassé exprès à cet instant). |

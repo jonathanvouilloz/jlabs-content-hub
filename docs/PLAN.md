@@ -168,8 +168,19 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   faisait virer **les 6 projets au violet** (`detect:index_transition` n'a jamais tourné nulle part) —
   un cockpit uniforme ne se lit plus. Couper la planification ne rend pas un projet sain
   (`expectedCount === 0` vaut `none`) · test **917/917**.
-  Prochain : **DASH-003 lot 2** (trancher d'abord quels onglets) ou **DASH-006** (débloqué : JOB-007
-  est DONE). ⚠️ La règle de couverture ne vaut que pour l'accueil — `project-cockpit-state.ts` porte
+  Enfin **DASH-006 lot 1** (`/automations`) : le cockpit voit le **créneau qui n'a pas eu lieu**. Un
+  job mort laisse une ligne, un **tick qui ne tourne pas ne laisse rien** — l'absence n'a pas de
+  ligne, elle ne se révèle que par le croisement du créneau **calculé** (`schedule-state.ts`, la
+  fonction même du scheduler) et du run **observé** (`monitoring_runs.period_end`). **Deux axes qui
+  ne fusionnent jamais** : « le créneau a-t-il été tiré ? » ≠ « ce qui a été tiré a-t-il réussi ? ».
+  `late`/`missed` se sépare sur `DEFAULT_LOOKBACK_MS` **importée** du scheduler — au-delà, le créneau
+  est perdu pour de bon. Premier lecteur de `monitoring_runs`/`monitoring_steps` depuis DATA-003 ; le
+  compteur `runs_period` de l'accueil devient cliquable ; `/jobs?run=`. Aucun DDL · test **943/943**.
+  **Ce que l'écran a dit aussitôt : 12 créneaux manqués sur 12** — plus rien depuis le 23.07, aucun
+  run hebdomadaire n'ayant **jamais** existé (le tick vit sur cette branche, pas sur `main`).
+  Prochain : **DASH-006 lot 2** (pause/reprise auditable — trancher d'abord **où vit une pause** :
+  pas dans `project_projections`, qui est recompilée) ou **DASH-003 lot 2** (quels onglets).
+  ⚠️ La règle de couverture ne vaut que pour l'accueil — `project-cockpit-state.ts` porte
   son propre jugement, non revu.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
