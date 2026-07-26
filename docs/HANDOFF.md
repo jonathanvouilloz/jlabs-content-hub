@@ -31,5 +31,5 @@ skills — AGT-008 BLOCKED —, ni client d'écriture provider — IDX-007 BLOCK
 
 ⚠️ **`npm run db:push` depuis `main` = risque de PROD** : `main` déclare 29 tables, Neon en porte 60.
 
-Commit : `ca9eda0` (E00) · prod : `e5efc83` sur `main`
+Commit : `ff2efc5` (E00) · prod : `e5efc83` sur `main`
 Cerveau : `5d5dbbb` — journal `10-Projets/seo-stats/seo-stats-log.md` (entrée DASH-006).

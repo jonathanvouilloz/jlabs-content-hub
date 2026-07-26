@@ -89,7 +89,7 @@ DDL également. Sinon **E11/exécution** — approuver une proposition n'exécut
   **pas** été touché : il ne calcule pas la santé (il réutilise `classifyProject`), le défaut était
   en amont.
 
-**Commit :** _(à faire)_
+**Commit :** `ff2efc5` [hub] add: un projet suspendu ne se lit plus comme un projet en panne (DASH-003 lot 2, chantier 1)
 
 ---
 
