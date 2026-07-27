@@ -843,7 +843,9 @@ Acceptation :
 
 ## FIND-005 — Baisses de mots-clés et pages
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-27 — module pur `keyword-decline-state.ts` (48 tests) + IO `keyword-decline.ts`, zéro DDL, zéro provider. **Seuls les couples présents dans les DEUX fenêtres sont comparés** : un couple disparu est indiscernable d'une semaine non collectée (107 cas réels sur `lecureux`), il est compté (`vanished`) et jamais converti en −100 %. L'écart 4 sem./1 sem. EST le niveau de confirmation (`confirmed`/`sustained`/`emerging`), `emerging` plafonné à `medium`. Regroupement par page seulement si le total de la page baisse aussi (`pagesStable`). Saisonnalité N-1 déclarée absente, jamais neutre. Auto-résolution héritée de FIND-003 sans une ligne de plus. Preuve Neon 47/47) · **Dépendances :** FIND-001
+
+> ⚠️ Les états de ce backlog ont dérivé : GSC-001/002/004, DASH-002/003/004/005/006, IDX-001/002/004/005 sont livrés alors qu'ils y figurent encore `BLOCKED`/`READY`. La source de vérité est `docs/features/e00-fondations-cockpit.md` + le git log de `feat/cockpit`.
 
 Travail :
 

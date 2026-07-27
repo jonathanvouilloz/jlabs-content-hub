@@ -424,6 +424,7 @@ export interface DiagnosisCoverage {
  */
 const DETECTOR_LABELS: Record<string, string> = {
 	'detect:keyword_opportunity': 'opportunités de mots-clés',
+	'detect:keyword_decline': 'baisses de mots-clés',
 	'detect:index_transition': 'transitions d’indexation'
 };
 

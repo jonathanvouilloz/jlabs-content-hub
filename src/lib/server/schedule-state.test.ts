@@ -354,11 +354,14 @@ describe('SCHEDULE_CATALOG', () => {
 		// IDX-001 — l'inventaire sitemap rejoint le run (branche `fetch_sitemap` du graphe
 		// SPEC §8.2), en PARALLÈLE de la collecte GSC et sans dépendance avec elle.
 		// IDX-004 — la branche d'indexation se referme : inspection puis détection.
+		// FIND-005 — la baisse rejoint l'opportunité au MÊME niveau du graphe : deux
+		// lecteurs des mêmes observations, sans provider et sans lien entre eux.
 		expect(catalogFor('weekly').map((e) => e.jobType)).toEqual([
 			'collect:gsc_query_page',
 			'collect:sitemap',
 			'collect:url_inspection',
 			'detect:keyword_opportunity',
+			'detect:keyword_decline',
 			'detect:index_transition',
 			'propose:actions'
 		]);
@@ -436,6 +439,43 @@ describe('SCHEDULE_CATALOG', () => {
 		const inspection = catalogFor('weekly').find((e) => e.jobType === 'collect:url_inspection')!;
 		expect(inspection.payload).toEqual({ mode: 'policy', scope: 'full' });
 		expect(inspection.payload).not.toHaveProperty('urls');
+	});
+
+	it('FIND-005 — l’arête vers la collecte GSC est OBLIGATOIRE pour le détecteur de baisses', () => {
+		// Mesurer une baisse sur des observations que la collecte n'a pas rafraîchies,
+		// c'est comparer une fenêtre à elle-même décalée d'une semaine. Le défaut
+		// (`required` absent ⇒ true) porte la garantie : collecte morte ⇒ détecteur
+		// `skipped` ⇒ run `partial`, et le trou est VISIBLE.
+		const decline = catalogFor('weekly').find((e) => e.jobType === 'detect:keyword_decline')!;
+		expect(decline.dependsOn).toEqual([{ jobType: 'collect:gsc_query_page' }]);
+	});
+
+	it('⭐ FIND-005 — baisse et opportunité sont FRÈRES, jamais enchaînés', () => {
+		// Les deux lisent `gsc_query_page_observations` et n'appellent aucun provider :
+		// les mettre en série ajouterait un tour de propagation de skip (JOB-004 propage
+		// en N-1 passes) sans aucune contrepartie. Ils partagent donc le même prérequis
+		// et la même priorité.
+		const weekly = catalogFor('weekly');
+		const decline = weekly.find((e) => e.jobType === 'detect:keyword_decline')!;
+		const opportunity = weekly.find((e) => e.jobType === 'detect:keyword_opportunity')!;
+		expect(decline.dependsOn).toEqual(opportunity.dependsOn);
+		expect(decline.priority).toBe(opportunity.priority);
+		// Contre-épreuve : aucune arête entre eux, dans un sens comme dans l'autre.
+		expect((decline.dependsOn ?? []).some((d) => d.jobType === 'detect:keyword_opportunity')).toBe(
+			false
+		);
+		expect((opportunity.dependsOn ?? []).some((d) => d.jobType === 'detect:keyword_decline')).toBe(
+			false
+		);
+	});
+
+	it('⭐ FIND-005 — le producteur de propositions ne dépend PAS du détecteur de baisses', () => {
+		// AGT-000 ne traite que `keyword_opportunity` (`proposer-state.ts`) : une baisse
+		// se diagnostique avant de se corriger, elle ne produit aucune proposition. Lier
+		// `propose:actions` à ce détecteur créerait un couplage FAUX — un détecteur de
+		// baisses mort ferait sauter des propositions qu'il n'alimente pas.
+		const propose = catalogFor('weekly').find((e) => e.jobType === 'propose:actions')!;
+		expect(propose.dependsOn).toEqual([{ jobType: 'detect:keyword_opportunity' }]);
 	});
 
 	it('la production de propositions est servie APRÈS la détection (priority DESC)', () => {

@@ -53,6 +53,17 @@ import { loadProjectCockpit } from '../src/lib/server/project-cockpit.js';
 import type { ProjectCard } from '../src/lib/server/home-state.js';
 import { toDbTimestamp } from '../src/lib/server/timestamps.js';
 import { createId } from '../src/lib/server/utils.js';
+import { SCHEDULE_CATALOG } from '../src/lib/server/schedule-state.js';
+
+/** Les détecteurs ATTENDUS par le cockpit, dérivés du catalogue (jamais recopiés). */
+const DETECTORS_EXPECTED = [
+	...new Set(
+		Object.values(SCHEDULE_CATALOG)
+			.flat()
+			.map((e) => e.jobType)
+			.filter((t) => t.startsWith('detect:'))
+	)
+];
 
 neonConfig.webSocketConstructor = ws;
 
@@ -187,7 +198,12 @@ async function main(): Promise<void> {
 		       (id, project_id, provider, enabled, status, health_status, last_success_at, created_at, updated_at)
 		VALUES (${createId()}, ${projectId}, 'gsc', true, 'active', 'healthy', ${fresh}, ${fresh}, ${fresh})
 	`);
-	for (const type of ['detect:keyword_opportunity', 'detect:index_transition']) {
+	// ⚠️ La liste est DÉRIVÉE du catalogue, jamais recopiée : un détecteur ajouté
+	// (FIND-005 `detect:keyword_decline`) n'a par construction jamais tourné nulle
+	// part, donc la couverture du projet sentinelle tomberait à `partial` et la carte
+	// de référence ne serait plus `ok` — la preuve échouerait en accusant le code d'un
+	// défaut qui n'existe pas. C'est arrivé exactement une fois ; d'où cette dérivation.
+	for (const type of DETECTORS_EXPECTED) {
 		await db.execute(sql`
 			INSERT INTO "seostats"."jobs"
 			       (id, project_id, type, status, idempotency_key, priority, created_at, updated_at, finished_at)

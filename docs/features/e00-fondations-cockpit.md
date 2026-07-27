@@ -4,6 +4,95 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (FIND-005 — le cockpit sait enfin voir une baisse)
+
+**Fait :** FIND-005, le détecteur de baisses `keyword_decline`. Le parc avait **deux
+détecteurs en tout** (`keyword_opportunity`, `index_transition`) pour six écrans de cockpit :
+une requête qui perdait 80 % de ses clics ne produisait **rien**. C'était le plus gros trou de
+la gate M2, et le seul consommateur possible des fenêtres de comparaison de GSC-004, jusqu'ici
+lues par un seul écran. **Zéro DDL** (60 tables), **zéro appel provider**, **une seule** lecture
+d'observations pour les quatre fenêtres.
+
+- **⭐ LE point du lot : un couple DISPARU n'est pas une baisse de −100 %.** C'est
+  l'acceptation « une collecte partielle ne crée pas de baisse » rendue structurelle. Une
+  requête absente de la fenêtre courante est **indiscernable** d'une semaine non collectée :
+  la compter comme une chute totale fabriquerait un finding à partir d'un trou. Seuls les
+  couples présents dans les **deux** fenêtres sont comparés ; les disparus sont **comptés et
+  annoncés** (`vanished`), jamais convertis. Sur `lecureux`, ils étaient **107** — 107 findings
+  faux qu'une lecture naïve aurait écrits en un run. C'est aussi la réponse à « distinguer
+  baisse réelle et changement de périmètre » : un périmètre qui rétrécit sort du calcul.
+- **⭐ L'écart entre les deux fenêtres EST le niveau de confirmation.** Le ticket demande
+  « 7 et 28 jours » ; les traiter comme deux détections produirait deux findings pour une seule
+  baisse. Sur le canon hebdo : `confirmed` (les deux tombent, la chute se creuse encore),
+  `sustained` (seul le 4 semaines tombe), `emerging` (seul le 1 semaine tombe → **écrit mais
+  plafonné à `medium`**, comme IDX-005 plafonne une fluctuation isolée — une chute de 90 % sur
+  une semaine peut être un jour férié).
+- **⭐ La contre-épreuve `sustained` a été trouvée par un échec, et l'assertion était fausse,
+  pas le code.** J'attendais `confirmed` d'un effondrement massif ; il rend `sustained`, parce
+  que la fenêtre récente compare **w0 à w1** — pas à la période d'avant. Un palier bas et stable
+  ne la fait donc pas tomber. C'est devenu la distinction qui manquait : « la chute continue »
+  et « la chute a eu lieu et le niveau bas est le nouveau normal » demandent deux lectures
+  différentes. Le libellé, lui, était trompeur (« absente de la dernière semaine ») et a été
+  corrigé.
+- **Une page qui décroche est UN problème, pas N.** Sans regroupement, une page dépubliée
+  remplirait à elle seule le plafond `maxCandidates` de findings disant tous la même chose. Et
+  le regroupement n'est **pas** un `count >= seuil` : le total de la page doit lui-même baisser,
+  calculé sur **tous** ses couples appariés — sinon une page dont 3 requêtes baissent et 12
+  montent serait annoncée en perte (`pagesStable` compte ce cas, prouvé en base).
+- **La saisonnalité est déclarée ABSENTE, pas neutre.** `buildYoyComparison` (GSC-004) est
+  inerte jusqu'en 2027. Un facteur neutre inventé serait indistinguable d'un facteur mesuré à
+  1,0 ; l'indisponibilité vit donc dans les preuves et dans les caveats de confiance.
+- **Rien n'est réimplémenté.** Découpage des fenêtres, complétude et gate N-1 viennent de
+  GSC-004 **tels quels** ; l'auto-résolution vient de FIND-003 (une récupération résout, **sans
+  une ligne de code de plus**). Recopier « 28 j = 4 semaines » aurait créé la divergence que
+  l'égalité §A de DASH-003 interdit.
+
+**Vérifs :** 1102 tests (**+51** : 48 sur `keyword-decline-state`, 3 sur le catalogue) ·
+`npm run check` 0 erreur / 42 warnings (baseline) · `scripts/find-005-decline-proof.ts`
+**47/47 sur Neon**, base rendue à l'identique (findings 0→0, observations marquées 0→0) ·
+non-régression `dash-002-home`, `dash-003-project`, `dash-003-pause-health`,
+`dash-006-automations`, `gsc-004-windows`, `idx-005-transition`, `find-003-lifecycle`,
+`agt-000-proposer`, `job-004-dag`, `job-005-schedule`, `job-006-limits` — **0 échec chacune**.
+
+**Prochain :** **FIND-006** (nouvelles et perdues) — `vanished`/`appeared` sont déjà comptés,
+il ne leur manque que des seuils de volume et un type de finding ; c'est le complément direct
+de ce lot. Sinon **REP-001** (modèle de rapport hebdo déterministe), qui débloque REP-003 (le
+rapport du lundi, dernière case P0 de la gate M2) **et** l'onglet Rapports de DASH-003 lot 2
+chantier 3.
+
+**Pièges :**
+- **⚠️ Au premier run, les 9 projets passent de `ok` à `watch`.** Un détecteur ajouté n'a par
+  construction jamais tourné nulle part, donc `deriveDiagnosisCoverage` tombe à `partial` et
+  `classifySignal` rend `watch` (règle DASH-002 « jamais regardé ≠ rien à signaler »). Ce n'est
+  pas une régression, c'est la règle qui fonctionne — et ça se résorbe seul au premier tick
+  hebdo. `dash-003-pause-health-proof` avait échoué là-dessus : sa liste de détecteurs était
+  **recopiée**, elle est maintenant **dérivée** de `SCHEDULE_CATALOG`.
+- **⚠️ `propose:actions` ne dépend PAS de ce détecteur, et c'est voulu.** AGT-000 ne traite que
+  `keyword_opportunity` : une baisse se **diagnostique** avant de se corriger, elle ne produit
+  aucune proposition. La lier créerait un couplage faux — un détecteur de baisses mort ferait
+  sauter des propositions qu'il n'alimente pas. Conséquence à connaître : ces findings
+  atterrissent dans l'onglet **findings** de `/inbox`, jamais dans la file d'approbation.
+- **⚠️ Le regroupement de page a un coût assumé** : la semaine où un groupe se forme, les
+  findings de requête de la même page **sortent de la closure** et commencent à compter leurs
+  absences (auto-résolus au 2ᵉ run). C'est voulu — deux vues du même problème ne doivent pas
+  rester ouvertes en parallèle — mais ça se lit comme une résolution dans le journal.
+- **⚠️ La preuve tient par un seuil d'isolation, pas par un projet de test.** `projects.slug`
+  porte une FK cross-schéma vers `core.entities` (possédé par `invoices`) : impossible de créer
+  un projet jetable. L'isolation passe donc par `minPriorImpressions = 500 000` alors que la
+  plus grosse observation du parc pèse **7 904** impressions. §G le **vérifie** au lieu de le
+  supposer : tout finding créé doit porter le marqueur, sinon échec.
+- **⚠️ Aujourd'hui, presque tout sortira `emerging`.** Le 4 semaines exige **8** semaines
+  d'historique ; `spinlink` et `wildcat` n'en ont que 6 (prouvé en §F). Rien ne dépassera donc
+  `medium` sur ces projets tant que l'historique n'aura pas grandi — c'est le comportement
+  voulu, pas un bug de calibrage.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **le rendu n'a jamais été vu à l'œil** · la PROD écrit
+  dans `gsc_query_page_observations` (aucune assertion de ce lot n'y porte sur un total projet).
+
+**Commit :** `(à figer)`
+
+---
+
 ## Etat session 2026-07-26 (DASH-003 lot 2 chantier 2 — l'indexation cesse d'être écrite pour personne)
 
 **Fait :** le chantier 2 de DASH-003 lot 2. Quatre tickets E04 étaient livrés — `IDX-001`
@@ -3096,12 +3185,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-26 (DASH-003 lot 2 chantier 2 — l'onglet Indexation)
+> Mise à jour : 2026-07-27 (FIND-005 — détecteur de baisses)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/detectors/keyword-decline-state.ts`** (+ `.test.ts`) *(FIND-005)* | **Le jugement pur du détecteur de baisses.** ⭐ `diffPairs` n'apparie que l'**intersection** des deux fenêtres : un couple disparu est indiscernable d'une semaine non collectée, le compter comme −100 % fabriquerait un finding depuis un trou (107 cas réels sur `lecureux`). `evaluateDecline` gate le volume sur la fenêtre **PRÉCÉDENTE** (on ne perd que ce qu'on avait ; gater sur la courante effacerait les pires baisses) et exige pour les clics le **pourcentage ET l'absolu** — sans quoi 3 clics tombés à 2 pèserait autant que 300 tombés à 200. ⭐ `combineSpans` fait de l'écart 4 sem./1 sem. le **niveau de confirmation** (`confirmed`/`sustained`/`emerging`) : la fenêtre récente compare **w0 à w1**, donc un palier bas et stable est `sustained`, pas `confirmed`. `groupByPage` ne regroupe que si **le total de la page** baisse, calculé sur **tous** ses couples appariés (`pagesStable` compte les pages qui se recomposent). `deriveDeclineSeverity` a **deux** plafonds distincts : faible volume/confiance (FIND-002) **et** `emerging` (fluctuation isolée, comme IDX-005). La position est `current − prior`, **positif = pire**, écrit partout où le chiffre circule. `SeasonalityContext` déclare l'absence de N-1 au lieu d'inventer un facteur neutre. **48 tests.** |
+| **`src/lib/server/detectors/keyword-decline.ts`** *(FIND-005)* | **La lecture/écriture, client injecté.** ⭐ **Une seule** lecture d'observations pour les **quatre** fenêtres (elles sont imbriquées : la récente est incluse dans la structurelle), partitionnée en mémoire — quatre requêtes reliraient trois fois les mêmes lignes. Découpage (`buildWindowComparison`), complétude (`windowCompleteness`) et gate N-1 (`computeYoyReport`) viennent de **GSC-004 tels quels** : recopier « 28 j = 4 semaines » créerait une 2ᵉ autorité qui divergerait au premier ajustement de latence, et l'écran `/windows` jugerait sur une autre semaine que le détecteur. `declineFingerprint` sépare page et requête par l'`entityType` — c'est ce qui rend le regroupement **réversible**. ⚠️ **PAS de `scope` à la réconciliation**, contrairement à IDX-005 : un détecteur GSC est autoritaire sur tout son projet (chaque requête est réobservée chaque semaine), donc une absence de la closure est une vraie absence — et « une récupération résout le finding » sort **gratuitement** de FIND-003. |
+| **`src/lib/server/schedule-state.ts`** *(FIND-005)* | ⭐ `detect:keyword_decline` entre au catalogue **hebdo** en **frère** de `detect:keyword_opportunity` : même prérequis (`collect:gsc_query_page`, arête **OBLIGATOIRE**), même priorité, **aucune arête entre eux**. Les enchaîner en série ajouterait un tour de propagation de skip (JOB-004 propage en N-1 passes) sans contrepartie — ils lisent les mêmes observations et n'appellent aucun provider. ⚠️ `propose:actions` ne dépend **volontairement pas** du nouveau détecteur : AGT-000 ne traite que `keyword_opportunity`, lier les deux créerait un couplage faux. **3 tests dédiés.** |
+| `src/lib/server/job-runner.ts` · `job-limits.ts` · `home-state.ts` *(FIND-005)* | `JOB_TYPE_DETECT_KEYWORD_DECLINE` + son handler (qui **annonce** `groupsFormed`, `vanished`, `pagesStable` et `skippedReason` : un regroupement fait baisser le nombre de findings sans que le nombre de problèmes baisse, et le taire ferait mal lire le run). Provider **`none`** — il relit des observations déjà payées, le classer `gsc` l'endormirait avec la cohorte au premier 429. Libellé « baisses de mots-clés » dans `DETECTOR_LABELS`. |
+| **`scripts/find-005-decline-proof.ts`** | **Preuve sur Neon (47 vérifs), ZÉRO réseau.** ⚠️ **L'isolation tient à un seuil, pas à un projet jetable** (`projects.slug` porte une FK vers `core.entities`, possédé par `invoices`) : `minPriorImpressions = 500 000` contre 7 904 impressions au maximum du parc — et **§G le vérifie** au lieu de le supposer. §A : `confirmed` vs ⭐ `sustained` (palier bas stable), `emerging` plafonné `medium`, stable et **disparu** sans finding (`vanished = 107` réels). §B : la page qui décroche rend **1** finding, celle qui se **recompose** en rend 3. §D : une récupération ne résout **pas** à la 1ʳᵉ absence, et résout à la 2ᵉ. ⭐ §F : `lecureux` (68 sem.) et `spinlink` (6 sem.) rendent des verdicts **opposés** sur la comparabilité du 4 semaines — même code, données réelles. |
+| **`scripts/dash-003-pause-health-proof.ts`** *(réparation, FIND-005)* | ⚠️ **La liste des détecteurs attendus n'est plus RECOPIÉE**, elle est dérivée de `SCHEDULE_CATALOG`. Un détecteur ajouté n'a jamais tourné nulle part ⇒ couverture `partial` ⇒ la carte de référence n'est plus `ok` ⇒ §C ne prouve plus rien. La preuve échouait en accusant le code d'un défaut inexistant. |
 | **`src/lib/server/project-indexing-state.ts`** (+ `.test.ts`) *(DASH-003 lot 2 ch.2)* | **Le jugement pur de l'onglet Indexation.** `buildClassFilters` fabrique **le compteur et son lien ensemble** (règle DASH-002) : impossible d'afficher un nombre au-dessus d'un lien qui en montrerait un autre. `normalizeIndexClass` **écarte** une valeur inventée (`noindex` ne devient pas `excluded`). `describeInspectionFreshness` refuse d'écrire « 0 h » pour un `never`, et dit le retard comme un **cycle d'échantillon dépassé**, pas comme une panne (seuil 15 j, pas 10). `summarizeSitemap` distingue **« premier inventaire »** de **« diff vide »** — `{added: [], removed: []}` se lirait « rien n'a changé » là où il n'y a rien à quoi comparer — et compte les **alternates à part** (une alternate n'est pas une page, IDX-001). `summarizeQuota` **reprend** `dueNow`/`oldestDueDate` de `summarizeIndexation` au lieu de les recompter, et **ajoute** les périmées (`isExpired`), les **illisibles** (raison hors vocabulaire, écartée et **dite**), les familles dans l'ordre de service, et un `poolNote` qui dit **« au plus »**, jamais « il reste ». `describeCanonical` : `null` = **incomparable**, jamais « accord ». **25 tests.** |
 | **`src/lib/server/project-indexing.ts`** *(DASH-003 lot 2 ch.2)* | **La lecture, client injecté.** Un seul `Promise.all` (11 lectures), puis deux qui **dépendent** de la date d'inventaire découverte. ⭐ **`loadLastIndexObservation` passe par `loadInspectionFreshness`** (`indexing-read.ts`) — sa **première utilisation depuis IDX-002** : en recopier le `max(observed_date)` en aurait fait une 2ᵉ autorité sur la même mesure. Le panneau et `IndexationSummary` sont construits avec **les mêmes fonctions pures** que la vue d'ensemble (`derivePanelState`, `makePeriod`, `summarizeIndexation`, `INDEX_STALE_AFTER_HOURS`), et l'égalité est **vérifiée en base** (§A). ⚠️ **La santé du projet n'est pas chargée du tout** : le moyen le plus sûr de tenir l'invariant anti-divergence du lot 1 sur un onglet qui ne l'affiche pas. La classe est **dérivée à la lecture** (`classifyCoverage` reste l'autorité), donc le filtre se fait **en mémoire** — la reproduire en SQL divergerait au premier libellé nouveau de Google. |
 | **`src/routes/(app)/projects/[slug]/indexing/`** *(DASH-003 lot 2 ch.2)* | **L'écran.** `+page.server.ts` ne fait que **passer les paramètres d'URL** (`?class=` normalisé avant toute requête, `?url=` pour l'historique). `+page.svelte` rend : le trio de provenance, la couverture (`null` ≠ « 0 % »), les filtres de classe, l'inventaire sitemap et son diff (« retirée » = **constat**, jamais une désindexation), le quota (« au plus », périmées, illisibles), les findings de transition, l'historique d'une URL, et la liste plafonnée dont la **troncature est dite avec le total réel**. |

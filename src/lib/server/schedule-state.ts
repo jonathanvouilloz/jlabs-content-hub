@@ -535,6 +535,22 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			payload: { weeks: 4 },
 			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
 		},
+		// FIND-005 — la baisse rejoint l'opportunité, sur la MÊME collecte et au MÊME
+		// niveau du graphe : les deux détecteurs lisent `gsc_query_page_observations`,
+		// n'appellent aucun provider, et n'ont rien à se dire. Les enchaîner en série
+		// (`decline` après `opportunity`) ajouterait un tour de propagation de skip sans
+		// aucune contrepartie — ils sont frères, pas successifs.
+		//
+		// L'arête vers la collecte est **OBLIGATOIRE**, comme pour les opportunités :
+		// mesurer une baisse sur des observations non rafraîchies, c'est comparer une
+		// fenêtre à elle-même décalée d'une semaine. Si la collecte meurt, le détecteur
+		// est `skipped` et le run vaut `partial` — le trou est visible, au lieu d'être
+		// masqué par une « baisse » qui n'est qu'un défaut de collecte.
+		{
+			jobType: 'detect:keyword_decline',
+			priority: 10,
+			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
+		},
 		{
 			jobType: 'detect:index_transition',
 			priority: 9,

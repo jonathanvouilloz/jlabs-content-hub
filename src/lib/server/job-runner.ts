@@ -78,6 +78,7 @@ import {
 import { coolDownQuotaLimitedJobs, loadLimitsContext } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
+import { runKeywordDeclineDetector } from './detectors/keyword-decline.js';
 import { runIndexTransitionDetector } from './detectors/index-transition.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
@@ -136,6 +137,19 @@ export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
+
+/**
+ * FIND-005 — détecteur de baisses. Au catalogue hebdo en arête **obligatoire**
+ * `collect:gsc_query_page → detect:keyword_decline`, pour la même raison que le
+ * détecteur d'opportunités : mesurer une baisse sur des observations que la collecte
+ * de la semaine n'a pas rafraîchies, c'est comparer une fenêtre à elle-même décalée
+ * d'une semaine et appeler ça un signal.
+ *
+ * ⚠️ Il lit les MÊMES observations que `detect:keyword_opportunity` et n'appelle
+ * aucun provider : les deux détecteurs peuvent donc tourner dans le même tour de
+ * drain sans se disputer de quota.
+ */
+export const JOB_TYPE_DETECT_KEYWORD_DECLINE = 'detect:keyword_decline';
 
 /**
  * IDX-005 — détecteur de transitions d'indexation. **Au catalogue hebdo depuis IDX-004**, en
@@ -340,6 +354,36 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					created: res.counts.created,
 					refreshed: res.counts.refreshed,
 					truncated: res.truncated
+				});
+			}
+		],
+		[
+			JOB_TYPE_DETECT_KEYWORD_DECLINE,
+			async ({ db, job }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await runKeywordDeclineDetector({
+					db,
+					projectId: (payload.projectId as string) ?? job.projectId,
+					runId: job.runId
+				});
+				logger.info('détection de baisses terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					detector: res.detectorVersion,
+					created: res.counts.created,
+					refreshed: res.counts.refreshed,
+					// Un regroupement de page dit « 1 finding » là où il y avait N requêtes :
+					// sans ce compteur, la baisse du nombre de findings se lirait comme une
+					// baisse du nombre de problèmes.
+					groupsFormed: res.groupsFormed,
+					// Les couples disparus ne sont NI des baisses NI des guérisons (FIND-006) :
+					// les taire ferait lire un périmètre qui rétrécit comme un parc assaini.
+					vanished: res.vanished,
+					pagesStable: res.pagesStable,
+					truncated: res.truncated,
+					// Une fenêtre non comparable ne produit rien — et le DIT, sinon un run qui
+					// n'a rien pu juger se lirait comme un run qui n'a rien trouvé.
+					skippedReason: res.skippedReason
 				});
 			}
 		],
