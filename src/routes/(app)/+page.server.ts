@@ -4,6 +4,8 @@ import { contents, projects } from '$lib/server/db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
 import { loadHomeCockpit } from '$lib/server/home.js';
 import { normalizeWindowDays } from '$lib/server/home-state.js';
+import { listPublishedReports } from '$lib/server/report-publication.js';
+import { summarizeReportList } from '$lib/server/report-read-state.js';
 
 /**
  * DASH-002 — L'accueil EST le cockpit cross-projet (SPEC §13.1).
@@ -24,8 +26,15 @@ import { normalizeWindowDays } from '$lib/server/home-state.js';
 export const load: PageServerLoad = async ({ url }) => {
 	const windowDays = normalizeWindowDays(url.searchParams.get('days'));
 
-	const [cockpit, statusCounts, recentContents] = await Promise.all([
+	const [cockpit, lastReports, statusCounts, recentContents] = await Promise.all([
 		loadHomeCockpit({ db, windowDays }),
+		// DASH-003 lot 2 ch.3 — « accès au rapport consolidé » (SPEC §13.1).
+		//
+		// ⚠️ La méta passe par `listPublishedReports`, PAS par un compteur ajouté à
+		// `home-state.ts` : le SLO et le statut n'ont qu'une autorité (`toMeta` → `deriveSlo`),
+		// et un second calcul ici afficherait « SLO tenu » sur l'accueil au-dessus d'un
+		// « SLO manqué » sur `/reports`. Un seul créneau : l'accueil pointe, il ne liste pas.
+		listPublishedReports({ db, limit: 1 }),
 		db
 			.select({
 				draft: sql<number>`sum(case when ${contents.status} = 'draft' then 1 else 0 end)`,
@@ -57,6 +66,8 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	return {
 		cockpit,
+		/** Le dernier rapport publié, ou `null` — **jamais** un rapport fabriqué pour l'occasion. */
+		lastReport: summarizeReportList(lastReports)[0] ?? null,
 		contentStats: {
 			draft: statusCounts?.draft ?? 0,
 			review: statusCounts?.review ?? 0,

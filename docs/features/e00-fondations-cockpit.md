@@ -4,6 +4,91 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (DASH-003 lot 2 ch.3 — `weekly_reports` cesse d'être écrite pour personne)
+
+**Fait :** l'écran **Rapports** — `/reports` (liste des créneaux publiés) et `/reports/[slot]`
+(le rapport entier). REP-001 savait construire le rapport, REP-003 savait le publier, et
+**aucun écran ne le lisait** : le seul accès était `npx tsx scripts/rep-003-publish.ts --list`.
+**Zéro DDL** (61 tables), **zéro nouveau module de lecture**, **zéro appel provider**.
+
+- **⭐ LE point du lot : l'invariant « absent ≠ zéro » n'était PAS encore gardé à l'écran.**
+  REP-001 l'a rendu structurel côté données — `Availability<T>` est une union discriminée, une
+  section absente **n'a pas de corps**, donc pas de case où loger un `0`. Mais un template peut
+  défaire ça en un caractère (`section.body.data?.items.length ?? 0`), et l'écran était le
+  dernier maillon du parcours sans gardien. `sectionView` rend donc **à son tour une union
+  discriminée** : le template ne peut pas atteindre un compteur qui n'existe pas. Prouvé sur un
+  rapport RÉEL (§B) — `indexation` et `traffic_conversions` sortent `not_wired`, et **aucune des
+  deux ne porte `items`, `metrics`, `truncated` ni `isEmpty`**. Contre-épreuve dans la même
+  section : **4 sections présentes et vides** (`executive_summary`, `findings_aggravated`,
+  `findings_resolved`, `automation_health`) portent bien leurs champs — « j'ai regardé, il n'y a
+  rien » et « je n'ai pas regardé » se distinguent à l'œil comme dans le type.
+- **⭐ L'écran vit là où la TABLE vit, et c'est pour ça qu'il n'est pas un onglet projet.**
+  SPEC §13.2 liste « Rapports » parmi les onglets de `/projects/[slug]`, mais `weekly_reports`
+  n'a **pas de `project_id`** (décision REP-003 : le rapport est cross-projet). Seuls les `items`
+  portent `projectSlug` ; les `metrics` sont des `count(*)` de **parc**. Un onglet projet ne
+  pourrait donc afficher ni le résumé exécutif ni un seul chiffre sans mentir sur leur portée —
+  il montrerait « 13 nouveaux findings » au-dessus du nom d'un projet qui en a deux. L'écran est
+  cross-projet, et SPEC §13.1 le prévoyait déjà (« accès au rapport consolidé » depuis l'accueil).
+- **⭐ Rien n'est reconstruit, et c'est vérifié contre le JSON brut.** La vue rendue est
+  `payload_json`, relu sans passer par le code de lecture : mêmes sections, **dans l'ordre du
+  rapport** (jamais `SECTION_ORDER`, sinon un rapport de 2026 se relirait dans le plan de 2027),
+  même phrase d'en-tête. Et **deux lectures rendent la même vue au bit près** (`JSON.stringify`
+  égal) : aucune horloge n'entre dans la projection, ce qui est la forme littérale de
+  « accessible après restart ».
+- **Le SLO reste dérivé, et son piège est nommé.** L'échéance règle `due_at` **au moment de la
+  publication** : deux créneaux publiés au même retard réel (+61 min) sous deux échéances (60 et
+  15 min) affichent **1 min** et **46 min** de retard. Et republier le créneau A sous une échéance
+  de 5 min rend le verdict **d'origine** (1 min), sans écrire une ligne — changer un réglage ne
+  réécrit pas l'histoire des rapports déjà publiés. ⚠️ La garde « aucune colonne de verdict » a
+  d'abord échoué **en ayant raison** : `/slo/` matche `slot_at`, qui est un fait, pas un verdict.
+  Liste fermée de noms interdits désormais, plus de regex.
+- **`period_slot` et `slot_at` ne sont pas interchangeables.** Le premier est un créneau **local**
+  (`2026-07-27T09:00`, `Europe/Zurich`) : le passer à `dbTimestampToMs` le lirait comme de l'UTC
+  et décalerait l'âge d'une à deux heures selon la saison. Le second est l'instant, mais il
+  afficherait « 07:00 » pour le lundi 09:00 de Jonathan. `describeReportsFreshness` prend donc
+  **les deux**, chacun pour ce pour quoi REP-003 l'a écrit — et `formatSlotLabel` **découpe** la
+  chaîne du créneau au lieu de la parser.
+- **L'accueil POINTE, il ne résume pas.** Une ligne, pas un panneau, et la méta passe par
+  `listPublishedReports({ limit: 1 })` — **pas** par un compteur ajouté à `home-state.ts`, qui
+  serait une seconde autorité sur le SLO et afficherait « tenu » au-dessus d'un « manqué ».
+
+**Vérifs :** 1362 tests (**+24** sur `report-read-state`) · `npm run check` 0 erreur /
+42 warnings (baseline) · `scripts/dash-003-reports-proof.ts` **24/24 sur Neon**, lancé deux fois,
+base rendue à l'identique (rapports 0→0, 61 tables) · non-régression `rep-003-publication`,
+`rep-001-report`, `dash-002-home` — **0 échec chacune**.
+
+**Prochain :** **REP-004** (historique et comparaison — la seule chose qui rendrait un `partial`
+révisable, et l'écran le dit maintenant à chaque ligne). Sinon **« Mots-clés »**, qui n'est plus
+un onglet à créer mais un **portage de `/positions` sur le canon** (cf. pièges).
+
+**Pièges :**
+- **⚠️ « Mots-clés » (SPEC §13.2) existe déjà de fait, sous le nom « Positions ».**
+  `/projects/[slug]/positions` (watchlist + movers) répond à la même question, mais sur les tables
+  **legacy** (`gsc-analytics.ts`), pas sur `gsc_query_page_observations`. En créer un second aurait
+  fait **deux écrans, deux sources, une divergence garantie**. Le geste juste est de porter
+  `/positions` sur le canon — un lot à part entière (watchlist, movers, séries 12 semaines),
+  volontairement **hors** de ce chantier.
+- **⚠️ Le premier rapport que Jonathan verra sera un constat d'absence.** Le chemin nominal sur
+  un parc sans run hebdo est `deadline_reached` → **`partial`, 9 projets `missing`** (la preuve
+  ne peut pas publier autrement : neuf bloquants, aucun run sur un créneau synthétique). L'écran
+  le dira franchement, et **il ne sera jamais réécrit** — republier est un no-op. La ligne le
+  porte à chaque affichage (`statusNote`).
+- **⚠️ `/report/[slug]/[period]` existe déjà et n'a RIEN à voir** : c'est le rapport client
+  legacy, par projet, hors `(app)`. Le nouvel écran est `/reports` (pluriel), cross-projet, sous
+  authentification. Ne pas les confondre en lisant l'arbre des routes.
+- **⚠️ La liste ne doit jamais charger `payload_json`** : 28 kio par rapport mesurés sur le parc
+  actuel — douze rapports complets pour afficher douze dates. `listPublishedReports` ne le
+  sélectionne pas ; le défaire ne casserait aucun test, seulement l'écran.
+- **⚠️ Ne PAS piper un script de preuve dans `head`** (rappel FIND-008) : le SIGPIPE tue le
+  process avant le `finally` et laisse les rapports synthétiques `1998-%` en base.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil** (pas de session
+  admin) — et celui-ci est le premier dont toute la valeur est dans le rendu.
+
+**Commit :** *(à faire)*
+
+---
+
 ## Etat session 2026-07-27 (FIND-008 — la cannibalisation, et la normalisation qui en est la moitié)
 
 **Fait :** FIND-008, le détecteur de cannibalisation persistante (`detect:cannibalization`),
@@ -3599,12 +3684,16 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (FIND-008 — cannibalisation persistante)
+> Mise à jour : 2026-07-27 (DASH-003 lot 2 ch.3 — l'écran Rapports)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/report-read-state.ts`** (+ `.test.ts`) *(DASH-003 lot 2 ch.3)* | **Le jugement pur de l'écran Rapports.** ⭐ `SectionView` est une **union discriminée**, et c'est tout le lot : REP-001 a rendu « absent ≠ zéro » structurel côté données, mais un template le défait en un caractère (`body.data?.items.length ?? 0`) — ici une section absente n'a **ni `items`, ni `metrics`, ni `truncated`, ni `isEmpty`**, donc le rendu ne peut pas atteindre un compteur qui n'existe pas. `isEmpty` (présente, 0 item) et `kind: 'absent'` restent **deux faits distincts** : « j'ai regardé, il n'y a rien » vs « je n'ai pas regardé ». ⚠️ `describeReportsFreshness` prend **deux** représentations du créneau et refuse de les confondre : `period_slot` est **local** (le passer à `dbTimestampToMs` décale l'âge d'1 à 2 h selon la saison), `slot_at` est l'**instant** (il afficherait 07:00 pour le lundi 09:00). `formatSlotLabel` **découpe** la chaîne, ne la parse jamais. `summarizeReportList` **reprend** `meta.slo` et `readiness_json` sans rien recompter — un second calcul divergerait de `toMeta`. Une préparation illisible rend `readinessLabel: null`, jamais un périmètre inventé. `describeCoverage` groupe les angles morts **une fois** (à 9 projets × 12 sections, la même liste s'imprimerait 108 fois). **24 tests.** |
+| **`src/routes/(app)/reports/`** *(DASH-003 lot 2 ch.3)* | **L'écran, cross-projet parce que la TABLE l'est.** `weekly_reports` n'a pas de `project_id` (REP-003) : un onglet sous `/projects/[slug]` afficherait des `count(*)` de parc au-dessus du nom d'un projet. `+page.server.ts` liste 12 créneaux **sans charger un seul payload** (28 kio pièce) ; `[slot]/+page.server.ts` lève un **404** sur un créneau inconnu (« pas encore publié » ≠ « n'existe pas ») et laisse remonter un payload illisible. Le détail rend les sections **dans l'ordre du JSON archivé** (`report.sections`, jamais `SECTION_ORDER` — un rapport de 2026 doit se relire dans son plan d'origine), affiche le `rank` de chaque item (un tri dont le critère est caché se lit comme arbitraire) et nomme la table source quand `href` est `null`. |
+| **`src/routes/(app)/+page.server.ts` · `+layout.svelte`** *(DASH-003 lot 2 ch.3)* | L'accueil **POINTE** vers le rapport consolidé (SPEC §13.1) via `listPublishedReports({ limit: 1 })` — **pas** via un compteur ajouté à `home-state.ts`, qui serait une seconde autorité sur le SLO et afficherait « tenu » au-dessus d'un « manqué ». Entrée « Rapports » dans la barre latérale, après Inbox. |
+| **`scripts/dash-003-reports-proof.ts`** *(DASH-003 lot 2 ch.3)* | La preuve (24/24, créneaux synthétiques de 1998). §A la vue **est** le `payload_json` relu hors du code de lecture, et deux lectures rendent la même vue au bit près ; §B l'invariant absent/zéro sur un rapport **réel** + contre-épreuve ; §C aucune colonne de verdict, deux échéances ⇒ deux retards chiffrés, et republier sous une autre échéance rend le verdict **d'origine** ; §E→§G 404, liste sans payload, accord liste/détail. ⚠️ La garde §C a d'abord échoué **en ayant raison** : `/slo/` matche `slot_at` — liste fermée de noms interdits désormais. |
 | **`src/lib/server/detectors/cannibalization-state.ts`** (+ `.test.ts`) *(FIND-008)* | **Le jugement pur du détecteur de cannibalisation.** ⭐ `normalizePageUrl` est **la moitié du détecteur**, pas un utilitaire : cinq gestes (fragment, protocole, `www.`, slash final, query string **conservée** avec tracking retiré et clés triées), liste de tracking **fermée**, percent-encoding déplié, casse du chemin **préservée**. Versionnée par `URL_NORMALIZATION_RULE` — toute évolution incrémente **aussi** `DETECTOR_CANNIBALIZATION`, sans quoi deux semaines de findings deviendraient incomparables en silence. Mesuré : 143 → 51 pages et 397 → 180 conflits sur `barberconcept`. ⭐ `aggregateByQueryUrl` garde la **série hebdomadaire par URL** — `aggregateWindow` est un **faux ami** (elle collapse les semaines, l'alternance disparaît, rien n'échoue). Les quatre grandeurs : `dominance` sur **S(q)** et jamais T(q) (avec T, une longue traîne marginale fait tout basculer en `split`, donc en `probable`), `overlapWeeksOf` (le CHEVAUCHEMENT — un `overlap` vide avec 2 URLs est un **remplacement**), `countSwitches` sur la **sous-suite** de chevauchement, `longestStreakOf` (preuves seulement, ne gate rien). `classifyShape` ordonne strictement (`alternating` gagne toujours) ; `isProbableConflict` laisse `misallocation` **déborder** la forme, parce qu'une dominante qui ranke plus bas que sa voisine est un fait, pas une interprétation. `deriveCannibalizationSeverity` a **deux** plafonds : `!probable ⇒ ≤ low` (propre à FIND-008 — la machine doute par défaut) puis le plafond commun FIND-002. ⚠️ `resolveCannibalizationThresholds` **clampe `relativeShare` et `dominanceCeiling` dans `]0,1]`** : la discipline maison ignore les négatifs mais **accepte 0**, et `relativeShare = 0` est le seul override capable de produire ~2 000 « conflits » sur `barberconcept`. **73 tests.** |
 | **`src/lib/server/detectors/cannibalization.ts`** *(FIND-008)* | **La lecture/écriture, client injecté.** ⭐ **`comparison.comparable` n'est PAS un gate** : la cannibalisation est un ÉTAT, pas un delta — le seul gate est `current.weeks >= minOverlapWeeks`. C'est ce qui rend `spinlink` et `wildcat` (6 semaines) **détectables ici** alors que FIND-005/006 les écartent. Une seule `loadWindowRows` ; `windowWeeks` est dérivé des **lignes** et non des bornes (une semaine vide ne doit pas compter comme une semaine sans conflit). ⭐ `scope` = closure ∪ requêtes **mesurables**, et `measurableQueries` se calcule **avant** le gate de significativité — sinon une requête revenue à une seule URL (la guérison même) sortirait de la portée au lieu de résoudre. Mode de défaillance **accepté et nommé dans le code** : un conflit dont le volume s'effondre reste `open`, atténué par `lost_query`, le dismiss humain, et le compteur `outOfScope` visible au log. ⚠️ **N'importe PAS `loadLatestIndexStates`** : Google ne peut pas montrer une page désindexée, donc elle n'a pas d'impressions, donc elle n'est pas significative — la garde est déjà structurelle, l'ajouter coûterait une requête pour zéro effet. `cannibalizationFingerprint` = la requête **BRUTE** seule (pas l'ensemble d'URLs, qui ferait churner ; pas la clé normalisée, qui fabriquerait des conflits). |
 | **`src/lib/server/schedule-state.ts`** *(FIND-008)* | ⭐ `detect:cannibalization` entre au catalogue hebdo en **4ᵉ frère** : même prérequis (`collect:gsc_query_page`, arête **OBLIGATOIRE**), même priorité, **aucune arête** avec les trois autres ni vers `propose:actions`. Le mode de défaillance de l'arête est le plus vicieux de la fratrie : sans la semaine fraîche, la dernière semaine de la fenêtre manque, donc le **chevauchement** y manque — un conflit réel se lirait comme résolu, puis s'auto-résoudrait. Un défaut de collecte écrirait une **guérison**. **1 test dédié**, qui verrouille aussi l'absence d'arête vers le producteur. |

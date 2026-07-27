@@ -144,6 +144,45 @@
 		</div>
 	</header>
 
+	<!-- ── Le rapport consolidé (SPEC §13.1) ─────────────────────── -->
+	<!--
+		Une ligne, pas un panneau : l'accueil POINTE vers le rapport, il ne le résume pas. Le
+		résumer ici obligerait à recompter des chiffres de parc déjà figés dans le payload, et
+		l'accueil finirait par annoncer une semaine différente de celle du rapport qu'il ouvre.
+	-->
+	<a
+		href={data.lastReport?.href ?? '/reports'}
+		class="group flex flex-wrap items-center gap-2 rounded-lg border border-surface-200 bg-white px-3 py-2 text-xs transition-colors hover:border-surface-300"
+	>
+		<FileText size={14} class="flex-shrink-0 text-surface-400" />
+		{#if data.lastReport}
+			<span class="font-medium text-surface-800">Rapport du {data.lastReport.slotLabel}</span>
+			<span
+				class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium {data
+					.lastReport.status === 'complete'
+					? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+					: 'border-amber-200 bg-amber-50 text-amber-700'}"
+			>
+				{data.lastReport.status}
+			</span>
+			<span
+				class="text-[11px] {data.lastReport.slo.met
+					? 'text-surface-400'
+					: 'font-medium text-orange-700'}"
+			>
+				{data.lastReport.sloLabel}
+			</span>
+		{:else}
+			<!-- « jamais publié » n'est pas « rien à dire » : la phrase le nomme, elle ne laisse
+			     pas une ligne muette se lire comme une semaine calme. -->
+			<span class="text-surface-600">Aucun rapport hebdomadaire publié à ce jour</span>
+		{/if}
+		<ArrowRight
+			size={12}
+			class="ml-auto text-surface-300 transition-colors group-hover:text-surface-500"
+		/>
+	</a>
+
 	<!-- ── Compteurs cross-projet ────────────────────────────────── -->
 	<!-- Chaque compteur porte le lien de SON filtre (ou aucun lien s'il n'existe pas de
 	     liste qui reproduise ce qu'il compte). Le template ne construit aucune URL. -->

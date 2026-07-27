@@ -1017,6 +1017,19 @@ Travail :
 - donner accès aux integrations et policies → **lot 2** (l'onglet Paramètres existe, les policies
   n'ont pas d'écran).
 
+Lot 2, chantier 3 (2026-07-27) — **l'écran Rapports, livré HORS de la barre d'onglets projet** :
+`/reports` + `/reports/[slot]`, cross-projet. ⚠️ **Décision** : `weekly_reports` n'a pas de
+`project_id` (REP-003), et ses `metrics` sont des `count(*)` de parc — un onglet sous
+`/projects/[slug]` ne pourrait afficher ni le résumé exécutif ni un chiffre sans mentir sur leur
+portée. L'onglet « Rapports » de la liste §13.2 est donc **abandonné au profit d'un écran
+cross-projet**, conformément à §13.1 (« accès au rapport consolidé »).
+
+⚠️ **L'onglet « Mots-clés » (§13.2) est reclassé** : il existe déjà de fait sous le nom
+« Positions » (`/projects/[slug]/positions` : watchlist + movers), mais sur les tables **legacy**
+(`gsc-analytics.ts`) et non sur `gsc_query_page_observations`. Le geste restant n'est pas « créer
+un onglet » mais **porter `/positions` sur le canon** — ticket à part entière (watchlist, movers,
+séries 12 semaines), non planifié à ce jour.
+
 Acceptation :
 
 - chaque métrique affiche période, fraîcheur et source ;
