@@ -137,7 +137,7 @@ Rapports, qui donnerait enfin un lecteur à `weekly_reports`).
 - Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) ·
   **le cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
 
-**Commit :** [à compléter] [hub] add: la cannibalisation persistante, et la normalisation qui en est la moitié (FIND-008)
+**Commit :** `351803d` [hub] add: la cannibalisation persistante, et la normalisation qui en est la moitié (FIND-008)
 
 ---
 
