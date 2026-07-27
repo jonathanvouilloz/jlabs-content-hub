@@ -44,6 +44,22 @@ export function normalizeDbTimestamp(value: Date | string): string {
 	return toDbTimestamp(value);
 }
 
+/**
+ * Format DB → instant (ms epoch). L'INVERSE de `toDbTimestamp`, et le seul chemin autorisé
+ * pour faire de l'arithmétique sur une valeur relue de la base.
+ *
+ * Le `Z` explicite est TOUT le sujet : `new Date('2026-07-27 09:00:00')` est interprété en
+ * heure LOCALE par ECMA-262, donc décalé d'une à deux heures à Zurich — et le décalage change
+ * deux fois l'an. Une durée calculée ainsi (« publié combien de temps après l'échéance ? »)
+ * serait fausse de 60 ou 120 minutes selon la saison, ce qui est exactement l'ordre de
+ * grandeur qu'un SLO d'une heure mesure.
+ *
+ * Rend `NaN` sur une valeur illisible : à l'appelant de décider (jamais de valeur inventée).
+ */
+export function dbTimestampToMs(value: string): number {
+	return new Date(`${value.replace(' ', 'T')}Z`).getTime();
+}
+
 /** Même instant décalé de `ms` (backoff, bail…), au format DB. */
 export function toDbTimestampPlus(ms: number, from: Date | string = new Date()): string {
 	const base = typeof from === 'string' ? new Date(from) : from;

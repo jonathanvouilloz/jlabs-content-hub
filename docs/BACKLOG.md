@@ -1151,7 +1151,7 @@ Acceptation :
 
 ## REP-003 — Publication du rapport du lundi
 
-**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par REP-001, 2026-07-27) · **Dépendances :** REP-001, JOB-005
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-27) · **Dépendances :** REP-001, JOB-005
 
 Travail :
 
@@ -1159,6 +1159,13 @@ Travail :
 - attendre les steps obligatoires avec deadline ;
 - publier un état complete ou partial avant 10:00 ;
 - notifier disponibilité et incidents.
+
+> Livré : table `weekly_reports` (61 tables), unique sur le **créneau local** — la publication
+> n'est **pas** un job de file (`jobs.project_id` est NOT NULL, le rapport est cross-projet), le
+> tick l'appelle après son drain. Attente bornée par `report.publish_deadline_minutes`
+> (`system_settings`, défaut 60 min = 10:00 local). SLO **dérivé** (`published_at <= due_at`),
+> aucune colonne de verdict. ⚠️ L'**envoi** de l'annonce reste TEL-002 (TEL-001 BLOCKED) : elle
+> est produite et journalisée, pas transmise.
 
 Acceptation :
 
@@ -2216,11 +2223,12 @@ Ces éléments ne bloquent pas l'objectif des 90 % et ne doivent pas retarder M1
 ### Gate M2 — Cockpit hebdomadaire
 
 - [ ] détecteurs opportunités, baisses, nouvelles requêtes, CTR et cannibalisation actifs ;
-- [ ] cycle de vie et fingerprints stables ;
-- [ ] rapport déterministe généré lundi 09:00 ;
-- [ ] rapport disponible avant 10:00 ou marqué `partial` ;
-- [ ] inbox cross-projet et vue preuves utilisables ;
-- [ ] aucune alerte issue d'une collecte partielle.
+      *(opportunités FIND-004 + baisses FIND-005 livrés ; reste FIND-006/007/008)*
+- [x] cycle de vie et fingerprints stables ; *(FIND-002/003)*
+- [x] rapport déterministe généré lundi 09:00 ; *(REP-001 + REP-003)*
+- [x] rapport disponible avant 10:00 ou marqué `partial` ; *(REP-003 — SLO mesuré, dérivé)*
+- [x] inbox cross-projet et vue preuves utilisables ; *(DASH-004/005)*
+- [x] aucune alerte issue d'une collecte partielle. *(GSC-002, FIND-003, FIND-005, REP-001)*
 
 ### Gate M3 — Avis et validation
 

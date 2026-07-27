@@ -1756,3 +1756,75 @@ export const automationPauses = seostats.table(
 		index('idx_automation_pauses_created').on(table.createdAt)
 	]
 );
+
+// ── REP-003 — Le rapport du lundi, PUBLIÉ (SPEC §14.1 + SLO §17.3) ──
+//
+// REP-001 sait CONSTRUIRE le rapport ; rien ne le gardait. « Il reste accessible après
+// restart » ne se dérive de rien : sur Vercel aucun processus ne survit à la requête, et
+// le JSON reconstruit une heure plus tard n'est pas le même objet (les findings ont bougé).
+// D'où une table, et une seule ligne par créneau.
+//
+// ⚠️ **AUCUN `project_id`, et c'est le point de forme du lot.** C'est la première table de
+// ce schéma qui ne porte pas de projet, parce que le rapport hebdo est CROSS-PROJET : un
+// seul objet couvre les 9 projets (`loadHomeCockpit`). Lui coller un `project_id` aurait
+// forcé 9 lignes portant 9 fois le même JSON, et « un seul rapport logique existe par
+// semaine » ne serait plus tenu par une contrainte mais par une convention. C'est aussi
+// pourquoi la publication ne passe PAS par la file de jobs : `jobs.project_id` et
+// `monitoring_runs.project_id` sont NOT NULL, donc un `report:weekly` enfilé par le
+// scheduler aurait produit 9 tentatives d'écrire le même rapport, dont 8 sans effet — et
+// un no-op indistinguable d'un incident. Le tick appelle donc `publishWeeklyReport`
+// directement, après son drain.
+//
+// `period_slot` est le CRÉNEAU LOCAL (`2026-07-27T09:00`, Europe/Zurich), jamais un
+// instant : même clé que les runs et les jobs du scheduler (JOB-005), pour la même raison
+// (le lundi 09:00 métier est stable des deux côtés du changement d'heure). Il porte
+// l'unique — c'est LITTÉRALEMENT l'acceptation « un seul rapport logique par semaine ».
+//
+// Trois horodatages, trois faits distincts, et le SLO n'en est pas un :
+//   - `slot_at`      : l'instant du créneau (09:00 local) — la référence du contenu ;
+//   - `due_at`       : l'échéance (10:00 local par défaut, réglable sans redéploiement) ;
+//   - `published_at` : quand la ligne a été écrite.
+// « Le SLO avant 10:00 est mesuré » se DÉRIVE (`published_at <= due_at`), comme
+// « honorée » d'IDX-004 et l'expiration d'un snooze : un booléen persisté serait un second
+// état à tenir à jour, qui divergerait dès que l'échéance changerait.
+//
+// AUCUN `UPDATE` : republier un créneau déjà publié est un NO-OP (`onConflictDoNothing`),
+// jamais un écrasement. C'est la graine de REP-004 (« régénérer un rapport ne remplace pas
+// silencieusement l'original ») — la révision y ajoutera des lignes, pas des écritures en
+// place. Conséquence assumée : un rapport publié `partial` à l'échéance ne devient jamais
+// `complete`, même si la collecte finit à 10:30.
+export const weeklyReports = seostats.table(
+	'weekly_reports',
+	{
+		id: text('id').primaryKey(),
+		/** Créneau LOCAL `YYYY-MM-DDTHH:MM` (Europe/Zurich) — porte l'unique. */
+		periodSlot: text('period_slot').notNull(),
+		/** `complete` | `partial` (`PUBLICATION_STATUSES`) — jamais dérivé d'un provider isolé. */
+		status: text('status').notNull(),
+		/** Version du schéma de PUBLICATION (cette table). */
+		schemaVersion: integer('schema_version').notNull().default(1),
+		/** Version du schéma du RAPPORT (`REPORT_SCHEMA_VERSION`) porté par `payload_json`. */
+		reportSchemaVersion: integer('report_schema_version').notNull(),
+		/** Instant du créneau (UTC, format DB) : la référence de la période du rapport. */
+		slotAt: text('slot_at').notNull(),
+		/** Échéance de publication (UTC) : `slot_at` + `report.publish_deadline_minutes`. */
+		dueAt: text('due_at').notNull(),
+		/** Écriture réelle de la ligne. Avec `due_at`, c'est TOUTE la mesure du SLO. */
+		publishedAt: text('published_at').notNull(),
+		/**
+		 * L'état des runs du créneau au moment de publier : attendus, prêts, dégradés,
+		 * bloquants, projets écartés pour pause. C'est la matière de « notifier disponibilité
+		 * et incidents » (TEL-002 n'a plus qu'à la rendre) et la seule trace de POURQUOI le
+		 * statut vaut `partial`.
+		 */
+		readinessJson: text('readiness_json').notNull(),
+		/** Le rapport REP-001, tel quel. Le texte est une projection, jamais stockée. */
+		payloadJson: text('payload_json').notNull(),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('weekly_reports_period_unique').on(table.periodSlot),
+		// « Les derniers rapports » : la lecture de REP-004 et de l'onglet Rapports.
+		index('idx_weekly_reports_published').on(table.publishedAt)
+	]
+);

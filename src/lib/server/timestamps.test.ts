@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toDbTimestamp, toDbTimestampPlus } from './timestamps.js';
+import { dbTimestampToMs, toDbTimestamp, toDbTimestampPlus } from './timestamps.js';
 
 describe('toDbTimestamp (format des defaults SQL)', () => {
 	it('produit exactement `YYYY-MM-DD HH:MM:SS` en UTC', () => {
@@ -48,5 +48,33 @@ describe('toDbTimestampPlus (backoff, bail)', () => {
 
 	it('rejette une base invalide', () => {
 		expect(() => toDbTimestampPlus(1000, 'nope')).toThrow(/invalide/);
+	});
+});
+
+describe('dbTimestampToMs (REP-003 — durées sur des valeurs relues)', () => {
+	it('est l’inverse exact de toDbTimestamp', () => {
+		const ms = Date.parse('2026-07-27T07:00:00Z');
+		expect(dbTimestampToMs(toDbTimestamp(new Date(ms)))).toBe(ms);
+	});
+
+	it('⭐ lit la valeur en UTC, pas en heure locale', () => {
+		// Le `Z` explicite est tout le sujet : sans lui, ECMA-262 parse en heure LOCALE, donc
+		// à Zurich la même chaîne rendrait un instant décalé d'une à deux heures selon la
+		// saison — l'ordre de grandeur exact du SLO d'une heure de REP-003.
+		expect(dbTimestampToMs('2026-07-27 07:00:00')).toBe(Date.parse('2026-07-27T07:00:00Z'));
+		expect(dbTimestampToMs('2026-01-19 08:00:00')).toBe(Date.parse('2026-01-19T08:00:00Z'));
+	});
+
+	it('une différence de 60 minutes reste 60 minutes des deux côtés du DST', () => {
+		const summer =
+			dbTimestampToMs('2026-07-27 08:00:00') - dbTimestampToMs('2026-07-27 07:00:00');
+		const winter =
+			dbTimestampToMs('2026-01-19 09:00:00') - dbTimestampToMs('2026-01-19 08:00:00');
+		expect(summer).toBe(3_600_000);
+		expect(winter).toBe(3_600_000);
+	});
+
+	it('rend NaN sur une valeur illisible (jamais une date inventée)', () => {
+		expect(Number.isNaN(dbTimestampToMs('pas une date'))).toBe(true);
 	});
 });

@@ -2,18 +2,23 @@ import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db/index.js';
 import { planDueJobs } from '$lib/server/scheduler.js';
+import { publishWeeklyReport } from '$lib/server/report-publication.js';
 import { runWorker } from '$lib/server/job-runner.js';
 import { deriveWorkerId } from '$lib/server/job-state.js';
 import { log } from '$lib/server/log.js';
 import type { RequestHandler } from './$types';
 
 /**
- * JOB-005 — Le battement du cockpit : planifier, puis drainer.
+ * JOB-005 — Le battement du cockpit : planifier, drainer, puis publier.
  *
- * Cron horaire (`0 * * * *`, UTC). Deux gestes dans la même invocation, et dans cet
+ * Cron horaire (`0 * * * *`, UTC). Trois gestes dans la même invocation, et dans cet
  * ordre : (1) mettre en file les occurrences dues en heure métier `Europe/Zurich`,
  * (2) exécuter ce qui est réclamable — y compris ce qu'un humain a relancé depuis
- * `/jobs`, ce qu'un backoff a reporté, et ce qu'un worker mort a laissé en plan.
+ * `/jobs`, ce qu'un backoff a reporté, et ce qu'un worker mort a laissé en plan,
+ * (3) REP-003 — publier le rapport du créneau hebdo si ses steps sont conclus (ou si
+ * son échéance est passée). Le troisième vient APRÈS le drain, jamais avant : publier
+ * avant d'avoir exécuté ce que ce tick pouvait exécuter reviendrait à mesurer la
+ * semaine une heure plus tôt que nécessaire, et à annoncer `partial` par construction.
  *
  * Pourquoi les deux ensemble : sur Vercel aucun processus ne survit à une requête.
  * Un scheduler seul remplirait une file que personne ne viendrait vider — c'est
@@ -41,6 +46,17 @@ const DRAIN_BUDGET_MS = 240_000;
 
 /** Jobs traités au plus par tick. Le reste attend le tick suivant, dans l'ordre de priorité. */
 const MAX_JOBS_PER_TICK = 25;
+
+/**
+ * REP-003 — Au-delà de ce temps écoulé dans le tick, on ne TENTE pas la publication.
+ *
+ * Construire le rapport coûte une douzaine de requêtes ; les lancer alors qu'il reste dix
+ * secondes de fonction ferait tuer l'invocation en plein vol par la plateforme — un `SIGKILL`
+ * ne repasse par aucun `finally` et ne journalise rien. Renoncer explicitement laisse une
+ * trace (`skipped_no_budget`) et coûte une heure : le créneau sera repris au tick suivant, et
+ * son retard sera MESURÉ par le SLO au lieu d'être invisible.
+ */
+const PUBLISH_BUDGET_GUARD_MS = 250_000;
 
 const logger = log('cron:tick');
 
@@ -91,8 +107,33 @@ export const GET: RequestHandler = async ({ request }) => {
 		clearTimeout(budget);
 	}
 
+	// 3. Publier le rapport du lundi. Isolée comme les deux autres moitiés : une publication
+	// qui échoue ne doit ni annuler la planification, ni faire perdre le drain — et elle sera
+	// retentée au tick suivant (l'idempotence est portée par `period_slot`).
+	let publication;
+	let publishError: string | null = null;
+	const elapsedMs = Date.now() - startedAt;
+	if (elapsedMs > PUBLISH_BUDGET_GUARD_MS) {
+		// Renoncer n'est PAS une erreur : le tick reste valide (200), et le créneau sera repris
+		// au battement suivant — avec son retard mesuré par le SLO.
+		publication = { action: 'skipped_no_budget' as const, elapsedMs };
+		logger.warn('publication non tentée (budget de fonction déjà consommé)', { elapsedMs });
+	} else {
+		try {
+			// `now` n'est PAS passé : `published_at` doit dire quand la ligne a été écrite, pas
+			// quand le tick a démarré. Un drain de quatre minutes ne s'attribue pas une
+			// ponctualité qu'il n'a pas eue — c'est la mesure du SLO §17.3 qui en dépend.
+			publication = await publishWeeklyReport({ db });
+		} catch (err) {
+			publishError = err instanceof Error ? err.message : String(err);
+			logger.error('publication du rapport échouée (tick par ailleurs valide)', {
+				error: publishError
+			});
+		}
+	}
+
 	const body = {
-		ok: !planError && !drainError,
+		ok: !planError && !drainError && !publishError,
 		durationMs: Date.now() - startedAt,
 		schedule: plan
 			? {
@@ -138,7 +179,27 @@ export const GET: RequestHandler = async ({ request }) => {
 					quotaPushed: stats.quotaPushed,
 					laps: stats.laps
 				}
-			: { error: drainError }
+			: { error: drainError },
+		// REP-003 — le rapport du lundi. `action` dit toujours ce qui s'est passé : publié,
+		// déjà publié, en attente (avec ses bloquants), ou non tenté faute de budget. Un
+		// silence ici serait indistinguable d'une publication réussie.
+		report: publication
+			? 'action' in publication && publication.action === 'skipped_no_budget'
+				? publication
+				: {
+						action: publication.action,
+						reason: publication.reason,
+						slot: publication.periodSlot,
+						status: publication.status,
+						// Le SLO, dérivé : il ne devient lisible que si quelqu'un le regarde.
+						sloMet: publication.slo?.met ?? null,
+						lateMinutes: publication.slo ? Math.round(publication.slo.lateMs / 60000) : null,
+						// Ce qui retient la publication, nommé — jamais une attente muette.
+						blockers: publication.readiness?.blockers ?? [],
+						incidents: publication.readiness?.incidents.length ?? null,
+						paused: publication.readiness?.paused ?? []
+					}
+			: { error: publishError }
 	};
 
 	logger.info('tick terminé', {
@@ -148,7 +209,9 @@ export const GET: RequestHandler = async ({ request }) => {
 		occurrences: plan?.counters.occurrences ?? 0,
 		jobsCreated: plan?.counters.jobsCreated ?? 0,
 		claimed: stats?.claimed ?? 0,
-		succeeded: stats?.succeeded ?? 0
+		succeeded: stats?.succeeded ?? 0,
+		report: publication?.action ?? 'error',
+		reportSlot: publication?.periodSlot ?? null
 	});
 
 	// 500 si l'une des deux moitiés est tombée : un cron qui répond 200 en toute

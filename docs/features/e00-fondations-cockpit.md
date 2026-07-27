@@ -4,6 +4,97 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (REP-003 — le rapport du lundi existe pour de bon)
+
+**Fait :** REP-003, la publication du rapport hebdomadaire. REP-001 savait **construire** le
+rapport ; rien ne le gardait, rien ne le déclenchait, et « il reste accessible après restart »
+ne se dérive de rien (sur Vercel aucun processus ne survit à la requête, et reconstruire le
+JSON une heure plus tard ne rend pas le même objet). **Dernière case P0 de la gate M2** —
+qui est désormais cochée sauf les trois détecteurs FIND-006/007/008. **Un seul DDL**
+(`weekly_reports`, 61 tables), **zéro appel provider**, **zéro modification** de REP-001.
+
+- **⭐ LE point du lot : la publication n'est PAS un job de la file, et c'est structurel.**
+  Le réflexe était `report:weekly` au catalogue hebdo, dépendant des détecteurs (JOB-004).
+  Deux obstacles : `jobs.project_id` et `monitoring_runs.project_id` sont **NOT NULL** alors
+  que le rapport est **cross-projet** — neuf jobs auraient tenté d'écrire le même rapport,
+  huit sans effet, et un no-op est indistinguable d'un incident dans une console de file ; et
+  les arêtes de JOB-004 sont **intra-occurrence** (même projet, même run), donc incapables
+  d'exprimer « attendre les steps des neuf projets ». D'où une table **sans `project_id`**
+  (la première du schéma), une attente cross-projet bornée, et un appel du tick **après** son
+  drain. L'unique sur `period_slot` — le **créneau LOCAL**, la même clé que JOB-005 — porte
+  littéralement « un seul rapport logique existe par semaine » : prouvé par deux publications
+  **concurrentes** qui laissent une ligne, la seconde rendant `already_published`.
+- **⭐ Le contenu est une fonction du CRÉNEAU, la ligne date de l'ÉCRITURE.**
+  `loadWeeklyReport` reçoit `now = slot`, donc la période couverte est la même que la
+  publication tombe à 09:05 ou, après une panne de cron, le mercredi — sans quoi deux
+  publications du même lundi porteraient deux périodes différentes et REP-004 comparerait des
+  semaines qui ne se recouvrent pas. En regard, `published_at` est l'heure **réelle** de
+  l'écriture : le tick ne passe pas son `now` de départ, parce qu'un drain de quatre minutes
+  ne doit pas s'attribuer une ponctualité qu'il n'a pas eue — et c'est cette valeur que le SLO
+  mesure. Prouvé en base : `period.untilDb === slot_at`, `published_at` une heure plus tard.
+- **⭐ Le SLO se dérive, il ne se stocke pas.** `published_at <= due_at`, calculé à chaque
+  lecture, **aucune colonne de verdict** (l'ensemble des 11 colonnes est épinglé par la
+  preuve). Même discipline qu'« honorée » (IDX-004) et que l'expiration d'un snooze
+  (FIND-003) : un `slo_met` persisté serait faux le jour où l'échéance change — et l'échéance
+  est justement réglable sans redéploiement (`system_settings` → `report.publish_deadline_minutes`,
+  défaut 60 min = 10:00 local, SPEC §17.3). Un rattrapage à J+2 publie quand même, et son
+  retard est **chiffré** (47 h) au lieu d'être invisible.
+- **⭐ `complete` exige un périmètre attendu NON VIDE, et une pause en sort le projet.**
+  Un projet dont la cadence hebdo est suspendue n'avait aucun run planifié : l'attendre serait
+  attendre ce que personne n'a demandé, et le compter comme manque rendrait `partial`
+  permanent dès qu'un client est gelé — le statut perdrait sa valeur discriminante. Il sort
+  donc du dénominateur en restant **nommé**, jamais mêlé aux incidents (prouvé : 9 → 8
+  attendus, `barberconcept` dans `paused`, absent des bloquants). Corollaire indispensable :
+  sans `expected > 0`, un parc entièrement suspendu s'annoncerait `complete` sur zéro projet
+  examiné — la faute DASH-002 portée au statut de publication.
+- **L'attente est bornée, et un run existant l'emporte sur une pause posée depuis.** Même
+  créneau, deux instants : `wait/awaiting_steps` à +30 min, `publish/partial/deadline_reached`
+  à +61 min. La préparation est **dérivée des runs du créneau** (`period_end`, pas « le dernier
+  run hebdo » — prouvé : le run posé sur un créneau n'existe pas pour le voisin), et la pause
+  passe par **`resolveCadencePause`**, la même autorité que le scheduler.
+
+**Vérifs :** 1214 tests (**+48** sur `report-publication-state`, **+4** sur `timestamps`) ·
+`npm run check` 0 erreur / 42 warnings (baseline) · `scripts/rep-003-publication-proof.ts`
+**43/43 sur Neon**, base rendue à l'identique (rapports 0→0, runs 11→11, pauses 2→2, 61
+tables) · non-régression `rep-001-report`, `job-005-schedule`, `find-005-decline`,
+`dash-002-home`, `dash-006-automations`, `idx-005-transition` — **0 échec chacune**.
+
+**Prochain :** **REP-004** (historique et comparaison — le JSON versionné a maintenant des
+lignes à comparer, et c'est là que la révision d'un rapport `partial` devient possible) ou
+**FIND-006** (nouvelles et perdues, dernier bloc de détecteurs de la gate M2).
+
+**Pièges :**
+- **⚠️ Un rapport publié `partial` ne devient JAMAIS `complete`.** Republier est un **no-op**
+  (`onConflictDoNothing`), jamais un écrasement : si la collecte finit à 10:30, le rapport de
+  10:00 reste tel quel. C'est voulu (graine de REP-004, « régénérer ne remplace pas
+  silencieusement l'original ») — la révision **ajoutera** des lignes.
+- **⚠️ Au premier tick après merge, le rapport de la semaine courante partira `partial` avec
+  les 9 projets `missing`.** Vérifié à l'instant en dry-run : le créneau `2026-07-27T09:00`
+  est déjà passé, son échéance aussi, et **aucun run hebdo n'existe** (le cockpit n'a jamais
+  tourné). Ce n'est pas un bug, c'est la mesure exacte de la situation — mais le premier
+  rapport publié sera un constat d'absence, pas un bulletin de santé.
+- **⚠️ Le SLO de 10:00 est structurellement à risque : 9 projets × 6 entrées au catalogue = 54
+  jobs, pour `MAX_JOBS_PER_TICK = 25`.** Un seul tick ne peut pas conclure le run hebdo du
+  parc, donc à 10:00 des steps seront encore en vol et le rapport partira `partial`. Les deux
+  leviers sont le plafond par tick et `report.publish_deadline_minutes` — mais le bon réflexe
+  est de **lire la mesure avant de la déplacer**.
+- **⚠️ L'annonce est produite, pas envoyée.** TEL-001 (bot + webhook) est BLOCKED :
+  `renderPublicationAnnouncement` rend la disponibilité et les incidents, le tick les
+  journalise, `readiness_json` les persiste — le tuyau est TEL-002. Brancher un email de
+  secours aurait créé un second chemin de notification que TEL-002 devrait dédupliquer.
+- **⚠️ Aucun écran ne lit `weekly_reports`.** L'accès se fait par
+  `npx tsx scripts/rep-003-publish.ts --list | --show [créneau] | --dry-run`. L'onglet
+  Rapports est DASH-003 lot 2 chantier 3.
+- **⚠️ Le créneau de publication utilise `SCHEDULE_DEFAULTS.weekly`, jamais un override
+  projet.** Un projet qui décale sa cadence décale ses runs, pas le lundi du rapport — sinon
+  neuf projets définiraient neuf créneaux pour un seul rapport.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
+
+**Commit :** _(à venir)_
+
+---
+
 ## Etat session 2026-07-27 (REP-001 — le cockpit sait enfin dire ce qu'il ne sait pas)
 
 **Fait :** REP-001, le modèle de rapport hebdomadaire déterministe. **E07 était à zéro ligne**
