@@ -89,7 +89,7 @@ chantier 3.
   cockpit n'est toujours pas déployé** · **le rendu n'a jamais été vu à l'œil** · la PROD écrit
   dans `gsc_query_page_observations` (aucune assertion de ce lot n'y porte sur un total projet).
 
-**Commit :** `(à figer)`
+**Commit :** `0854621` [hub] add: le cockpit sait enfin voir une baisse (FIND-005)
 
 ---
 
