@@ -85,7 +85,7 @@ un onglet à créer mais un **portage de `/positions` sur le canon** (cf. piège
   cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil** (pas de session
   admin) — et celui-ci est le premier dont toute la valeur est dans le rendu.
 
-**Commit :** *(à faire)*
+**Commit :** `8cd0113` [hub] add: weekly_reports cesse d’être écrite pour personne (DASH-003 lot 2, chantier 3)
 
 ---
 

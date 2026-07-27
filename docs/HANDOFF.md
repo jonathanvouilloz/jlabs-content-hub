@@ -46,4 +46,4 @@ dont toute la valeur est dans le rendu.
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
 `gsc_query_page_observations` est racée.
 
-Commit : *(en cours)* · précédent `351803d` (E00) · prod : `e5efc83` sur `main`
+Commit : `8cd0113` (E00) · précédent `351803d` · prod : `e5efc83` sur `main`
