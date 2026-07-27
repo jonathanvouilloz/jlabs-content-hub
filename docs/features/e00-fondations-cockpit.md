@@ -91,7 +91,7 @@ l'identique (rapports 0→0, **61 tables**) · non-régression `rep-003-publicat
 - Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
   cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
 
-**Commit :** (à venir)
+**Commit :** `1d4a6b4` [hub] add: un rapport publie cesse d'etre un cul-de-sac (REP-004 lot 1)
 
 ---
 

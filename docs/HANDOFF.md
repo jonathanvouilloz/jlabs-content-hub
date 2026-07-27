@@ -59,4 +59,4 @@ déclarées, 61 en base).
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
 `gsc_query_page_observations` est racée.
 
-Commit : (REP-004 lot 1, à venir) · précédent `8cd0113` · prod : `e5efc83` sur `main`
+Commit : `1d4a6b4` (E00) · précédent `8cd0113` · prod : `e5efc83` sur `main`
