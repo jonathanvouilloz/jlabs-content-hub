@@ -293,8 +293,47 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   REP-004 archive). ⚠️ **Deux sections sur douze sont absentes aujourd'hui, et c'est correct** :
   `index_observations` est à 0 ligne, aucun projet ne déclare `plausible`. ⚠️ Une **réouverture**
   n'apparaît dans aucune section (`ACTIVITY_EVENTS` hérité de DASH-002) — à rattraper par REP-004.
-  Prochain : **REP-003** (publication du rapport du lundi, dernière case P0 de la gate M2) ou
-  **REP-004** (historique), sinon **FIND-006** (nouvelles/perdues).
+  Puis **REP-003 — la publication du rapport du lundi**, dernière case P0 de la gate M2. Le
+  rapport savait se construire ; rien ne le gardait ni ne le déclenchait, et « accessible après
+  restart » ne se dérive de rien (sur Vercel aucun processus ne survit à la requête, et
+  reconstruire le JSON une heure plus tard ne rend pas le même objet).
+  ⭐ **La publication n'est PAS un job de la file, et c'est structurel** : `jobs.project_id` et
+  `monitoring_runs.project_id` sont **NOT NULL** alors que le rapport est **cross-projet** — neuf
+  jobs auraient tenté d'écrire le même rapport, huit sans effet, et un no-op est indistinguable
+  d'un incident dans une console de file ; et les arêtes de JOB-004 sont **intra-occurrence**,
+  donc incapables d'exprimer « attendre les steps des neuf projets ». D'où une table **sans
+  `project_id`** (`weekly_reports`, la première du schéma), une attente cross-projet bornée, et un
+  appel du tick **après** son drain. L'unique sur le **créneau LOCAL** (même clé que JOB-005) porte
+  littéralement « un seul rapport logique par semaine » — prouvé sur deux publications
+  **concurrentes** qui laissent une ligne, la seconde rendant `already_published`.
+  ⭐ **Le contenu est une fonction du CRÉNEAU** (`now = slot`), **la ligne date de l'ÉCRITURE** :
+  sinon deux publications du même lundi (retard, rattrapage) porteraient deux périodes
+  différentes, et REP-004 comparerait des semaines qui ne se recouvrent pas. `published_at` est
+  l'heure réelle de l'écriture — un drain de quatre minutes ne s'attribue pas une ponctualité
+  qu'il n'a pas eue.
+  ⭐ **Le SLO se dérive** (`published_at <= due_at`), **aucune colonne de verdict** (les 11
+  colonnes sont épinglées par la preuve) : un `slo_met` persisté serait faux le jour où l'échéance
+  change — et elle est réglable sans redéploiement (`report.publish_deadline_minutes`, défaut
+  60 min = 10:00 local, SLO §17.3).
+  ⭐ **`complete` exige un périmètre attendu NON VIDE**, et une **pause** sort le projet du
+  dénominateur en restant **nommée** : sans la première règle, un parc entièrement suspendu
+  s'annoncerait complet sur zéro projet examiné (faute DASH-002 portée au statut) ; sans la
+  seconde, un client gelé trois mois rendrait `partial` éternel et viderait le statut de sa valeur
+  discriminante. Un run **existant** l'emporte en revanche sur une pause posée depuis : une
+  décision de mercredi ne rétroactive pas le lundi.
+  Un seul DDL (**61 tables**) · zéro appel provider · zéro modification de REP-001 · test
+  **1214/1214** (+52) · preuve **43/43** sur Neon.
+  ⚠️ **Un rapport publié `partial` ne devient jamais `complete`** : republier est un **no-op**,
+  jamais un écrasement (graine de REP-004, « régénérer ne remplace pas silencieusement
+  l'original »). ⚠️ **Au premier tick après merge, le rapport de la semaine partira `partial` avec
+  les 9 projets `missing`** (créneau et échéance déjà passés, aucun run hebdo n'a jamais tourné) :
+  un constat d'absence, exact et non réécrit ensuite. ⚠️ **Le SLO de 10:00 est structurellement à
+  risque** : 54 jobs hebdo pour `MAX_JOBS_PER_TICK = 25`. ⚠️ **L'annonce est produite et
+  journalisée, pas envoyée** (TEL-001 BLOCKED ; l'envoi est TEL-002 — brancher un email de secours
+  aurait créé un second chemin à dédupliquer). ⚠️ **Aucun écran ne lit `weekly_reports`**
+  (`scripts/rep-003-publish.ts --list|--show|--dry-run` ; l'onglet Rapports est DASH-003).
+  Prochain : **REP-004** (historique et comparaison — le JSON versionné a enfin des lignes à
+  comparer) ou **FIND-006** (nouvelles/perdues, dernier bloc de détecteurs de la gate M2).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
