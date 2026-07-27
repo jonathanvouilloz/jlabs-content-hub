@@ -332,8 +332,49 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   journalisée, pas envoyée** (TEL-001 BLOCKED ; l'envoi est TEL-002 — brancher un email de secours
   aurait créé un second chemin à dédupliquer). ⚠️ **Aucun écran ne lit `weekly_reports`**
   (`scripts/rep-003-publish.ts --list|--show|--dry-run` ; l'onglet Rapports est DASH-003).
-  Prochain : **REP-004** (historique et comparaison — le JSON versionné a enfin des lignes à
-  comparer) ou **FIND-006** (nouvelles/perdues, dernier bloc de détecteurs de la gate M2).
+  Puis **FIND-006 — nouvelles, perdues et émergentes**. FIND-005 comptait les disparitions
+  (`vanished`, 107 sur `lecureux`) sans pouvoir les traiter : une requête apparue ou disparue ne
+  produisait rien. Le portefeuille a désormais ses entrées et ses sorties.
+  ⭐ **Le regroupement de variantes n'est pas un confort d'affichage : il empêche deux faux
+  signaux SYMÉTRIQUES.** Google réordonne et réécrit les requêtes ; sans regroupement,
+  « genève coiffeur » apparaîtrait comme une **découverte** le jour même où « coiffeur genève »
+  devient une **perte** — deux findings, deux fois faux, pour un événement qui n'a pas eu lieu.
+  D'où la règle des deux côtés : un groupe n'est `new` que si **TOUS** ses membres sont neufs,
+  `lost` que si **TOUS** ont disparu. Mesuré en base : **581 évités sur le seul `barberconcept`**
+  (414 + 167). La normalisation est volontairement **pauvre** (accents, casse, ponctuation, ordre
+  des mots — ni stemming ni synonymie) parce qu'une fusion abusive **fabrique** un signal, alors
+  qu'un groupe manqué ne fait que du bruit ; et elle ne s'affiche **jamais** : titre = terme brut
+  dominant, preuves = chaque terme avec sa durée de vie, clé publiée et **rejouable**.
+  ⭐ **« Nouvelle » se juge sur TOUT l'historique**, jamais sur la fenêtre précédente : une requête
+  vue il y a six mois et revenue est un **retour**, pas une découverte (**264** sur
+  `barberconcept`). L'agrégat `firstSeen`/`lastSeen` par requête qui tranche est le même qui porte
+  la **première/dernière apparition** exigée par l'acceptation.
+  ⭐ **La portée (`scope`) n'existe que du côté des pertes, et c'est structurel** : leur fenêtre de
+  référence **glisse d'une semaine à chaque run**, donc plus rien ne mesure ce que la requête
+  pesait — alors qu'elle est toujours absente. Sortir son fingerprint de la closure l'auto-
+  résoudrait : « je ne peux plus mesurer sa perte » se lirait « elle est revenue ». Le finding
+  devenu immesurable reste **strictement intact** (`consecutive_misses` compris) ; seul un
+  **retour effectif** le fait compter puis résoudre. C'est la doctrine IDX-005 appliquée à un
+  glissement de fenêtre.
+  ⭐ **Une perte dont la page n'est plus indexable appartient à `index_drop`** (confirmation
+  SPEC §10.4, et garde anti-doublon avec IDX-005) — mais seul un `not_indexed`/`excluded`
+  **explicite** supprime : `unknown` (le cas de tout le parc, 0 inspection) ne bloque rien, il
+  baisse la confiance et change le skill recommandé (`seo-index-diagnose` tant que l'indexation
+  n'est pas vérifiée, `seo-refresh` une fois la page connue indexée).
+  **UN job pour DEUX types** (`detect:query_turnover`), parce que chacun est la garde de l'autre —
+  donc **deux closures**. Zéro DDL (**61 tables**) · zéro appel provider · catalogue hebdo à
+  **7 entrées** · tests **1264/1264** (+50) · preuve **40/40** sur Neon.
+  ⚠️ **`LOST = 0` sur les 9 projets aujourd'hui** : 937 disparitions comptées et écartées sur
+  `barberconcept`, 82 sur `lecureux` — le parc ne perd que de la longue traîne, et ce n'est pas
+  une inertie. ⚠️ **Une découverte non traitée s'AUTO-RÉSOUT** au bout de la fenêtre de 4 semaines
+  (la nouveauté est périssable ; personne n'est prévenu). ⚠️ **Premier tick : `barberconcept`
+  écrit 50 `new_query` de plus** (221 franchissent le gate, plafond 50) → jusqu'à **150 findings**
+  pour un projet frais. ⚠️ **Le SLO de 10:00 s'éloigne : 63 jobs hebdo** pour
+  `MAX_JOBS_PER_TICK = 25`. ⚠️ **Les 9 projets repassent de `full` à `partial`** en couverture de
+  diagnostic (détecteur neuf), résorbé au premier tick. ⚠️ **AGT-000 n'en fait aucune
+  proposition** : une découverte se qualifie et une perte se diagnostique avant de se corriger.
+  Prochain : **FIND-008** (cannibalisation persistante, **P0**, dernière case de la gate M2 avec
+  FIND-007) ou **REP-004** (historique et comparaison).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
