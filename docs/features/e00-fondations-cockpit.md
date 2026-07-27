@@ -4,6 +4,86 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (REP-001 — le cockpit sait enfin dire ce qu'il ne sait pas)
+
+**Fait :** REP-001, le modèle de rapport hebdomadaire déterministe. **E07 était à zéro ligne**
+alors que quatre tickets P0 l'attendaient (REP-002/003/004, TEL-002, AGT-004/005B) **et**
+l'onglet Rapports de DASH-003 lot 2 chantier 3. **Zéro DDL** (60 tables), **zéro appel
+provider**, **zéro persistance** (le stockage est REP-004, la publication REP-003).
+
+- **⭐ LE point du lot : il n'existe AUCUN endroit où loger un `0` pour un provider non
+  branché.** L'acceptation dit « un provider optionnel absent apparaît comme absent, pas comme
+  zéro » ; la tenir par convention aurait suffi jusqu'au premier oubli. `Availability<T>` est
+  une union discriminée : une section absente **n'a pas de `SectionBody`**, donc pas de tableau
+  de métriques, donc pas de case où un zéro pourrait s'écrire. Trois absences distinctes, parce
+  qu'elles demandent trois gestes différents : `not_wired` (brancher), `never_collected`
+  (attendre ou réparer), `not_examined` (lancer le diagnostic). Prouvé en base : **0**
+  intégration `plausible` déclarée, section trafic absente, JSON sans `"value":0`, et **le texte
+  rendu de la section ne contient pas un seul chiffre**.
+- **⭐ Le gate d'examen passe AVANT le comptage.** C'est la règle DASH-002 (« jamais regardé ≠
+  rien à signaler ») portée jusqu'au rapport : sur un parc dont aucun détecteur n'a jamais
+  tourné, les sections de findings se déclarent `not_examined` — **même si des findings sont
+  passés en entrée** (test dédié : 3 findings, section quand même absente). Un rapport qui
+  annoncerait « 0 nouveau finding » sur une page blanche serait le plus dangereux des rapports :
+  rassurant et faux.
+- **⭐ Le rendu texte n'a d'autre paramètre que le rapport.** « Un rapport peut être généré sans
+  LLM » devient structurel plutôt que déclaratif : `renderWeeklyReportText(report)` n'a accès ni
+  à la base, ni à l'heure, ni à un modèle — il ne peut donc rien ajouter que le JSON ne porte.
+  Le JSON est **versionné** (`schemaVersion`) parce qu'il aura trois consommateurs qui
+  n'évolueront pas ensemble (archive REP-004, agent REP-002, client REP-005).
+- **⭐ Le compteur d'une section vient d'un `count(*)`, jamais de la longueur du tableau lu.**
+  200 findings en base, 200 lus au plus, 15 affichés : la métrique dit **200** et la troncature
+  dit **185**. Dériver le total des lignes lues ferait d'un plafond de lecture un **fait** — le
+  rapport annoncerait une semaine calme parce qu'il a mal lu.
+- **Le rapport ne recalcule rien.** Portefeuille, cartes, ordre d'urgence et compteurs
+  (**liens compris**) viennent de `loadHomeCockpit`, comparés en base champ par champ : le
+  rapport du lundi ne peut pas contredire l'accueil qu'il résume. Les deux lecteurs groupés neufs
+  (`countIndexClassesByProject`, `countDueSelectionsByProject`) sont prouvés **égaux aux
+  autorités per-projet** sur les 9 projets — et le prédicat « honorée » est **littéralement
+  partagé** (`honoredSubquery`), jamais recopié.
+
+**Vérifs :** 1162 tests (**+60** sur `weekly-report-state`) · `npm run check` 0 erreur /
+42 warnings (baseline) · `scripts/rep-001-report-proof.ts` **33/33 sur Neon**, base rendue à
+l'identique (findings 13→13, événements 17→17, projets 9→9, 60 tables) · non-régression
+`idx-004-selection`, `idx-004-lot2`, `dash-003-indexing`, `dash-005-inbox`, `agt-000-proposer`,
+`dash-002-home`, `dash-003-project`, `find-005-decline`, `dash-003-pause-health`,
+`dash-006-automations` — **0 échec chacune**.
+
+**Prochain :** **REP-003** (publication du rapport du lundi — dernière case P0 de la gate M2,
+maintenant débloquée) ou **REP-004** (historique et comparaison, qui donne au JSON versionné sa
+raison d'être). Sinon **FIND-006** (nouvelles et perdues), toujours ouvert.
+
+**Pièges :**
+- **⚠️ Le rapport n'est ni planifié, ni publié, ni stocké.** Aucun cron, aucune route, aucune
+  table. `loadWeeklyReport` s'appelle à la main (`npx tsx scripts/rep-001-preview.ts`). C'est le
+  périmètre exact du ticket — REP-003 publie, REP-004 archive.
+- **⚠️ Aujourd'hui, deux sections sur douze sont ABSENTES, et c'est correct.** `index_observations`
+  est toujours à 0 ligne (personne n'a lancé `collect:url_inspection`) et aucun projet ne déclare
+  `plausible`. Un lecteur pressé lira « il manque des données » ; la bonne lecture est « ces deux
+  domaines ne sont pas mesurés, et le rapport le dit au lieu de l'inventer ».
+- **⚠️ La section 2 liste les 9 projets du parc.** Aucun n'est `ok` depuis FIND-005 (couverture
+  de diagnostic `partial` ou `none`). Ce n'est pas le rapport qui exagère, c'est l'accueil qu'il
+  recopie — et ça se résorbera au premier tick hebdo, comme annoncé.
+- **⚠️ Une RÉOUVERTURE n'apparaît dans aucune section.** Les sections d'activité filtrent sur
+  `ACTIVITY_EVENTS` (`created`/`aggravated`/`improved`/`resolved`), hérité de DASH-002 : un
+  finding résolu qui récidive porte un `reopened`, donc il n'est ni « nouveau » ni « aggravé ».
+  À traiter quand REP-004 comparera deux semaines — c'est exactement le genre de mouvement qu'un
+  historique doit rattraper.
+- **⚠️ L'inspection à l'œil a trouvé ce que ni les tests ni la preuve ne voyaient.** Le rapport
+  est le premier livrable de ce parc qui se lit **entièrement sans écran** ; imprimé, il montrait
+  la même liste de 9 angles morts **répétée dans les 12 sections** (108 lignes qui noyaient tout).
+  Corrigé en portant la couverture **une fois** au niveau du rapport, le rendu ne gardant qu'un
+  rappel chiffré par section (`⚠ 9 angle(s) mort(s) du parc — détail en tête`) : **une projection
+  a le droit de compresser ce que le JSON répète, jamais de le taire**. Le JSON, lui, garde la
+  réserve dans chaque section — une section extraite seule doit rester lisible.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil** (le rapport,
+  lui, l'a été — c'est du texte).
+
+**Commit :** _(à figer)_
+
+---
+
 ## Etat session 2026-07-27 (FIND-005 — le cockpit sait enfin voir une baisse)
 
 **Fait :** FIND-005, le détecteur de baisses `keyword_decline`. Le parc avait **deux
@@ -3185,12 +3265,18 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (FIND-005 — détecteur de baisses)
+> Mise à jour : 2026-07-27 (REP-001 — rapport hebdomadaire déterministe)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/weekly-report-state.ts`** (+ `.test.ts`) *(REP-001)* | **Le modèle du rapport, pur.** ⭐ `Availability<T>` est une **union discriminée** : une section absente n'a **pas de `SectionBody`**, donc aucune case où un `0` pourrait s'écrire — « absent, pas zéro » cesse d'être une convention. Trois absences distinctes parce qu'elles demandent trois gestes : `not_wired` (brancher), `never_collected` (attendre/réparer), `not_examined` (diagnostiquer). `deriveAvailability` reprend la règle de `derivePanelState` (**`hasData` prime** sur l'absence d'intégration déclarée) sans le réutiliser : ce dernier répond à « ce panneau demande-t-il un geste ? » (d'où `stale`/`broken`), celui-ci à « cette section a-t-elle de quoi parler ? » — une collecte en retard **a** des faits à rapporter. ⭐ Le **gate d'examen passe avant le comptage** (`isNeverExamined`) : sur un parc jamais diagnostiqué, il n'existe aucun chemin qui écrive « 0 nouveau finding », même avec des findings en entrée. `ReportSource` est **obligatoire** sur `ReportItem` (acceptation §3 rendue non contournable) ; `rankItems` trie par rang puis **clé de source** (ordre TOTAL, sans quoi deux rapports du même instant différeraient) ; `capItems` compte la troncature contre le **total réel**, donc un plafond de LECTURE est dit lui aussi. `deriveBlindSpots` distingue `never_examined`, `partially_examined` et `paused` — et une pause **partielle** ne masque pas la couverture réelle (`pause.full`). ⭐ `renderWeeklyReportText(report)` n'a **d'autre paramètre que le rapport** : « générable sans LLM » devient structurel, le texte ne pouvant rien ajouter. **60 tests.** |
+| **`src/lib/server/weekly-report.ts`** *(REP-001)* | **La lecture, client injecté.** ⚠️ La santé vient de **`loadHomeCockpit` et de nulle part ailleurs** — portefeuille, cartes, ordre d'urgence et **compteurs avec leurs liens** sont repris tels quels : le rapport du lundi ne peut pas contredire l'accueil qu'il résume. Chaque section porte **son `count(*)` ET sa page lue** (`ReportSet`) : dériver le total de `rows.length` ferait d'un plafond de lecture un fait. Les sections d'activité passent par **le même filtre que les compteurs** (`FINDING_STATUSES` + `EXISTS` sur le journal depuis le même `since`) — restreindre aux statuts actifs écarterait les `resolved` que la section « résolus » compte. ⭐ **Aucune lecture de `plausible_page_observations`** : la table est vide et rien ne l'écrit, l'interroger pour en tirer des `0` serait la manière technique de mentir. On lit l'**état du branchement**, et le module pur en fait une absence nommée — le jour où E10 écrira, la section s'allumera seule. `summarizeIndexation` reste l'autorité du **taux** ; `dueNow` vient du compteur groupé, dont le prédicat « honorée » est **partagé**, pas recopié. |
+| **`src/lib/server/indexing-read.ts` → `countIndexClassesByProject`** *(REP-001)* | La répartition d'indexation pour **tous** les projets en un `DISTINCT ON (project_id, url)`, au lieu de neuf appels à `countIndexClasses`. ⚠️ **Pas une seconde autorité** : la classe sort de `classifyCoverage`, la **même** fonction, appliquée en mémoire — seule la clé de dédoublonnage change. Un `group by coverage_state` en SQL, lui, aurait divergé au premier libellé nouveau de Google. Égalité **prouvée en base** sur les 9 projets. |
+| **`src/lib/server/collectors/index-selection.ts` → `countDueSelectionsByProject`** *(REP-001)* | Les intentions dues, groupées par projet. Le `notExists(honored)` est extrait en **`honoredSubquery`** et partagé avec `loadDueSelections` : « honorée se dérive » reste écrit **une seule fois**. Le vocabulaire (`isSelectionReason`) est appliqué **en mémoire** comme dans l'original — le reproduire en SQL divergerait au premier motif ajouté. Égalité prouvée sur les 9 projets. |
+| `src/lib/server/proposals.ts` *(REP-001)* | `ListProposalsInput.createdSince` — le filtre vit avec les autres (`proposalFilters`), donc `listProposals` et `countProposals` décrivent le même ensemble. Il sépare **ce que le cockpit a proposé cette semaine** de **ce qui attend une décision aujourd'hui** : deux ensembles qui se recoupent sans se confondre. |
+| **`scripts/rep-001-report-proof.ts`** · `scripts/rep-001-preview.ts` | **Preuve sur Neon (33 vérifs), zéro réseau, base rendue à l'identique.** §A anti-divergence (portefeuille, cartes non-`ok` **dans le même ordre**, compteurs **liens compris**). §B les deux lecteurs groupés === les autorités per-projet. §C **chaque item pointe vers une ligne qui existe** (43 items vérifiés en base). §D le trafic absent **et** vérifié absent (0 intégration `plausible`, JSON sans `"value":0`, texte **sans un seul chiffre**). §E déterminisme octet pour octet. §F chaque compteur reproduit par une requête indépendante. §G contre-épreuve : un finding sentinelle fait +1 exactement, est **listé avec son lien**, et n'émeut pas la section « aggravés ». `rep-001-preview.ts` imprime le rapport — la seule inspection **visuelle** possible sur ce parc, et c'est elle qui a trouvé la répétition des angles morts. |
 | **`src/lib/server/detectors/keyword-decline-state.ts`** (+ `.test.ts`) *(FIND-005)* | **Le jugement pur du détecteur de baisses.** ⭐ `diffPairs` n'apparie que l'**intersection** des deux fenêtres : un couple disparu est indiscernable d'une semaine non collectée, le compter comme −100 % fabriquerait un finding depuis un trou (107 cas réels sur `lecureux`). `evaluateDecline` gate le volume sur la fenêtre **PRÉCÉDENTE** (on ne perd que ce qu'on avait ; gater sur la courante effacerait les pires baisses) et exige pour les clics le **pourcentage ET l'absolu** — sans quoi 3 clics tombés à 2 pèserait autant que 300 tombés à 200. ⭐ `combineSpans` fait de l'écart 4 sem./1 sem. le **niveau de confirmation** (`confirmed`/`sustained`/`emerging`) : la fenêtre récente compare **w0 à w1**, donc un palier bas et stable est `sustained`, pas `confirmed`. `groupByPage` ne regroupe que si **le total de la page** baisse, calculé sur **tous** ses couples appariés (`pagesStable` compte les pages qui se recomposent). `deriveDeclineSeverity` a **deux** plafonds distincts : faible volume/confiance (FIND-002) **et** `emerging` (fluctuation isolée, comme IDX-005). La position est `current − prior`, **positif = pire**, écrit partout où le chiffre circule. `SeasonalityContext` déclare l'absence de N-1 au lieu d'inventer un facteur neutre. **48 tests.** |
 | **`src/lib/server/detectors/keyword-decline.ts`** *(FIND-005)* | **La lecture/écriture, client injecté.** ⭐ **Une seule** lecture d'observations pour les **quatre** fenêtres (elles sont imbriquées : la récente est incluse dans la structurelle), partitionnée en mémoire — quatre requêtes reliraient trois fois les mêmes lignes. Découpage (`buildWindowComparison`), complétude (`windowCompleteness`) et gate N-1 (`computeYoyReport`) viennent de **GSC-004 tels quels** : recopier « 28 j = 4 semaines » créerait une 2ᵉ autorité qui divergerait au premier ajustement de latence, et l'écran `/windows` jugerait sur une autre semaine que le détecteur. `declineFingerprint` sépare page et requête par l'`entityType` — c'est ce qui rend le regroupement **réversible**. ⚠️ **PAS de `scope` à la réconciliation**, contrairement à IDX-005 : un détecteur GSC est autoritaire sur tout son projet (chaque requête est réobservée chaque semaine), donc une absence de la closure est une vraie absence — et « une récupération résout le finding » sort **gratuitement** de FIND-003. |
 | **`src/lib/server/schedule-state.ts`** *(FIND-005)* | ⭐ `detect:keyword_decline` entre au catalogue **hebdo** en **frère** de `detect:keyword_opportunity` : même prérequis (`collect:gsc_query_page`, arête **OBLIGATOIRE**), même priorité, **aucune arête entre eux**. Les enchaîner en série ajouterait un tour de propagation de skip (JOB-004 propage en N-1 passes) sans contrepartie — ils lisent les mêmes observations et n'appellent aucun provider. ⚠️ `propose:actions` ne dépend **volontairement pas** du nouveau détecteur : AGT-000 ne traite que `keyword_opportunity`, lier les deux créerait un couplage faux. **3 tests dédiés.** |

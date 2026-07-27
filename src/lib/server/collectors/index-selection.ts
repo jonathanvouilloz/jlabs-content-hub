@@ -177,12 +177,8 @@ export interface DueSelectionRow {
  * est ÉCARTÉE et comptée, jamais réinterprétée : deviner une raison serait inventer un
  * diagnostic.
  */
-export async function loadDueSelections(input: {
-	db: AppDb;
-	projectId: string;
-	today: string;
-}): Promise<{ rows: DueSelectionRow[]; unreadable: number }> {
-	const honored = input.db
+function honoredSubquery(db: AppDb) {
+	return db
 		.select({ one: sql`1` })
 		.from(indexObservations)
 		.where(
@@ -192,6 +188,14 @@ export async function loadDueSelections(input: {
 				gte(indexObservations.observedDate, indexSelection.dueDate)
 			)
 		);
+}
+
+export async function loadDueSelections(input: {
+	db: AppDb;
+	projectId: string;
+	today: string;
+}): Promise<{ rows: DueSelectionRow[]; unreadable: number }> {
+	const honored = honoredSubquery(input.db);
 
 	const rows = await input.db
 		.select({
@@ -239,6 +243,61 @@ export async function loadDueSelections(input: {
 		});
 	}
 	return { rows: kept, unreadable };
+}
+
+export interface DueSelectionCount {
+	dueNow: number;
+	unreadable: number;
+	/** La plus ancienne échéance en attente — celle qui dit depuis quand on est en retard. */
+	oldestDueDate: string | null;
+}
+
+/**
+ * REP-001 — Les mêmes intentions dues, comptées pour TOUS les projets d'un coup.
+ *
+ * Un rapport cross-projet appellerait sinon `loadDueSelections` dans une boucle : neuf
+ * allers-retours pour neuf nombres, sur un pooler serverless où chacun se paie (règle `home.ts`
+ * « une lecture par domaine, groupée par projet »).
+ *
+ * ⚠️ Ce n'est PAS une seconde définition de « due » : le prédicat `notExists(honored)` est
+ * **la même fonction** que celle de `loadDueSelections`, et l'écart des `reason` illisibles est
+ * appliqué ici aussi, en mémoire — parce qu'`isSelectionReason` est le vocabulaire, et le
+ * reproduire en SQL divergerait au premier motif ajouté. Le `group by (project_id, reason)`
+ * rend au plus quelques lignes par projet : le tri en mémoire ne coûte rien.
+ */
+export async function countDueSelectionsByProject(input: {
+	db: AppDb;
+	today: string;
+}): Promise<Map<string, DueSelectionCount>> {
+	const honored = honoredSubquery(input.db);
+
+	const rows = await input.db
+		.select({
+			projectId: indexSelection.projectId,
+			reason: indexSelection.reason,
+			n: sql<number>`count(*)::int`,
+			oldest: sql<string | null>`min(${indexSelection.dueDate})`
+		})
+		.from(indexSelection)
+		.where(and(lte(indexSelection.dueDate, input.today), notExists(honored)))
+		.groupBy(indexSelection.projectId, indexSelection.reason);
+
+	const out = new Map<string, DueSelectionCount>();
+	for (const r of rows) {
+		const bucket = out.get(r.projectId) ?? { dueNow: 0, unreadable: 0, oldestDueDate: null };
+		if (!isSelectionReason(r.reason)) {
+			bucket.unreadable += r.n;
+		} else {
+			bucket.dueNow += r.n;
+			// La plus ancienne échéance ne se calcule que sur les lignes RETENUES : une ligne
+			// illisible n'est pas une intention qu'on peut dire en retard.
+			if (r.oldest && (bucket.oldestDueDate === null || r.oldest < bucket.oldestDueDate)) {
+				bucket.oldestDueDate = r.oldest;
+			}
+		}
+		out.set(r.projectId, bucket);
+	}
+	return out;
 }
 
 /**

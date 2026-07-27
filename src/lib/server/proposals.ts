@@ -14,7 +14,7 @@
  * (assertNoInlineSecret) avant persistance.
  */
 import { createHash } from 'node:crypto';
-import { eq, and, asc, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, asc, desc, gte, inArray, sql } from 'drizzle-orm';
 import {
 	actionProposals,
 	proposalApprovals,
@@ -257,6 +257,16 @@ export interface ListProposalsInput {
 	risks?: readonly string[];
 	projectSlug?: string | null;
 	actionType?: string | null;
+	/**
+	 * REP-001 — Bornée à ce qui a été CRÉÉ depuis (format DB).
+	 *
+	 * Le rapport hebdo distingue ce que le cockpit a **proposé cette semaine** de ce qui
+	 * **attend une décision aujourd'hui** : deux ensembles qui se recoupent sans se confondre
+	 * (une proposition de la semaine dernière encore en attente appartient au second, pas au
+	 * premier). Le filtre vit ici, avec les autres, pour que `listProposals` et `countProposals`
+	 * décrivent le même ensemble — la leçon `findingFilters` de DASH-002.
+	 */
+	createdSince?: string | null;
 	limit?: number;
 	offset?: number;
 }
@@ -293,6 +303,7 @@ function proposalFilters(input: ListProposalsInput) {
 	}
 	if (input.projectSlug) filters.push(eq(projects.slug, input.projectSlug));
 	if (input.actionType) filters.push(eq(actionProposals.actionType, input.actionType));
+	if (input.createdSince) filters.push(gte(actionProposals.createdAt, input.createdSince));
 	return filters;
 }
 

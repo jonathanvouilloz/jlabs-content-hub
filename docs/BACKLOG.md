@@ -1117,7 +1117,7 @@ Acceptation :
 
 ## REP-001 — Modèle de rapport hebdomadaire déterministe
 
-**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par JOB-004, 2026-07-22) · **Dépendances :** FIND-003, JOB-004
+**Priorité :** P0 · **Taille :** M · **État :** DONE (2026-07-27) · **Dépendances :** FIND-003, JOB-004
 
 Travail :
 
@@ -1151,7 +1151,7 @@ Acceptation :
 
 ## REP-003 — Publication du rapport du lundi
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** REP-001, JOB-005
+**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué par REP-001, 2026-07-27) · **Dépendances :** REP-001, JOB-005
 
 Travail :
 
@@ -1168,7 +1168,7 @@ Acceptation :
 
 ## REP-004 — Historique, comparaison et archivage
 
-**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** REP-001
+**Priorité :** P1 · **Taille :** M · **État :** READY (débloqué par REP-001, 2026-07-27) · **Dépendances :** REP-001
 
 Travail :
 

@@ -202,6 +202,55 @@ export async function countIndexClasses(input: {
 }
 
 /**
+ * REP-001 — La même répartition, pour TOUS les projets en une requête.
+ *
+ * `countIndexClasses` est per-projet : un rapport cross-projet l'appellerait dans une boucle
+ * (neuf allers-retours pour neuf répartitions). Ici, un seul `DISTINCT ON (project_id, url)`.
+ *
+ * ⚠️ Ce n'est PAS une seconde autorité de classification : la classe sort de `classifyCoverage`,
+ * **la même fonction**, appliquée en mémoire aux mêmes derniers états. Seule la CLÉ de
+ * dédoublonnage change (le couple projet+url au lieu de l'url seule). Un `group by
+ * coverage_state` en SQL, lui, aurait bien créé une seconde autorité — et il divergerait au
+ * premier libellé nouveau de Google, l'écran annonçant alors une répartition que le détecteur
+ * ne reconnaîtrait pas.
+ */
+export async function countIndexClassesByProject(input: {
+	db: AppDb;
+	since?: string | null;
+	limit?: number;
+}): Promise<Map<string, Record<IndexedClass, number>>> {
+	const filters = input.since ? [gte(indexObservations.observedDate, input.since)] : [];
+
+	const rows = await input.db
+		.selectDistinctOn([indexObservations.projectId, indexObservations.url], {
+			projectId: indexObservations.projectId,
+			url: indexObservations.url,
+			coverageState: indexObservations.coverageState
+		})
+		.from(indexObservations)
+		.where(filters.length > 0 ? and(...filters) : undefined)
+		.orderBy(
+			indexObservations.projectId,
+			indexObservations.url,
+			desc(indexObservations.observedDate)
+		)
+		.limit(Math.max(1, Math.floor(input.limit ?? 20000)));
+
+	const out = new Map<string, Record<IndexedClass, number>>();
+	for (const r of rows) {
+		const bucket = out.get(r.projectId) ?? {
+			indexed: 0,
+			not_indexed: 0,
+			excluded: 0,
+			unknown: 0
+		};
+		bucket[classifyCoverage(r.coverageState)] += 1;
+		out.set(r.projectId, bucket);
+	}
+	return out;
+}
+
+/**
  * Fraîcheur de l'inspection par projet : la date de la dernière observation d'indexation.
  *
  * `null` = jamais inspecté, et c'est un état À PART (jamais « aujourd'hui », jamais 0) — même

@@ -264,8 +264,37 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   de détecteurs était **recopiée**, elle est maintenant **dérivée** de `SCHEDULE_CATALOG`.
   ⚠️ **`propose:actions` n'en dépend volontairement pas** : AGT-000 ne traite que
   `keyword_opportunity`. Ces findings vivent dans l'onglet **findings** de `/inbox`, jamais dans la
-  file d'approbation. Prochain : **FIND-006** (nouvelles/perdues — `vanished`/`appeared` déjà
-  comptés) ou **REP-001** (rapport hebdo déterministe).
+  file d'approbation.
+  Puis **REP-001 — le rapport hebdomadaire déterministe** : **E07 était à zéro ligne** alors que
+  quatre tickets P0 en dépendaient (REP-002/003/004, TEL-002, AGT-004/005B) **et** l'onglet Rapports
+  de DASH-003. ⭐ **Il n'existe aucun endroit où loger un `0` pour un provider non branché** :
+  `Availability<T>` est une union discriminée, une section absente **n'a pas de corps**, donc pas de
+  tableau de métriques où un zéro pourrait s'écrire. L'acceptation « absent, pas zéro » cesse d'être
+  une convention qu'un oubli suffirait à violer. Trois absences distinctes — `not_wired` (brancher),
+  `never_collected` (attendre/réparer), `not_examined` (diagnostiquer) — parce qu'elles demandent
+  trois gestes. ⭐ **Le gate d'examen passe AVANT le comptage** : sur un parc dont aucun détecteur n'a
+  jamais tourné, les sections de findings se déclarent `not_examined` **même si des findings sont
+  passés en entrée** — la règle DASH-002 (« jamais regardé ≠ rien à signaler ») portée jusqu'au
+  rapport, parce qu'un rapport qui annonce « 0 nouveau finding » sur une page blanche est le plus
+  dangereux de tous : rassurant et faux. ⭐ **`renderWeeklyReportText(report)` n'a d'autre paramètre
+  que le rapport** : sans accès à la base, à l'heure ni à un modèle, il ne peut rien ajouter que le
+  JSON ne porte — « générable sans LLM » devient structurel. Le compteur d'une section vient d'un
+  `count(*)`, jamais de `rows.length` : sinon un plafond de lecture deviendrait un fait, et le
+  rapport annoncerait une semaine calme parce qu'il a mal lu. La santé vient de `loadHomeCockpit`
+  et de nulle part ailleurs (portefeuille, cartes, ordre et compteurs **liens compris**, égalité
+  prouvée en base). Zéro DDL (60 tables) · zéro persistance · zéro appel provider · test
+  **1162/1162** (+60) · preuve **33/33** sur Neon.
+  ⚠️ **L'inspection à l'œil a trouvé ce que ni les tests ni la preuve ne voyaient** : imprimé, le
+  rapport répétait la même liste de 9 angles morts dans **les 12 sections** (108 lignes). La
+  couverture est désormais portée **une fois** au niveau du rapport, chaque section n'en gardant
+  qu'un rappel chiffré — **une projection a le droit de compresser ce que le JSON répète, jamais de
+  le taire**. C'est le premier livrable de ce parc qui se lit entièrement **sans écran**.
+  ⚠️ **Le rapport n'est ni planifié, ni publié, ni stocké** (périmètre du ticket : REP-003 publie,
+  REP-004 archive). ⚠️ **Deux sections sur douze sont absentes aujourd'hui, et c'est correct** :
+  `index_observations` est à 0 ligne, aucun projet ne déclare `plausible`. ⚠️ Une **réouverture**
+  n'apparaît dans aucune section (`ACTIVITY_EVENTS` hérité de DASH-002) — à rattraper par REP-004.
+  Prochain : **REP-003** (publication du rapport du lundi, dernière case P0 de la gate M2) ou
+  **REP-004** (historique), sinon **FIND-006** (nouvelles/perdues).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
