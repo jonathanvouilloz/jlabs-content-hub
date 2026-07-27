@@ -1,9 +1,18 @@
 <script lang="ts">
-	import { ArrowLeft, EyeOff, Info } from 'lucide-svelte';
+	import { ArrowLeft, EyeOff, History, Info, Minus, TrendingDown, TrendingUp } from 'lucide-svelte';
 
 	let { data } = $props();
 
 	const view = $derived(data.view);
+	const comparison = $derived(data.comparison);
+	/**
+	 * ⚠️ Le tri « cette section a-t-elle changé ? » est fait par `sectionHasChange` (module pur,
+	 * testé), côté loader — jamais par un `{#if}` ici. Une règle qui ne vivrait que dans un
+	 * template se perdrait au premier refactor (doctrine `buildProjectCounters`), et celle-ci
+	 * décide de ce que Jonathan verra ou non.
+	 */
+	const changed = $derived(data.changedSections);
+	const unchanged = $derived(data.unchangedSections);
 
 	const STATUS_BADGE: Record<string, string> = {
 		complete: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -59,6 +68,14 @@
 		</div>
 		<p class="text-sm text-surface-700">{view.headline}</p>
 		<p class="text-[11px] text-surface-400">{view.statusNote}</p>
+		{#if view.revisionLabel}
+			<p class="text-[11px] text-surface-500">
+				{view.revisionLabel}
+				{#if view.revisionReason}
+					<span class="italic">Raison : « {view.revisionReason} »</span>
+				{/if}
+			</p>
+		{/if}
 	</header>
 
 	<!-- Provenance : période RÉELLE de ce qui a été compté, et les deux dates qui ne se confondent pas. -->
@@ -74,8 +91,13 @@
 			<dd class="font-mono">{view.periodSlot}</dd>
 		</div>
 		<div class="flex gap-1">
+			<!-- Écriture de CETTE révision — le SLO, lui, porte sur la première publication. -->
 			<dt class="font-medium">Publié</dt>
 			<dd class="font-mono">{view.publishedAt}</dd>
+		</div>
+		<div class="flex gap-1">
+			<dt class="font-medium">Révision</dt>
+			<dd class="font-mono">{view.revision}/{view.revisionCount}</dd>
 		</div>
 		<div class="flex gap-1">
 			<dt class="font-medium">Schéma</dt>
@@ -86,6 +108,195 @@
 	{#if view.readinessLabel}
 		<p class="text-[11px] text-surface-500">Périmètre : {view.readinessLabel}</p>
 	{/if}
+
+	<!--
+		── Le lignage (REP-004) ──────────────────────────────────────────
+		L'acceptation « régénérer ne remplace pas silencieusement l'original » n'a de sens que si
+		l'original reste ATTEIGNABLE : chaque révision porte son lien, sa raison et son statut
+		d'origine. Rien ici quand le créneau n'a qu'une révision — il n'y a alors rien à raconter.
+	-->
+	{#if view.lineage}
+		<section class="rounded-xl border border-surface-200 bg-white">
+			<header class="flex items-center gap-2 border-b border-surface-100 px-4 py-2.5">
+				<History size={14} class="text-surface-400" />
+				<h2 class="text-sm font-semibold text-surface-900">Révisions de ce créneau</h2>
+				<span class="text-[11px] text-surface-400">{view.lineage.note}</span>
+			</header>
+			<ul class="divide-y divide-surface-100">
+				{#each view.lineage.entries as entry (entry.id)}
+					<li class="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2">
+						<div class="min-w-0">
+							<a
+								href="/reports/{encodeURIComponent(view.periodSlot)}?revision={entry.revision}"
+								class="text-xs {entry.revision === view.revision
+									? 'font-semibold text-surface-900'
+									: 'text-surface-700 hover:underline'}"
+							>
+								Révision {entry.revision}{entry.current ? ' (courante)' : ''}
+							</a>
+							{#if entry.reason}
+								<span class="ml-1 text-[11px] text-surface-500">« {entry.reason} »</span>
+							{:else}
+								<span class="ml-1 text-[11px] italic text-surface-400">
+									publication automatique du tick
+								</span>
+							{/if}
+						</div>
+						<div class="flex flex-shrink-0 items-baseline gap-2 text-[11px]">
+							<span
+								class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium {STATUS_BADGE[
+									entry.status
+								]}"
+							>
+								{entry.status}
+							</span>
+							<span class="font-mono text-surface-400">{entry.publishedAt}</span>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
+	<!--
+		── Ce qui a changé (REP-004) ─────────────────────────────────────
+		⭐ Une section devenue disponible (ou devenue absente) n'a AUCUN chiffre ici, et ce n'est
+		pas un oubli de template : `SectionComparison` est une union dont ces variantes ne portent
+		pas de champ chiffré. Un provider branché cette semaine ne peut donc pas s'afficher
+		« +13 », et un provider tombé en panne ne peut pas s'afficher « −13 » (ce qui se lirait
+		comme treize problèmes résolus).
+	-->
+	<section class="rounded-xl border border-surface-200 bg-white">
+		<header class="flex flex-wrap items-center justify-between gap-2 border-b border-surface-100 px-4 py-2.5">
+			<h2 class="text-sm font-semibold text-surface-900">Ce qui a changé</h2>
+			{#if comparison?.kind === 'available'}
+				<span class="text-[11px] text-surface-500">
+					{comparison.axis === 'revision' ? 'depuis la révision' : 'depuis le créneau'}
+					<a href={data.baseHref} class="font-mono hover:underline">
+						{comparison.base.periodSlot}{comparison.base.revision > 1
+							? ` (rév. ${comparison.base.revision})`
+							: ''}
+					</a>
+				</span>
+			{/if}
+		</header>
+
+		{#if !comparison}
+			<!-- « Rien à comparer » est un ÉTAT, jamais une liste vide. -->
+			<p class="px-4 py-3 text-[11px] text-surface-500">{data.comparisonAbsence}</p>
+		{:else if comparison.kind === 'unavailable'}
+			<p class="px-4 py-3 text-[11px] text-surface-500">{comparison.note}</p>
+		{:else}
+			<div class="space-y-3 px-4 py-3">
+				<p class="text-xs text-surface-700">{comparison.summary.headline}</p>
+
+				{#each comparison.blocks as block (block.reason)}
+					<!-- Un blocage n'est pas une panne : les faits restent lisibles, seul l'écart
+					     est refusé. Ambre, jamais rouge. -->
+					<p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+						{block.note}
+					</p>
+				{/each}
+
+				{#if changed.length === 0}
+					<p class="text-[11px] italic text-surface-400">
+						Aucune section n'a bougé entre les deux rapports.
+					</p>
+				{/if}
+
+				{#each changed as section (section.key)}
+					<div class="space-y-1 border-t border-surface-100 pt-2 first:border-0 first:pt-0">
+						<h3 class="text-xs font-medium text-surface-800">{section.title}</h3>
+
+						{#if section.kind === 'comparable'}
+							<ul class="space-y-0.5">
+								{#each section.metrics as metric (metric.key)}
+									{#if metric.kind === 'comparable' && (metric.delta !== 0 || metric.renamed)}
+										<li class="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+											{#if metric.direction === 'up'}
+												<TrendingUp size={12} class="text-orange-600" />
+											{:else if metric.direction === 'down'}
+												<TrendingDown size={12} class="text-emerald-600" />
+											{:else}
+												<Minus size={12} class="text-surface-300" />
+											{/if}
+											<span class="text-surface-600">{metric.headLabel}</span>
+											<span class="font-mono text-surface-400">{metric.baseDisplay}</span>
+											<span class="text-surface-300">→</span>
+											<span class="font-mono font-medium text-surface-900">{metric.headDisplay}</span>
+											{#if metric.renamed}
+												<span class="italic text-surface-400">
+													(renommée, autrefois « {metric.baseLabel} »)
+												</span>
+											{/if}
+										</li>
+									{:else if metric.kind === 'appeared'}
+										<li class="text-[11px] text-surface-600">
+											<span class="text-violet-700">nouvelle métrique</span>
+											{metric.label} : <span class="font-mono">{metric.headDisplay}</span> — elle
+											n'existait pas avant, ce n'est donc pas une hausse.
+										</li>
+									{:else if metric.kind === 'disappeared'}
+										<li class="text-[11px] text-surface-600">
+											<span class="text-violet-700">métrique disparue</span>
+											{metric.label} (valait <span class="font-mono">{metric.baseDisplay}</span>).
+										</li>
+									{:else if metric.kind === 'unquantified'}
+										<li class="text-[11px] text-surface-500">
+											{metric.label} : {metric.baseDisplay} → {metric.headDisplay} — {metric.note}
+										</li>
+									{:else if metric.kind === 'blocked'}
+										<li class="text-[11px] text-surface-500">
+											{metric.label} : {metric.baseDisplay} → {metric.headDisplay} — écart non
+											calculé ({metric.reason}).
+										</li>
+									{/if}
+								{/each}
+							</ul>
+
+							{#if section.items.kind === 'movements'}
+								{#if section.items.entered.length > 0}
+									<p class="text-[11px] text-surface-600">
+										Entrés ({section.items.entered.length}) :
+										{#each section.items.entered.slice(0, 5) as item, i (item.label + i)}
+											{i > 0 ? ' · ' : ''}{item.label}
+										{/each}
+										{#if section.items.entered.length > 5}
+											… et {section.items.entered.length - 5} autres
+										{/if}
+									</p>
+								{/if}
+								{#if section.items.left.length > 0}
+									<p class="text-[11px] text-surface-600">
+										Sortis ({section.items.left.length}) :
+										{#each section.items.left.slice(0, 5) as item, i (item.label + i)}
+											{i > 0 ? ' · ' : ''}{item.label}
+										{/each}
+										{#if section.items.left.length > 5}
+											… et {section.items.left.length - 5} autres
+										{/if}
+									</p>
+								{/if}
+							{:else}
+								<p class="text-[11px] italic text-surface-400">{section.items.note}</p>
+							{/if}
+						{:else}
+							<!-- ⭐ Les variantes non comparables : une phrase, aucun chiffre. -->
+							<p class="text-[11px] text-violet-700">{section.note}</p>
+						{/if}
+					</div>
+				{/each}
+
+				{#if unchanged > 0}
+					<p class="border-t border-surface-100 pt-2 text-[11px] text-surface-400">
+						{unchanged} section{unchanged > 1 ? 's' : ''} sans changement, masquée{unchanged > 1
+							? 's'
+							: ''} — elles restent lisibles ci-dessous.
+					</p>
+				{/if}
+			</div>
+		{/if}
+	</section>
 
 	<!--
 		Les angles morts du PARC, une seule fois. Ils restent dans chaque section du JSON (une
@@ -210,7 +421,9 @@
 
 	<p class="text-[11px] text-surface-400">
 		Ce rapport est rendu depuis le JSON archivé au moment de la publication : rien n'y est
-		recalculé à la lecture, hormis le verdict SLO qui se dérive de <code>published_at</code> et
-		<code>due_at</code>.
+		recalculé à la lecture, hormis le verdict SLO qui se dérive de <code>published_at</code> (celui
+		de la <em>première</em> publication du créneau) et <code>due_at</code>. Régénérer ce créneau
+		ajoute une révision et n'écrase jamais celle-ci :
+		<code>npx tsx scripts/rep-003-publish.ts --revise {view.periodSlot} --reason "…"</code>.
 	</p>
 </div>

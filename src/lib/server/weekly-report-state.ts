@@ -23,6 +23,7 @@
  * `classifyProject` (`home-state`). Deux définitions de « projet à risque » divergeraient au
  * premier seuil modifié, et le rapport du lundi contredirait l'accueil qu'il est censé résumer.
  */
+import { counterKey } from './home-state.js';
 import type { CostSummary, Counter, PortfolioHealth, ProjectCard } from './home-state.js';
 
 /**
@@ -32,8 +33,16 @@ import type { CostSummary, Counter, PortfolioHealth, ProjectCard } from './home-
  * agent** (REP-002) et **rendu au client** (REP-005) : trois consommateurs qui n'évolueront
  * pas en même temps. Un rapport archivé sans numéro de schéma est un rapport qu'on ne saura
  * plus lire le jour où une section change de forme.
+ *
+ * Historique — c'est la seule chose qu'un numéro de schéma sert à porter :
+ *   1. REP-001 — forme d'origine.
+ *   2. REP-004 lot 1 — `ReportMetric.key` : une métrique porte désormais une identité stable,
+ *      distincte de son libellé. `compareReports` refuse de chiffrer un écart entre deux
+ *      versions de schéma (`schema_changed`) : les métriques d'un rapport 1 ne s'apparient à
+ *      rien dans un rapport 2, et un delta calculé sur une correspondance devinée serait pire
+ *      qu'un delta absent.
  */
-export const REPORT_SCHEMA_VERSION = 1;
+export const REPORT_SCHEMA_VERSION = 2;
 
 // ── Absence : trois façons de n'avoir rien à dire, aucune n'est zéro ──
 
@@ -164,6 +173,18 @@ export interface ReportItem {
 }
 
 export interface ReportMetric {
+	/**
+	 * L'IDENTITÉ de la métrique — stable d'un rapport à l'autre, unique dans sa section.
+	 *
+	 * ⭐ Ajoutée par REP-004 (schéma 2) parce que la comparaison de deux semaines ne doit
+	 * **jamais apparier sur de la prose**. Le `label` est du texte : il porte parfois un nombre
+	 * qui bouge (« dont L4 …, parmi les 12 listées »), et il a le droit d'être réécrit. Apparier
+	 * dessus aurait annoncé, chaque semaine, une métrique disparue et une métrique apparue pour
+	 * une section qui n'a pas bougé — un signal fabriqué par un changement de formulation. La
+	 * clé identifie, le libellé raconte : un libellé réécrit devient alors un **renommage
+	 * traçable**, pas une rupture de série.
+	 */
+	key: string;
 	label: string;
 	/**
 	 * Valeur BRUTE quand il y en a une. REP-002 et REP-004 compareront des nombres d'une
@@ -578,6 +599,8 @@ function findingsSection(input: {
 	findings: ReportSet<ReportFindingInput>;
 	cards: readonly ProjectCard[];
 	limit: number;
+	/** Identité de la métrique (REP-004) — unique dans la section, stable dans le temps. */
+	metricKey: string;
 	metricLabel: string;
 	counter: Counter | null;
 	note?: string | null;
@@ -608,6 +631,7 @@ function findingsSection(input: {
 		body: present({
 			metrics: [
 				{
+					key: input.metricKey,
 					label: input.metricLabel,
 					value: input.findings.total,
 					display: plural(input.findings.total, 'finding'),
@@ -630,24 +654,31 @@ function executiveSection(input: WeeklyReportInput): ReportSection {
 	const p = input.portfolio;
 	const metrics: ReportMetric[] = [
 		{
+			key: 'portfolio.projects',
 			label: 'projets actifs',
 			value: p.total,
 			display: plural(p.total, 'projet'),
 			source: null
 		},
 		{
+			key: 'portfolio.state',
 			label: 'état du portefeuille',
 			value: null,
 			display: STATE_LABELS[p.worst] ?? p.worst,
 			source: null
 		},
 		{
+			key: 'portfolio.needing_action',
 			label: 'projets à traiter',
 			value: p.needingAction,
 			display: plural(p.needingAction, 'projet'),
 			source: null
 		},
 		...input.counters.map((c) => ({
+			// L'identité vient du DESCRIPTEUR, pas du libellé — le même descripteur qui produit
+			// déjà le lien (`counterHref`). Le nombre, le lien et la clé naissent donc du même
+			// filtre : un compteur renommé reste le même compteur d'une semaine à l'autre.
+			key: `counter.${counterKey(c.filter)}`,
 			label: c.label,
 			value: c.count,
 			display: String(c.count),
@@ -695,6 +726,7 @@ function projectsSection(input: WeeklyReportInput): ReportSection {
 		body: present({
 			metrics: [
 				{
+					key: 'projects.needing_action',
 					label: 'projets nécessitant une intervention',
 					value: cards.length,
 					display: plural(cards.length, 'projet'),
@@ -740,6 +772,7 @@ function indexationSection(input: WeeklyReportInput): ReportSection {
 		body: present({
 			metrics: [
 				{
+					key: 'indexation.coverage_rate',
 					label: 'couverture d’indexation',
 					value: totalDecided > 0 ? totalIndexed / totalDecided : null,
 					// `null`, jamais « 0 % » : sans verdict tranché, il n'y a pas de taux, et
@@ -748,6 +781,7 @@ function indexationSection(input: WeeklyReportInput): ReportSection {
 					source: observationSource('index_observations')
 				},
 				{
+					key: 'indexation.due_now',
 					label: 'inspections dues',
 					value: dueNow,
 					display: plural(dueNow, 'inspection'),
@@ -796,12 +830,14 @@ function trafficSection(input: WeeklyReportInput): ReportSection {
 		body: present({
 			metrics: [
 				{
+					key: 'traffic.visits',
 					label: 'visites',
 					value: visits,
 					display: String(visits),
 					source: observationSource('plausible_page_observations')
 				},
 				{
+					key: 'traffic.conversions',
 					label: 'conversions',
 					value: conversions,
 					display: String(conversions),
@@ -853,12 +889,14 @@ function reviewsSection(input: WeeklyReportInput): ReportSection {
 		body: present({
 			metrics: [
 				{
+					key: 'reviews.unanswered',
 					label: 'avis sans réponse',
 					value: unanswered,
 					display: plural(unanswered, 'avis', 'avis'),
 					source: observationSource('gmb_reviews')
 				},
 				{
+					key: 'reviews.negative',
 					label: 'avis négatifs de la période',
 					value: negative,
 					display: plural(negative, 'avis', 'avis'),
@@ -900,12 +938,17 @@ function proposalsSection(input: {
 		body: present({
 			metrics: [
 				{
+					key: 'proposals.total',
 					label: input.metricLabel,
 					value: input.proposals.total,
 					display: plural(input.proposals.total, 'proposition'),
 					source: observationSource('action_proposals', '/inbox')
 				},
 				{
+					// ⚠️ Le LIBELLÉ de cette métrique porte un nombre qui change chaque semaine
+					// (« parmi les 12 listées »). C'est elle qui a fait ajouter `key` au schéma :
+					// appariée sur sa prose, elle aurait disparu et réapparu à chaque comparaison.
+					key: 'proposals.l4',
 					label: `dont L4 (humain obligatoire), parmi les ${input.proposals.rows.length} listées`,
 					value: l4,
 					display: plural(l4, 'proposition'),
@@ -938,12 +981,17 @@ function automationSection(input: WeeklyReportInput): ReportSection {
 	const { items, truncated } = capItems(missing, input.maxItemsPerSection ?? DEFAULT_MAX_ITEMS_PER_SECTION);
 	const metrics: ReportMetric[] = [
 		...runs.map(([status, n]) => ({
+			// Un statut de run absent une semaine et présent la suivante donne une métrique
+			// APPARUE — un fait, pas un delta : il n'y avait pas « 0 run failed », il n'y avait
+			// pas de run failed du tout.
+			key: `runs.${status}`,
 			label: `runs ${status}`,
 			value: n,
 			display: String(n),
 			source: observationSource('monitoring_runs', `/automations?status=${status}`)
 		})),
 		{
+			key: 'jobs.dead',
 			label: 'jobs en dead-letter',
 			value: jobsDead,
 			display: plural(jobsDead, 'job'),
@@ -953,6 +1001,7 @@ function automationSection(input: WeeklyReportInput): ReportSection {
 		// inerte, pas un zéro. On le recopie tel quel plutôt que de le réduire à un nombre.
 		input.costs.instrumented
 			? {
+					key: 'costs.total',
 					label: 'coûts de la période',
 					value: Object.values(input.costs.totals).reduce((a, n) => a + n, 0),
 					display: Object.entries(input.costs.totals)
@@ -961,6 +1010,11 @@ function automationSection(input: WeeklyReportInput): ReportSection {
 					source: observationSource('monitoring_runs.cost_json')
 				}
 			: {
+					// MÊME clé que la branche instrumentée : c'est la même métrique, dont on sait
+					// tantôt la valeur et tantôt seulement qu'on ne la mesure pas. Deux clés en
+					// auraient fait une métrique qui disparaît le jour où l'instrumentation
+					// arrive, au lieu d'une métrique qui devient enfin chiffrée.
+					key: 'costs.total',
 					label: 'coûts de la période',
 					value: null,
 					display: `non instrumentés — ${input.costs.detail}`,
@@ -1001,6 +1055,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
 			findings: input.findingsNew,
 			cards: input.projects,
 			limit,
+			metricKey: 'findings.new',
 			metricLabel: 'nouveaux findings de la période',
 			counter: counterBy('nouveaux')
 		}),
@@ -1009,6 +1064,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
 			findings: input.findingsAggravated,
 			cards: input.projects,
 			limit,
+			metricKey: 'findings.aggravated',
 			metricLabel: 'findings aggravés dans la période',
 			counter: counterBy('aggravés')
 		}),
@@ -1017,6 +1073,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
 			findings: input.findingsResolved,
 			cards: input.projects,
 			limit,
+			metricKey: 'findings.resolved',
 			metricLabel: 'findings résolus dans la période',
 			counter: counterBy('résolus'),
 			note: 'une auto-résolution ne prouve pas une correction : elle dit que le signal ne franchit plus les seuils'
@@ -1026,6 +1083,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
 			findings: input.opportunities,
 			cards: input.projects,
 			limit,
+			metricKey: 'opportunities.open',
 			metricLabel: 'opportunités ouvertes',
 			counter: counterBy('findings ouverts')
 		}),

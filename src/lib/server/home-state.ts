@@ -506,6 +506,29 @@ function withProject(params: URLSearchParams, projectSlug?: string | null): URLS
 }
 
 /**
+ * L'IDENTITÉ d'un compteur, stable d'une semaine à l'autre (REP-004).
+ *
+ * ⚠️ **Ni `sinceDb` ni `projectSlug` n'entrent dans la clé, et c'est tout l'intérêt.** Le
+ * descripteur porte la borne de période parce que le lien doit la reproduire ; l'identité, elle,
+ * doit survivre au fait que cette borne change chaque lundi. Comparer deux rapports appariera
+ * `findings_activity.created` avec `findings_activity.created`, jamais deux libellés qui se
+ * ressemblent — un compteur ne se reconnaît pas à sa prose (elle, elle a le droit de changer).
+ */
+export function counterKey(filter: CounterFilter): string {
+	switch (filter.kind) {
+		case 'findings_activity':
+			return `findings_activity.${filter.event}`;
+		case 'runs_period':
+			return `runs_period.${filter.status}`;
+		case 'findings_open':
+		case 'proposals_pending':
+		case 'reviews_unanswered':
+		case 'jobs_failed':
+			return filter.kind;
+	}
+}
+
+/**
  * Le lien qui reproduit un filtre.
  *
  * `findings_activity` vise l'onglet findings de l'inbox avec `event` + `since` — les deux

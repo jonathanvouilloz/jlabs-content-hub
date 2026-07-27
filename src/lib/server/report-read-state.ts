@@ -46,6 +46,7 @@ import type {
 	PublicationStatus,
 	SloVerdict
 } from './report-publication-state.js';
+import type { RevisionLineage } from './report-history-state.js';
 
 // ── Le lien d'un rapport : l'URL et son libellé naissent ensemble ────
 
@@ -97,21 +98,40 @@ export interface ReportListRow {
 	/**
 	 * Ce que le statut veut dire, en une phrase — jamais un badge muet.
 	 *
-	 * ⚠️ `partial` porte la réserve REP-003 : republier un créneau est un **no-op**, donc un
-	 * rapport partiel ne redeviendra jamais complet. Le taire ferait attendre au lecteur une
-	 * réparation qui n'arrivera pas (elle est le sujet de REP-004).
+	 * ⚠️ `partial` portait la réserve REP-003 (« republier est un no-op, un rapport partiel ne
+	 * redevient jamais complet »). REP-004 lot 1 l'a rendue fausse : une **révision** peut le
+	 * compléter, et la phrase dit désormais le geste au lieu de l'impasse — sans rien promettre
+	 * d'automatique, puisque la révision reste délibérée.
 	 */
 	statusNote: string;
+	/** REP-004 — numéro de la révision affichée (`1` = la publication automatique). */
+	revision: number;
+	/** Nombre de révisions du créneau (>= 1). */
+	revisionCount: number;
+	/** Une phrase, ou `null` quand le créneau n'a jamais été révisé (rien à signaler). */
+	revisionLabel: string | null;
 }
 
-function describeSlo(slo: SloVerdict, deadlineMinutes: number | null): string {
+/**
+ * Le verdict SLO, écrit.
+ *
+ * ⚠️ Sur un créneau révisé, la phrase NOMME la publication d'origine. Le SLO se dérive de
+ * `firstPublishedAt` (`toMeta`) : sans ce rappel, « SLO tenu » s'afficherait au-dessus d'une
+ * ligne datée du mercredi et se lirait comme la ponctualité de la révision.
+ */
+function describeSlo(
+	slo: SloVerdict,
+	deadlineMinutes: number | null,
+	revisionCount = 1
+): string {
+	const scope = revisionCount > 1 ? ' — publication d’origine' : '';
 	if (slo.met) {
 		return deadlineMinutes === null
-			? 'SLO tenu'
-			: `SLO tenu (échéance créneau +${deadlineMinutes} min)`;
+			? `SLO tenu${scope}`
+			: `SLO tenu (échéance créneau +${deadlineMinutes} min)${scope}`;
 	}
 	const lateMinutes = Math.max(1, Math.round(slo.lateMs / 60000));
-	return `SLO manqué de ${lateMinutes} min`;
+	return `SLO manqué de ${lateMinutes} min${scope}`;
 }
 
 function describeReadiness(readiness: PublicationReadiness): string {
@@ -133,8 +153,15 @@ function describeReadiness(readiness: PublicationReadiness): string {
 const STATUS_NOTE: Record<PublicationStatus, string> = {
 	complete: 'Tout le périmètre attendu a produit son run hebdomadaire.',
 	partial:
-		'Publié sans tout le périmètre attendu. ⚠️ Republier ce créneau est un no-op : un rapport partiel ne redevient jamais complet.'
+		'Publié sans tout le périmètre attendu. Une révision peut le compléter quand la collecte a fini d’arriver — c’est un geste délibéré, jamais automatique, et la publication d’origine reste consultable.'
 };
+
+/** Ce que le lignage dit d'un créneau, en une ligne. `null` = jamais révisé. */
+function describeRevision(revision: number, revisionCount: number): string | null {
+	if (revisionCount <= 1) return null;
+	const position = revision === revisionCount ? 'courante' : 'archivée';
+	return `Révision ${revision}/${revisionCount} (${position}) — les précédentes restent lisibles telles qu’elles ont été publiées.`;
+}
 
 /**
  * La liste des créneaux publiés, telle que `/reports` la rend.
@@ -150,20 +177,29 @@ export function summarizeReportList(
 		publishedAt: string;
 		readiness: PublicationReadiness | null;
 		slo: SloVerdict;
+		revision?: number;
+		revisionCount?: number;
 	}[]
 ): ReportListRow[] {
-	return metas.map((meta) => ({
-		periodSlot: meta.periodSlot,
-		slotLabel: formatSlotLabel(meta.periodSlot),
-		href: reportHref(meta.periodSlot),
-		status: meta.status,
-		slo: meta.slo,
-		sloLabel: describeSlo(meta.slo, meta.readiness?.deadlineMinutes ?? null),
-		publishedAt: meta.publishedAt,
-		readiness: meta.readiness,
-		readinessLabel: meta.readiness ? describeReadiness(meta.readiness) : null,
-		statusNote: STATUS_NOTE[meta.status]
-	}));
+	return metas.map((meta) => {
+		const revision = meta.revision ?? 1;
+		const revisionCount = meta.revisionCount ?? 1;
+		return {
+			periodSlot: meta.periodSlot,
+			slotLabel: formatSlotLabel(meta.periodSlot),
+			href: reportHref(meta.periodSlot),
+			status: meta.status,
+			slo: meta.slo,
+			sloLabel: describeSlo(meta.slo, meta.readiness?.deadlineMinutes ?? null, revisionCount),
+			publishedAt: meta.publishedAt,
+			readiness: meta.readiness,
+			readinessLabel: meta.readiness ? describeReadiness(meta.readiness) : null,
+			statusNote: STATUS_NOTE[meta.status],
+			revision,
+			revisionCount,
+			revisionLabel: describeRevision(revision, revisionCount)
+		};
+	});
 }
 
 // ── L'état de la liste : « jamais publié » n'est pas « rien à dire » ──
@@ -364,8 +400,21 @@ export interface ReportView {
 	readinessLabel: string | null;
 	/** Les sections **dans l'ordre du JSON archivé**, jamais dans celui de la spec courante. */
 	sections: SectionView[];
-	/** Version du schéma de rapport telle qu'elle a été publiée (REP-004 en aura besoin). */
+	/** Version du schéma de rapport telle qu'elle a été publiée. */
 	reportSchemaVersion: number;
+	/** REP-004 — la révision affichée, et le nombre de révisions du créneau. */
+	revision: number;
+	revisionCount: number;
+	revisionLabel: string | null;
+	/** La raison de CETTE révision (`null` sur la révision 1). */
+	revisionReason: string | null;
+	/** Le lignage complet du créneau — `null` quand il n'a qu'une révision. */
+	lineage: RevisionLineage | null;
+}
+
+/** Le lien vers une révision précise d'un créneau. */
+export function revisionHref(periodSlot: string, revision: number): string {
+	return `${reportHref(periodSlot)}?revision=${revision}`;
 }
 
 /**
@@ -412,15 +461,22 @@ export function buildReportView(input: {
 	slo: SloVerdict;
 	readiness: PublicationReadiness | null;
 	report: WeeklyReport;
+	revision?: number;
+	revisionCount?: number;
+	revisionReason?: string | null;
+	/** Le lignage du créneau, tel que `describeLineage` le rend. */
+	lineage?: RevisionLineage | null;
 }): ReportView {
 	const { report } = input;
+	const revision = input.revision ?? 1;
+	const revisionCount = input.revisionCount ?? 1;
 	return {
 		periodSlot: input.periodSlot,
 		slotLabel: formatSlotLabel(input.periodSlot),
 		status: input.status,
 		statusNote: STATUS_NOTE[input.status],
 		slo: input.slo,
-		sloLabel: describeSlo(input.slo, input.readiness?.deadlineMinutes ?? null),
+		sloLabel: describeSlo(input.slo, input.readiness?.deadlineMinutes ?? null, revisionCount),
 		publishedAt: input.publishedAt,
 		generatedAt: report.generatedAt,
 		periodLabel: report.period.label,
@@ -430,6 +486,11 @@ export function buildReportView(input: {
 		readiness: input.readiness,
 		readinessLabel: input.readiness ? describeReadiness(input.readiness) : null,
 		sections: report.sections.map(sectionView),
-		reportSchemaVersion: input.reportSchemaVersion
+		reportSchemaVersion: input.reportSchemaVersion,
+		revision,
+		revisionCount,
+		revisionLabel: describeRevision(revision, revisionCount),
+		revisionReason: input.revisionReason ?? null,
+		lineage: input.lineage ?? null
 	};
 }

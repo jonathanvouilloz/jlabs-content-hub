@@ -20,7 +20,7 @@
  * publications du même lundi porteraient deux périodes différentes, et REP-004 comparerait des
  * semaines qui ne se recouvrent pas.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { monitoringRuns, weeklyReports } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
@@ -36,6 +36,8 @@ import {
 	currentPublicationSlot,
 	decidePublication,
 	deriveSlo,
+	deriveStatus,
+	summarizeReadiness,
 	renderPublicationAnnouncement,
 	resolvePublishDeadlineMinutes,
 	PUBLICATION_SCHEMA_VERSION,
@@ -47,6 +49,7 @@ import {
 	type PublicationStatus,
 	type SloVerdict
 } from './report-publication-state.js';
+import { decideRevision, type RevisionRefusal } from './report-history-state.js';
 
 const logger = log('report-publication');
 
@@ -233,14 +236,35 @@ export async function publishWeeklyReport(
 	const slotAtDb = toDbTimestamp(new Date(slot.instantMs));
 
 	// La garde la moins chère d'abord : une seule ligne lue, aucun run, aucun rapport construit.
+	//
+	// ⚠️ La révision COURANTE (numéro le plus haut), pas « une ligne du créneau » : depuis
+	// REP-004 un créneau peut en porter plusieurs, et la garde doit répondre « ce créneau est
+	// publié », pas « voici une de ses révisions ».
 	const existing = await db.query.weeklyReports.findFirst({
 		where: eq(weeklyReports.periodSlot, periodSlot),
-		columns: { id: true, status: true, dueAt: true, publishedAt: true }
+		orderBy: [desc(weeklyReports.revision)],
+		columns: { id: true, status: true, dueAt: true, publishedAt: true, revision: true }
 	});
 
 	const deadlineMinutes = input.deadlineMinutes ?? (await loadPublishDeadlineMinutes(db));
 
 	if (existing) {
+		// ⚠️ Le SLO est celui du CRÉNEAU, donc celui de sa PREMIÈRE publication — jamais celui
+		// d'une révision. Une révision est un geste délibéré, écrit des heures ou des jours plus
+		// tard : la mesurer contre l'échéance de 10:00 ferait passer une correction volontaire
+		// pour un retard du cron, et réviser un créneau ponctuel dégraderait sa ponctualité
+		// après coup. La lecture supplémentaire n'a lieu QUE s'il y a eu révision (167 ticks
+		// sur 168 restent à une seule ligne lue).
+		const firstPublishedAt =
+			existing.revision === 1
+				? existing.publishedAt
+				: ((
+						await db.query.weeklyReports.findFirst({
+							where: eq(weeklyReports.periodSlot, periodSlot),
+							orderBy: [asc(weeklyReports.revision)],
+							columns: { publishedAt: true }
+						})
+					)?.publishedAt ?? existing.publishedAt);
 		// Le SLO de la ligne EXISTANTE, dérivé de ce qu'elle porte — pas de l'échéance
 		// d'aujourd'hui, qui a pu changer entre-temps.
 		return {
@@ -256,7 +280,7 @@ export async function publishWeeklyReport(
 			slo: deriveSlo({
 				slotAt: slotAtDb,
 				dueAt: existing.dueAt,
-				publishedAt: existing.publishedAt,
+				publishedAt: firstPublishedAt,
 				parseMs: dbTimestampToMs
 			}),
 			announcement: null,
@@ -348,15 +372,24 @@ export async function publishWeeklyReport(
 			dueAt: dueAtDb,
 			publishedAt: publishedAtDb,
 			readinessJson: JSON.stringify(decision.readiness),
-			payloadJson: JSON.stringify(report)
+			payloadJson: JSON.stringify(report),
+			// ⭐ Le chemin AUTOMATIQUE n'écrit QUE la révision 1, et c'est ce qui préserve
+			// l'acceptation REP-003 après le déplacement de l'unique : un cron qui repasse cent
+			// fois sur le même lundi produit toujours exactement une ligne. Une révision >= 2
+			// n'existe que par un geste délibéré (`reviseWeeklyReport`) — sans cette asymétrie,
+			// un tick instable réécrirait la semaine indéfiniment et l'histoire serait du bruit.
+			revision: 1,
+			revisionReason: null,
+			supersedesId: null
 		})
-		.onConflictDoNothing({ target: weeklyReports.periodSlot })
+		.onConflictDoNothing({ target: [weeklyReports.periodSlot, weeklyReports.revision] })
 		.returning({ id: weeklyReports.id });
 
 	if (!inserted[0]) {
 		// Publication concurrente : la ligne de l'autre fait foi, on ne réécrit RIEN.
 		const winner = await db.query.weeklyReports.findFirst({
 			where: eq(weeklyReports.periodSlot, periodSlot),
+			orderBy: [desc(weeklyReports.revision)],
 			columns: { id: true, status: true, dueAt: true, publishedAt: true }
 		});
 		logger.warn('publication concurrente : la ligne existante fait foi', { periodSlot });
@@ -409,6 +442,222 @@ export async function publishWeeklyReport(
 	};
 }
 
+// ── REP-004 — La révision d'un créneau ──────────────────────────────
+
+export interface ReviseWeeklyReportResult {
+	action: 'revise' | 'refuse' | 'already_revised';
+	/** `null` quand la révision a abouti. */
+	refusal: RevisionRefusal | null;
+	note: string | null;
+	periodSlot: string;
+	/** Numéro écrit (ou existant si course). `null` en cas de refus. */
+	revision: number | null;
+	reportId: string | null;
+	/** L'id de la révision remplacée — elle reste intégralement lisible. */
+	supersedesId: string | null;
+	/** Statut de la NOUVELLE révision : c'est là qu'un `partial` peut devenir `complete`. */
+	status: PublicationStatus | null;
+	/** Statut de la révision précédente, pour lire le mouvement d'un coup d'œil. */
+	previousStatus: PublicationStatus | null;
+	readiness: PublicationReadiness | null;
+	publishedAtDb: string | null;
+	dryRun: boolean;
+}
+
+/**
+ * Régénère le rapport d'un créneau DÉJÀ publié, en ajoutant une révision.
+ *
+ * C'est l'acceptation REP-004 « régénérer un rapport ne remplace pas silencieusement
+ * l'original » : aucune ligne n'est modifiée, aucune n'est supprimée. La publication d'origine
+ * garde son statut, son heure et son payload ; la révision est une ligne de plus, qui porte sa
+ * raison. C'est aussi la seule réponse à la conséquence assumée de REP-003 — un `partial`
+ * publié à l'échéance ne redevenait jamais `complete`, même quand la collecte finissait à 10:30.
+ *
+ * ⭐ **Le contenu est reconstruit sur le CRÉNEAU, pas sur maintenant.** `loadWeeklyReport`
+ * reçoit `now = slot_at` (relu de la ligne d'origine, jamais recalculé) : la révision couvre
+ * donc exactement la même semaine que ce qu'elle révise. Sans cette ancre, la révision de mardi
+ * porterait une période décalée d'un jour, et comparer les deux révisions comparerait deux
+ * semaines qui ne se recouvrent pas — la comparaison de REP-004 n'aurait alors plus de sujet.
+ *
+ * ⚠️ **Ni `slot_at` ni `due_at` ne sont recalculés** : ils sont recopiés de la révision 1.
+ * `due_at` en particulier est le fait « ce qui avait été promis ce jour-là » — le recalculer
+ * avec l'échéance d'aujourd'hui réécrirait après coup ce que le créneau devait tenir.
+ *
+ * Idempotence par la CONTRAINTE : `onConflictDoNothing` sur (period_slot, revision). Deux
+ * révisions concurrentes n'en écrivent qu'une, la seconde rend `already_revised`.
+ */
+export async function reviseWeeklyReport(input: {
+	db: AppDb;
+	periodSlot: string;
+	reason: string | null;
+	/** Instant d'écriture. Injecté par les preuves ; l'app prend l'heure réelle. */
+	now?: Date;
+	dryRun?: boolean;
+}): Promise<ReviseWeeklyReportResult> {
+	const db = input.db;
+	const now = input.now ?? new Date();
+	const dryRun = input.dryRun === true;
+	const periodSlot = input.periodSlot;
+
+	const current = await db.query.weeklyReports.findFirst({
+		where: eq(weeklyReports.periodSlot, periodSlot),
+		orderBy: [desc(weeklyReports.revision)],
+		columns: {
+			id: true,
+			revision: true,
+			status: true,
+			slotAt: true,
+			dueAt: true,
+			readinessJson: true
+		}
+	});
+
+	const decision = decideRevision({
+		current: current ? { id: current.id, revision: current.revision } : null,
+		reason: input.reason
+	});
+
+	if (decision.action === 'refuse') {
+		return {
+			action: 'refuse',
+			refusal: decision.refusal,
+			note: decision.note,
+			periodSlot,
+			revision: null,
+			reportId: null,
+			supersedesId: null,
+			status: null,
+			previousStatus: (current?.status as PublicationStatus) ?? null,
+			readiness: null,
+			publishedAtDb: null,
+			dryRun
+		};
+	}
+	// `decideRevision` n'accepte que si `current` existe — TypeScript ne le déduit pas.
+	if (!current) throw new Error('état impossible');
+
+	const slotAtMs = dbTimestampToMs(current.slotAt);
+	if (!Number.isFinite(slotAtMs)) {
+		throw new Error(`slot_at illisible sur le créneau ${periodSlot} : ${current.slotAt}`);
+	}
+
+	// La préparation est recalculée MAINTENANT — c'est tout l'intérêt : les runs qui ont fini
+	// entre-temps sont enfin comptés. Le périmètre, lui, reste celui du créneau.
+	const deadlineMinutes = resolveDeadlineFromReadiness(current.readinessJson);
+	const projects = await loadSlotReadiness({ db, periodSlot, now });
+	const readiness = summarizeReadiness({ periodSlot, deadlineMinutes, projects });
+	const status = deriveStatus(readiness);
+	const report = await loadWeeklyReport({ db, now: new Date(slotAtMs) });
+	const publishedAtDb = toDbTimestamp(now);
+
+	if (dryRun) {
+		return {
+			action: 'revise',
+			refusal: null,
+			note: null,
+			periodSlot,
+			revision: decision.revision,
+			reportId: null,
+			supersedesId: decision.supersedesId,
+			status,
+			previousStatus: current.status as PublicationStatus,
+			readiness,
+			publishedAtDb,
+			dryRun
+		};
+	}
+
+	const id = createId();
+	const inserted = await db
+		.insert(weeklyReports)
+		.values({
+			id,
+			periodSlot,
+			status,
+			schemaVersion: PUBLICATION_SCHEMA_VERSION,
+			reportSchemaVersion: REPORT_SCHEMA_VERSION,
+			// Recopiés, jamais recalculés : ce sont les faits du créneau, pas ceux d'aujourd'hui.
+			slotAt: current.slotAt,
+			dueAt: current.dueAt,
+			publishedAt: publishedAtDb,
+			readinessJson: JSON.stringify(readiness),
+			payloadJson: JSON.stringify(report),
+			revision: decision.revision,
+			revisionReason: decision.reason,
+			supersedesId: decision.supersedesId
+		})
+		.onConflictDoNothing({ target: [weeklyReports.periodSlot, weeklyReports.revision] })
+		.returning({ id: weeklyReports.id });
+
+	if (!inserted[0]) {
+		logger.warn('révision concurrente : la ligne existante fait foi', {
+			periodSlot,
+			revision: decision.revision
+		});
+		return {
+			action: 'already_revised',
+			refusal: null,
+			note: 'une révision portant ce numéro existe déjà : rien n’a été écrit.',
+			periodSlot,
+			revision: decision.revision,
+			reportId: null,
+			supersedesId: decision.supersedesId,
+			status: null,
+			previousStatus: current.status as PublicationStatus,
+			readiness,
+			publishedAtDb: null,
+			dryRun
+		};
+	}
+
+	logger.info('rapport hebdomadaire révisé', {
+		periodSlot,
+		revision: decision.revision,
+		supersedes: decision.supersedesId,
+		previousStatus: current.status,
+		status,
+		reason: decision.reason,
+		expected: readiness.expected,
+		ready: readiness.ready,
+		blockers: readiness.blockers.length
+	});
+
+	return {
+		action: 'revise',
+		refusal: null,
+		note: null,
+		periodSlot,
+		revision: decision.revision,
+		reportId: inserted[0].id,
+		supersedesId: decision.supersedesId,
+		status,
+		previousStatus: current.status as PublicationStatus,
+		readiness,
+		publishedAtDb,
+		dryRun
+	};
+}
+
+/**
+ * L'échéance qui s'appliquait AU CRÉNEAU, relue dans sa préparation persistée.
+ *
+ * ⚠️ Surtout pas `loadPublishDeadlineMinutes` : ce réglage peut avoir changé depuis. La
+ * révision doit décrire le périmètre du créneau avec les règles du créneau — sinon un
+ * changement d'échéance réécrirait, dans le `readiness_json` d'une révision, une promesse qui
+ * n'a jamais été faite. Défaut du code si la préparation est illisible (elle est déjà tolérée
+ * `null` par `toMeta`).
+ */
+function resolveDeadlineFromReadiness(readinessJson: string): number {
+	try {
+		const parsed = JSON.parse(readinessJson) as PublicationReadiness;
+		if (typeof parsed?.deadlineMinutes === 'number') return parsed.deadlineMinutes;
+	} catch {
+		// Une préparation illisible ne doit pas empêcher de réviser : c'est le PAYLOAD qui porte
+		// la valeur du rapport.
+	}
+	return resolvePublishDeadlineMinutes(null);
+}
+
 // ── Lecture (« accessible après restart ») ──────────────────────────
 
 export interface PublishedReportMeta {
@@ -419,9 +668,24 @@ export interface PublishedReportMeta {
 	reportSchemaVersion: number;
 	slotAt: string;
 	dueAt: string;
+	/** Écriture de CETTE révision. */
 	publishedAt: string;
+	/** REP-004 — numéro de révision de cette ligne. `1` = la publication automatique. */
+	revision: number;
+	/** `null` sur la révision 1. */
+	revisionReason: string | null;
+	supersedesId: string | null;
+	/**
+	 * Écriture de la PREMIÈRE publication du créneau — la moitié du SLO.
+	 *
+	 * ⚠️ Distinct de `publishedAt` dès qu'il y a eu révision, et c'est tout le sujet : le SLO
+	 * mesure la ponctualité du cron sur le créneau, pas la date d'une correction volontaire.
+	 */
+	firstPublishedAt: string;
+	/** Nombre de révisions existantes pour ce créneau (>= 1). */
+	revisionCount: number;
 	readiness: PublicationReadiness | null;
-	/** DÉRIVÉ à chaque lecture, jamais stocké. */
+	/** DÉRIVÉ à chaque lecture, jamais stocké — sur `firstPublishedAt`. */
 	slo: SloVerdict;
 }
 
@@ -429,7 +693,7 @@ export interface PublishedReport extends PublishedReportMeta {
 	report: WeeklyReport;
 }
 
-function toMeta(row: {
+interface ReportRow {
 	id: string;
 	periodSlot: string;
 	status: string;
@@ -439,7 +703,18 @@ function toMeta(row: {
 	dueAt: string;
 	publishedAt: string;
 	readinessJson: string;
-}): PublishedReportMeta {
+	revision: number;
+	revisionReason: string | null;
+	supersedesId: string | null;
+}
+
+/** Ce que le créneau porte AUTOUR de la ligne lue : sa première publication et son compte. */
+interface SlotHistory {
+	firstPublishedAt: string;
+	revisionCount: number;
+}
+
+function toMeta(row: ReportRow, history?: SlotHistory): PublishedReportMeta {
 	let readiness: PublicationReadiness | null = null;
 	try {
 		readiness = JSON.parse(row.readinessJson) as PublicationReadiness;
@@ -448,6 +723,10 @@ function toMeta(row: {
 		// PAYLOAD qui porte la valeur. L'absence se voit (`null`), elle ne se devine pas.
 		readiness = null;
 	}
+	// Sans histoire fournie, la ligne est sa propre origine : vrai par construction sur la
+	// révision 1, et le seul repli honnête sur les autres (mieux vaut le SLO de la ligne lue
+	// qu'un verdict inventé).
+	const firstPublishedAt = history?.firstPublishedAt ?? row.publishedAt;
 	return {
 		id: row.id,
 		periodSlot: row.periodSlot,
@@ -457,52 +736,179 @@ function toMeta(row: {
 		slotAt: row.slotAt,
 		dueAt: row.dueAt,
 		publishedAt: row.publishedAt,
+		revision: row.revision,
+		revisionReason: row.revisionReason,
+		supersedesId: row.supersedesId,
+		firstPublishedAt,
+		revisionCount: history?.revisionCount ?? 1,
 		readiness,
+		// ⚠️ Sur `firstPublishedAt`, pas sur `publishedAt` : le SLO est celui du CRÉNEAU. Une
+		// révision écrite le mercredi ne dégrade pas la ponctualité du lundi, et ne la répare
+		// pas non plus.
 		slo: deriveSlo({
 			slotAt: row.slotAt,
 			dueAt: row.dueAt,
-			publishedAt: row.publishedAt,
+			publishedAt: firstPublishedAt,
 			parseMs: dbTimestampToMs
 		})
 	};
 }
 
+/** Colonnes de lecture — `payload_json` EXCLU (plusieurs dizaines de kio par rapport). */
+const META_COLUMNS = {
+	id: weeklyReports.id,
+	periodSlot: weeklyReports.periodSlot,
+	status: weeklyReports.status,
+	schemaVersion: weeklyReports.schemaVersion,
+	reportSchemaVersion: weeklyReports.reportSchemaVersion,
+	slotAt: weeklyReports.slotAt,
+	dueAt: weeklyReports.dueAt,
+	publishedAt: weeklyReports.publishedAt,
+	readinessJson: weeklyReports.readinessJson,
+	revision: weeklyReports.revision,
+	revisionReason: weeklyReports.revisionReason,
+	supersedesId: weeklyReports.supersedesId
+} as const;
+
 /**
- * Les derniers rapports publiés, SANS leur payload.
+ * L'histoire d'un ou plusieurs créneaux, en une requête.
+ *
+ * ⚠️ La première publication est celle de la RÉVISION 1, pas le `min(published_at)` du créneau :
+ * les deux coïncident aujourd'hui, et divergeraient le jour où une révision serait écrite avec
+ * une horloge décalée. Le repli sur `min` ne sert qu'au cas où la révision 1 aurait été purgée
+ * (rétention, lot 2) — auquel cas la plus ancienne ligne restante est le meilleur fait
+ * disponible, et il vaut mieux qu'un SLO absent.
+ */
+async function loadSlotHistories(db: AppDb, slots: readonly string[]): Promise<Map<string, SlotHistory>> {
+	if (slots.length === 0) return new Map();
+	const res = await db.execute(sql`
+		SELECT period_slot,
+		       COALESCE(min(published_at) FILTER (WHERE revision = 1), min(published_at)) AS first_published_at,
+		       count(*)::int AS revision_count
+		  FROM "seostats"."weekly_reports"
+		 WHERE period_slot IN (${sql.join(
+				slots.map((s) => sql`${s}`),
+				sql`, `
+			)})
+		 GROUP BY period_slot
+	`);
+	const out = new Map<string, SlotHistory>();
+	for (const raw of res.rows ?? []) {
+		const row = raw as unknown as {
+			period_slot: string;
+			first_published_at: string;
+			revision_count: number;
+		};
+		out.set(row.period_slot, {
+			firstPublishedAt: row.first_published_at,
+			revisionCount: Number(row.revision_count)
+		});
+	}
+	return out;
+}
+
+/**
+ * Les derniers créneaux publiés, SANS leur payload — un par créneau, sa révision COURANTE.
  *
  * Le JSON d'un rapport pèse plusieurs dizaines de kilo-octets (jusqu'à 200 items par section) :
  * une liste qui les chargerait tous ferait payer à l'écran de listing le prix de douze rapports
  * complets pour n'afficher que douze dates. Le payload se lit à l'unité (`loadPublishedReport`).
+ *
+ * ⚠️ `limit` compte des CRÉNEAUX, pas des lignes : depuis REP-004 un créneau peut en porter
+ * plusieurs, et lire « les 12 dernières lignes » afficherait trois fois le même lundi le jour
+ * où il aura été révisé deux fois.
  */
 export async function listPublishedReports(input: {
 	db?: AppDb;
 	limit?: number;
 }): Promise<PublishedReportMeta[]> {
 	const db = await resolveDb(input.db);
-	const rows = await db
-		.select({
-			id: weeklyReports.id,
-			periodSlot: weeklyReports.periodSlot,
-			status: weeklyReports.status,
-			schemaVersion: weeklyReports.schemaVersion,
-			reportSchemaVersion: weeklyReports.reportSchemaVersion,
-			slotAt: weeklyReports.slotAt,
-			dueAt: weeklyReports.dueAt,
-			publishedAt: weeklyReports.publishedAt,
-			readinessJson: weeklyReports.readinessJson
-		})
+	const limit = Math.max(1, Math.min(input.limit ?? 12, 100));
+
+	// 1. Les créneaux (jamais les lignes), du plus récent au plus ancien. `period_slot` est
+	//    lexicalement chronologique (`YYYY-MM-DDTHH:MM`), ce qui rend le tri exact sans parse.
+	const slotRows = await db
+		.select({ periodSlot: weeklyReports.periodSlot })
 		.from(weeklyReports)
+		.groupBy(weeklyReports.periodSlot)
 		.orderBy(desc(weeklyReports.periodSlot))
-		.limit(Math.max(1, Math.min(input.limit ?? 12, 100)));
-	return rows.map(toMeta);
+		.limit(limit);
+	const slots = slotRows.map((r) => r.periodSlot);
+	if (slots.length === 0) return [];
+
+	// 2. Toutes leurs révisions (peu nombreuses), et l'histoire de chaque créneau.
+	const [rows, histories] = await Promise.all([
+		db
+			.select(META_COLUMNS)
+			.from(weeklyReports)
+			.where(inArray(weeklyReports.periodSlot, slots))
+			.orderBy(desc(weeklyReports.periodSlot), desc(weeklyReports.revision)),
+		loadSlotHistories(db, slots)
+	]);
+
+	// La révision courante = le numéro le plus haut. Le tri l'a placée en tête de son créneau.
+	const seen = new Set<string>();
+	const out: PublishedReportMeta[] = [];
+	for (const row of rows) {
+		if (seen.has(row.periodSlot)) continue;
+		seen.add(row.periodSlot);
+		out.push(toMeta(row, histories.get(row.periodSlot)));
+	}
+	return out;
 }
 
 /**
- * Un rapport publié, payload compris. `periodSlot` absent = le plus récent.
+ * Le créneau publié juste AVANT celui-ci, ou `null` s'il n'y en a pas.
+ *
+ * ⚠️ « Le précédent » se prend sur le CRÉNEAU (`period_slot`), jamais sur `published_at` : un
+ * rapport publié en retard reste celui de sa semaine, et trier par date d'écriture ferait
+ * comparer deux fois la même semaine le jour où une publication rattrape la précédente.
+ */
+export async function findPreviousSlot(input: {
+	db?: AppDb;
+	periodSlot: string;
+}): Promise<{ periodSlot: string; revision: number } | null> {
+	const db = await resolveDb(input.db);
+	const rows = await db
+		.select({ periodSlot: weeklyReports.periodSlot, revision: weeklyReports.revision })
+		.from(weeklyReports)
+		.where(sql`${weeklyReports.periodSlot} < ${input.periodSlot}`)
+		.orderBy(desc(weeklyReports.periodSlot), desc(weeklyReports.revision))
+		.limit(1);
+	return rows[0] ?? null;
+}
+
+/**
+ * Toutes les révisions d'un créneau, de la plus ancienne à la plus récente, SANS payload.
+ *
+ * C'est la preuve lisible que « régénérer ne remplace pas » : l'original est là, avec son
+ * statut d'origine et son heure d'origine.
+ */
+export async function listReportRevisions(input: {
+	db?: AppDb;
+	periodSlot: string;
+}): Promise<PublishedReportMeta[]> {
+	const db = await resolveDb(input.db);
+	const [rows, histories] = await Promise.all([
+		db
+			.select(META_COLUMNS)
+			.from(weeklyReports)
+			.where(eq(weeklyReports.periodSlot, input.periodSlot))
+			.orderBy(asc(weeklyReports.revision)),
+		loadSlotHistories(db, [input.periodSlot])
+	]);
+	return rows.map((row) => toMeta(row, histories.get(row.periodSlot)));
+}
+
+/**
+ * Un rapport publié, payload compris. `periodSlot` absent = le créneau le plus récent ;
+ * `revision` absent = la révision COURANTE de ce créneau.
  *
  * C'est l'acceptation « il reste accessible après restart » : aucune reconstruction, aucun
  * appel provider, aucune dépendance à l'état courant de la base — le JSON rendu est
- * exactement celui qui a été publié.
+ * exactement celui qui a été publié. Et depuis REP-004, `revision` rend l'ORIGINAL d'un
+ * créneau révisé tout aussi accessible : « ne remplace pas silencieusement » n'aurait aucun
+ * sens si la ligne conservée n'était pas relisible.
  *
  * Lève si le payload est illisible : un rapport archivé qu'on ne sait plus relire est une
  * anomalie à voir tout de suite, pas un `null` à interpréter comme « pas encore publié ».
@@ -510,25 +916,26 @@ export async function listPublishedReports(input: {
 export async function loadPublishedReport(input: {
 	db?: AppDb;
 	periodSlot?: string;
+	revision?: number;
 }): Promise<PublishedReport | null> {
 	const db = await resolveDb(input.db);
-	const base = db
-		.select({
-			id: weeklyReports.id,
-			periodSlot: weeklyReports.periodSlot,
-			status: weeklyReports.status,
-			schemaVersion: weeklyReports.schemaVersion,
-			reportSchemaVersion: weeklyReports.reportSchemaVersion,
-			slotAt: weeklyReports.slotAt,
-			dueAt: weeklyReports.dueAt,
-			publishedAt: weeklyReports.publishedAt,
-			readinessJson: weeklyReports.readinessJson,
-			payloadJson: weeklyReports.payloadJson
-		})
-		.from(weeklyReports);
-	const rows = input.periodSlot
-		? await base.where(eq(weeklyReports.periodSlot, input.periodSlot)).limit(1)
-		: await base.orderBy(desc(weeklyReports.periodSlot)).limit(1);
+	const columns = { ...META_COLUMNS, payloadJson: weeklyReports.payloadJson };
+
+	// Sans créneau : le plus récent. Le tri porte sur (créneau, révision) — sans la seconde
+	// clé, « le dernier rapport » aurait pu être une vieille révision du bon créneau.
+	const where =
+		input.periodSlot === undefined
+			? undefined
+			: input.revision === undefined
+				? eq(weeklyReports.periodSlot, input.periodSlot)
+				: and(
+						eq(weeklyReports.periodSlot, input.periodSlot),
+						eq(weeklyReports.revision, input.revision)
+					);
+	const query = db.select(columns).from(weeklyReports);
+	const rows = await (where ? query.where(where) : query)
+		.orderBy(desc(weeklyReports.periodSlot), desc(weeklyReports.revision))
+		.limit(1);
 	const row = rows[0];
 	if (!row) return null;
 
@@ -537,10 +944,11 @@ export async function loadPublishedReport(input: {
 		report = JSON.parse(row.payloadJson) as WeeklyReport;
 	} catch (err) {
 		throw new Error(
-			`Rapport ${row.periodSlot} illisible (payload_json corrompu) : ${
+			`Rapport ${row.periodSlot} (révision ${row.revision}) illisible (payload_json corrompu) : ${
 				err instanceof Error ? err.message : String(err)
 			}`
 		);
 	}
-	return { ...toMeta(row), report };
+	const histories = await loadSlotHistories(db, [row.periodSlot]);
+	return { ...toMeta(row, histories.get(row.periodSlot)), report };
 }

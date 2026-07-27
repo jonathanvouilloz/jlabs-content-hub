@@ -90,6 +90,16 @@
 								>
 									{row.sloLabel}
 								</span>
+								{#if row.revisionCount > 1}
+									<!-- REP-004 : la ligne montre la révision COURANTE ; les précédentes restent
+									     lisibles depuis le détail. Le badge existe pour qu'un créneau révisé ne
+									     se lise pas comme un créneau publié une seule fois. -->
+									<span
+										class="inline-flex items-center rounded-md border border-surface-200 bg-surface-50 px-1.5 py-0.5 text-[10px] font-medium text-surface-600"
+									>
+										rév. {row.revision}/{row.revisionCount}
+									</span>
+								{/if}
 							</div>
 							{#if row.readinessLabel}
 								<p class="text-[11px] text-surface-500">{row.readinessLabel}</p>
@@ -99,6 +109,9 @@
 								</p>
 							{/if}
 							<p class="text-[11px] text-surface-400">{row.statusNote}</p>
+							{#if row.revisionLabel}
+								<p class="text-[11px] text-surface-500">{row.revisionLabel}</p>
+							{/if}
 						</div>
 						<div class="flex flex-shrink-0 items-center gap-2 text-[11px] text-surface-400">
 							<span class="font-mono">publié {row.publishedAt}</span>
@@ -110,8 +123,9 @@
 		</ul>
 
 		<p class="text-[11px] text-surface-400">
-			Les 12 derniers créneaux. Un créneau republié est un no-op (REP-003) : cette liste porte une
-			ligne par semaine, jamais deux.
+			Les 12 derniers créneaux — une ligne par semaine, jamais deux : le tick ne publie qu'une
+			révision par créneau. Un créneau régénéré (REP-004) affiche sa révision COURANTE ; les
+			précédentes restent lisibles depuis son détail.
 		</p>
 	{/if}
 </div>

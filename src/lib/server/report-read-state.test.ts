@@ -132,7 +132,10 @@ describe('summarizeReportList — tout est repris, rien n’est recalculé', () 
 		expect(row.sloLabel).toBe('SLO manqué de 47 min');
 	});
 
-	it('un `partial` porte la réserve REP-004 : republier est un no-op', () => {
+	it('un `partial` dit le GESTE (une révision peut le compléter), plus l’impasse', () => {
+		// La phrase disait « republier est un no-op, un partiel ne redevient jamais complet »
+		// (réserve REP-003). REP-004 lot 1 l'a rendue fausse : la révision existe. L'écran ne
+		// promet rien d'automatique pour autant — réviser reste un geste délibéré.
 		const [row] = summarizeReportList([
 			{
 				periodSlot: '2026-07-27T09:00',
@@ -142,7 +145,9 @@ describe('summarizeReportList — tout est repris, rien n’est recalculé', () 
 				slo: SLO_MET
 			}
 		]);
-		expect(row.statusNote).toContain('no-op');
+		expect(row.statusNote).toContain('révision');
+		expect(row.statusNote).toContain('délibéré');
+		expect(row.statusNote).not.toContain('no-op');
 		// CONTRE-ÉPREUVE : un rapport complet ne porte aucune réserve.
 		const [complete] = summarizeReportList([
 			{
@@ -153,7 +158,39 @@ describe('summarizeReportList — tout est repris, rien n’est recalculé', () 
 				slo: SLO_MET
 			}
 		]);
-		expect(complete.statusNote).not.toContain('no-op');
+		expect(complete.statusNote).not.toContain('révision');
+	});
+
+	it('REP-004 — un créneau révisé le DIT, et son SLO nomme la publication d’origine', () => {
+		const [row] = summarizeReportList([
+			{
+				periodSlot: '2026-07-27T09:00',
+				status: 'complete',
+				publishedAt: '2026-07-29 14:00:00',
+				readiness: readiness(),
+				slo: SLO_MET,
+				revision: 2,
+				revisionCount: 2
+			}
+		]);
+		expect(row.revisionLabel).toContain('Révision 2/2');
+		// ⚠️ Sans ce rappel, « SLO tenu » au-dessus d'une ligne datée du mercredi se lirait comme
+		// la ponctualité de la révision, alors qu'il mesure celle du lundi.
+		expect(row.sloLabel).toContain('publication d’origine');
+
+		// CONTRE-ÉPREUVE : un créneau jamais révisé ne raconte rien et ne qualifie pas son SLO.
+		const [once] = summarizeReportList([
+			{
+				periodSlot: '2026-07-20T09:00',
+				status: 'complete',
+				publishedAt: '2026-07-20 09:05:00',
+				readiness: readiness(),
+				slo: SLO_MET
+			}
+		]);
+		expect(once.revisionLabel).toBeNull();
+		expect(once.revision).toBe(1);
+		expect(once.sloLabel).not.toContain('origine');
 	});
 
 	it('nomme les projets écartés par une pause, à part des incidents', () => {
@@ -295,7 +332,13 @@ describe('sectionView — une section absente n’a PAS de corps', () => {
 
 	it('une section présente recopie ses items et ses métriques sans les retrier', () => {
 		const metrics = [
-			{ label: 'Nouveaux', value: 3, display: '3', source: observationSource('findings') }
+			{
+				key: 'findings.new',
+				label: 'Nouveaux',
+				value: 3,
+				display: '3',
+				source: observationSource('findings')
+			}
 		];
 		const items = [item('b'), item('a')];
 		const view = sectionView(section({ body: present(body({ metrics, items })) }));

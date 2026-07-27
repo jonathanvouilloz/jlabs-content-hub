@@ -1202,20 +1202,35 @@ Acceptation :
 
 ## REP-004 — Historique, comparaison et archivage
 
-**Priorité :** P1 · **Taille :** M · **État :** READY (débloqué par REP-001, 2026-07-27) · **Dépendances :** REP-001
+**Priorité :** P1 · **Taille :** M · **État :** **lot 1 DONE (2026-07-27)** · lot 2 READY · **Dépendances :** REP-001
 
 Travail :
 
-- versionner données, template et agent ;
-- comparer deux rapports ;
-- archiver décisions et outcomes ;
-- adapter `seo-archive` à ce rôle.
+- versionner données, template et agent ; ✅ (lot 1 — `ReportMetric.key`, schéma de rapport 2)
+- comparer deux rapports ; ✅ (lot 1 — `compareReports`, axes `slot` et `revision`)
+- archiver décisions et outcomes ; ✅ (lot 1 — révisions : `revision`, `revision_reason`, `supersedes_id`)
+- adapter `seo-archive` à ce rôle. ⏳ **lot 2**
+
+> **Lot 1 livré :** la RÉVISION d'un créneau et la COMPARAISON de deux rapports publiés. Un seul
+> DDL, **aucune table** (61) : l'unique passe de `(period_slot)` à `(period_slot, revision)`, et
+> « un seul rapport logique par semaine » (acceptation REP-003) se déplace dans le code — le
+> chemin AUTOMATIQUE n'écrit **jamais que `revision = 1`**. ⭐ Une section qui change de
+> disponibilité ne porte **aucun champ chiffré** : un provider branché ne peut pas s'afficher
+> `+13`, un provider tombé ne peut pas s'afficher `−13`. ⭐ Les métriques s'apparient sur une
+> **clé**, jamais sur leur libellé (celui de la métrique L4 contient un nombre qui change chaque
+> semaine). ⚠️ Le SLO d'un créneau se dérive de sa **première** publication : réviser ne réécrit
+> pas la ponctualité du cron.
+>
+> **Lot 2 (reste) :** rétention du détail (purger `payload_json` au-delà de N semaines en gardant
+> la ligne et ses liens) et adaptation de `/seo-archive`. Volontairement différé : écrire une
+> politique de purge pour une table qui compte **0 ligne** serait de la spéculation.
 
 Acceptation :
 
-- régénérer un rapport ne remplace pas silencieusement l'original ;
-- les changements de template sont traçables ;
-- les liens restent valides après rétention du détail.
+- régénérer un rapport ne remplace pas silencieusement l'original ; ✅ **lot 1**
+- les changements de template sont traçables ; ✅ **lot 1** (schéma versionné, sections hors
+  plan nommées, métriques renommées signalées)
+- les liens restent valides après rétention du détail. ⏳ **lot 2**
 
 ## REP-005 — Template de rapport client
 

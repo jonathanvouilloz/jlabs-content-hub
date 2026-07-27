@@ -4,6 +4,97 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (REP-004 lot 1 — un rapport publié cesse d'être un cul-de-sac)
+
+**Fait :** la **révision** d'un créneau et la **comparaison** de deux rapports publiés.
+REP-003 avait écrit dans son propre DDL la conséquence qu'il assumait : « un rapport publié
+`partial` à l'échéance ne devient jamais `complete`, même si la collecte finit à 10:30 — la
+révision est un lot à part, et elle AJOUTERA des lignes. » C'est ce lot. **Un seul DDL, aucune
+table** (61) : trois colonnes, un unique déplacé, un CHECK.
+
+- **⭐ LE point du lot : « ne remplace pas silencieusement » cesse d'être une abstention pour
+  devenir une FORME.** Jusqu'ici l'acceptation était tenue en ne faisant rien — republier était
+  un no-op. C'était vrai et inutile : le seul moyen de ne pas écraser l'original était de ne
+  jamais corriger le rapport. L'unique passe de `(period_slot)` à
+  `(period_slot, revision)`, et « un seul rapport logique par semaine » se déplace dans le
+  **code** : le chemin AUTOMATIQUE — `publishWeeklyReport`, celui du tick — n'écrit **jamais
+  que `revision = 1`**, `onConflictDoNothing` sur le couple. Un cron qui repasse cent fois sur
+  le même lundi produit toujours exactement une ligne (prouvé) ; une révision ≥ 2 n'existe que
+  par un geste délibéré. Sans cette asymétrie, un tick instable réécrirait la semaine
+  indéfiniment et l'histoire serait du bruit. L'original garde son id, son statut, son heure et
+  son payload **octet pour octet** (29 599 caractères comparés en base, §A).
+- **⭐ Une disponibilité qui change n'est PAS un écart — le troisième endroit où « absent ≠
+  zéro » se défait, et le seul où il produit un MOUVEMENT inventé.** REP-001 l'a rendu
+  structurel dans le rapport, DASH-003 l'a porté à l'écran ; la comparaison est le maillon
+  suivant, et le plus coûteux : une section `not_wired` la semaine dernière et remplie cette
+  semaine annoncerait **+13**, un provider tombé en panne annoncerait **−13** — donc « treize
+  problèmes résolus » pour une collecte morte. `SectionComparison` est donc une union dont les
+  variantes `became_available` / `became_absent` **ne portent aucun champ chiffré** : il n'y a
+  pas de case où un delta pourrait vivre. Vérifié sur le parc réel — `indexation` et
+  `traffic_conversions` sortent `both_absent` **sans métriques, sans items, sans « delta » nulle
+  part dans le JSON**, pendant que **10 sections comparables** portent bien les leurs.
+- **⭐ La comparaison n'apparie jamais sur de la PROSE.** `ReportMetric` gagne une `key`
+  (schéma de rapport **1 → 2**), et ce n'est pas de l'hygiène : le libellé de la métrique L4
+  est `dont L4 (humain obligatoire), parmi les 12 listées` — **le nombre bouge chaque
+  semaine**. Apparié sur son texte, il aurait annoncé une métrique disparue et une métrique
+  apparue à chaque comparaison, pour une section qui n'a pas bougé. La clé identifie, le
+  libellé raconte : un libellé réécrit devient un **renommage traçable** (`renamed: true`), pas
+  une rupture de série. Les compteurs tirent leur clé du **descripteur** qui produit déjà leur
+  lien (`counterKey`) — **sans `sinceDb` ni `projectSlug`**, qui changent chaque lundi.
+- **⭐ Trois refus de chiffrer, tous pour la même raison.** (1) **Sections d'ACTIVITÉ** : leurs
+  items sont les événements de la période — un finding absent cette semaine n'est pas sorti, il
+  a cessé d'être *nouveau*. Compter le mouvement ferait lire douze résolutions là où douze
+  findings ont seulement vieilli : aucun mouvement d'items, seuls les compteurs se comparent.
+  (2) **Listes PLAFONNÉES** (15 items/section) : un item présent des deux côtés mais hors
+  plafond d'un seul se lirait « entré » ou « sorti » — un mouvement fabriqué par une limite
+  d'affichage, jumeau exact de ce que FIND-005 refuse. (3) **Schéma ou fenêtre différents** :
+  la structure reste lisible, les valeurs restent affichées, seul l'ÉCART est refusé
+  (doctrine GSC-004).
+- **Le SLO du créneau ne se réécrit pas.** Il se dérive de la **première** publication, pas de
+  la ligne lue : une révision écrite 30 h après le créneau afficherait sinon 30 h de retard, et
+  une correction volontaire dégraderait après coup la ponctualité du cron. Prouvé (§D : 1 min
+  avant, 1 min après trois révisions), et la phrase le **nomme** (« publication d'origine »)
+  uniquement sur un créneau révisé.
+- **Une révision porte toujours sa raison** — refusée par le modèle pur *avant* de reconstruire
+  le rapport, **et** par la base (`weekly_reports_revision_reason_check`). Une révision muette
+  serait un remplacement silencieux qui a simplement gardé l'ancienne ligne.
+
+**Vérifs :** 1398 tests (**+36**, dont 35 sur `report-history-state`) · `npm run check` 0 erreur /
+42 warnings (baseline) · `scripts/rep-004-history-proof.ts` **37/37 sur Neon**, base rendue à
+l'identique (rapports 0→0, **61 tables**) · non-régression `rep-003-publication` (colonnes
+épinglées 11→14), `dash-003-reports`, `rep-001-report` — **0 échec chacune**.
+
+**Prochain :** **REP-004 lot 2** (rétention du détail + `/seo-archive`, la 3ᵉ acceptation) ou le
+**portage de `/positions` sur le canon** (ex-onglet « Mots-clés »).
+
+**Pièges :**
+- **⚠️ Le lot ne couvre que 2 acceptations sur 3.** « Les liens restent valides après rétention
+  du détail » demande une politique de rétention — écrite pour une table qui compte **0 ligne**,
+  elle serait de la spéculation. Lot 2, avec l'adaptation de `/seo-archive`.
+- **⚠️ Le schéma de rapport est passé à 2, et aucun rapport de schéma 1 n'existe** (la table est
+  vide). Le chemin `schema_changed` est donc testé (vitest) mais **jamais exercé en base** : le
+  jour où il le sera, la comparaison affichera les deux valeurs et refusera l'écart — c'est
+  voulu, pas une panne.
+- **⚠️ `revision` ≠ `revisionCount`.** La liste affiche la révision COURANTE d'un créneau ; le
+  détail peut afficher une archive (`?revision=1`). Confondre les deux ferait croire qu'un
+  créneau n'a qu'une version.
+- **⚠️ `firstPublishedAt` et `publishedAt` ne sont pas interchangeables** : le premier est la
+  moitié du SLO, le second l'écriture de la ligne lue. Les confondre rend un SLO faux dans un
+  sens (une révision tardive « manque » le SLO) ou dans l'autre.
+- **⚠️ Le numéro de révision se dérive du MAX, jamais d'un `count(*)`** : les deux coïncident
+  tant que rien n'est purgé, et divergent silencieusement dès que la rétention (lot 2) videra
+  les plus anciennes — la révision 4 s'appellerait 3 et heurterait l'unique.
+- **⚠️ `supersedes_id` n'a PAS de FK** (volontaire) : la rétention doit pouvoir purger sans
+  choisir entre casser le lignage et ne rien pouvoir supprimer.
+- **⚠️ Ne PAS piper un script de preuve dans `head`** (rappel FIND-008/DASH-003) : le SIGPIPE
+  tue le process avant le `finally` et laisse les rapports synthétiques `1997-%` en base.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
+
+**Commit :** (à venir)
+
+---
+
 ## Etat session 2026-07-27 (DASH-003 lot 2 ch.3 — `weekly_reports` cesse d'être écrite pour personne)
 
 **Fait :** l'écran **Rapports** — `/reports` (liste des créneaux publiés) et `/reports/[slot]`

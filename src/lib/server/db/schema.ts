@@ -1777,8 +1777,7 @@ export const automationPauses = seostats.table(
 //
 // `period_slot` est le CRÉNEAU LOCAL (`2026-07-27T09:00`, Europe/Zurich), jamais un
 // instant : même clé que les runs et les jobs du scheduler (JOB-005), pour la même raison
-// (le lundi 09:00 métier est stable des deux côtés du changement d'heure). Il porte
-// l'unique — c'est LITTÉRALEMENT l'acceptation « un seul rapport logique par semaine ».
+// (le lundi 09:00 métier est stable des deux côtés du changement d'heure).
 //
 // Trois horodatages, trois faits distincts, et le SLO n'en est pas un :
 //   - `slot_at`      : l'instant du créneau (09:00 local) — la référence du contenu ;
@@ -1788,11 +1787,16 @@ export const automationPauses = seostats.table(
 // « honorée » d'IDX-004 et l'expiration d'un snooze : un booléen persisté serait un second
 // état à tenir à jour, qui divergerait dès que l'échéance changerait.
 //
-// AUCUN `UPDATE` : republier un créneau déjà publié est un NO-OP (`onConflictDoNothing`),
-// jamais un écrasement. C'est la graine de REP-004 (« régénérer un rapport ne remplace pas
-// silencieusement l'original ») — la révision y ajoutera des lignes, pas des écritures en
-// place. Conséquence assumée : un rapport publié `partial` à l'échéance ne devient jamais
-// `complete`, même si la collecte finit à 10:30.
+// AUCUN `UPDATE`, jamais : c'est l'acceptation REP-004 « régénérer un rapport ne remplace
+// pas silencieusement l'original », et depuis REP-004 lot 1 elle est tenue par la FORME de
+// la table plutôt que par une abstention. Une régénération INSÈRE une révision (`revision`,
+// `revision_reason`, `supersedes_id`) ; l'original garde sa ligne, son statut et son heure.
+//
+// ⚠️ L'unique porte donc sur (period_slot, revision), pas sur `period_slot` seul. « Un seul
+// rapport logique par semaine » (acceptation REP-003) n'est pas perdue : elle vit dans le
+// CODE, où le chemin AUTOMATIQUE — `publishWeeklyReport`, appelé par le tick — n'écrit
+// jamais que `revision = 1`. Un cron qui repasse cent fois sur le même lundi produit
+// toujours exactement une ligne ; une révision >= 2 demande un geste délibéré et une raison.
 export const weeklyReports = seostats.table(
 	'weekly_reports',
 	{
@@ -1820,11 +1824,34 @@ export const weeklyReports = seostats.table(
 		readinessJson: text('readiness_json').notNull(),
 		/** Le rapport REP-001, tel quel. Le texte est une projection, jamais stockée. */
 		payloadJson: text('payload_json').notNull(),
+		/**
+		 * REP-004 — Numéro de révision du créneau. `1` = la publication automatique du tick.
+		 *
+		 * La révision COURANTE d'un créneau est celle qui porte le `revision` maximal ; les
+		 * précédentes restent lisibles telles qu'elles ont été publiées.
+		 */
+		revision: integer('revision').notNull().default(1),
+		/**
+		 * REP-004 — Pourquoi ce créneau a été régénéré. `null` sur la révision 1 (personne n'a
+		 * rien régénéré), **obligatoire** au-delà — contrainte
+		 * `weekly_reports_revision_reason_check`, pas une politesse de la couche métier : une
+		 * révision sans raison est un remplacement silencieux qui a gardé l'ancienne ligne.
+		 */
+		revisionReason: text('revision_reason'),
+		/**
+		 * REP-004 — L'`id` de la révision que celle-ci remplace (lignage). Volontairement SANS
+		 * clé étrangère : ce pointeur doit survivre à la rétention du détail (lot 2), qu'une FK
+		 * forcerait à choisir entre casser le lignage et ne plus rien pouvoir purger.
+		 */
+		supersedesId: text('supersedes_id'),
 		createdAt: text('created_at').notNull().default(nowText)
 	},
 	(table) => [
-		uniqueIndex('weekly_reports_period_unique').on(table.periodSlot),
-		// « Les derniers rapports » : la lecture de REP-004 et de l'onglet Rapports.
+		// L'unique porte le COUPLE : le tick n'écrit que `revision = 1` (donc une seule ligne
+		// automatique par semaine), et une révision délibérée en ajoute une, sans jamais
+		// pouvoir écraser la précédente.
+		uniqueIndex('weekly_reports_period_revision_unique').on(table.periodSlot, table.revision),
+		// « Les derniers rapports » : la lecture de l'écran Rapports.
 		index('idx_weekly_reports_published').on(table.publishedAt)
 	]
 );

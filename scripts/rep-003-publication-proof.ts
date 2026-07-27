@@ -358,6 +358,9 @@ async function main(): Promise<void> {
 	const columns = ((columnsRes.rows ?? []) as unknown as Array<{ column_name: string }>).map(
 		(r) => r.column_name
 	);
+	// ⚠️ REP-004 lot 1 en a ajouté TROIS (`revision`, `revision_reason`, `supersedes_id`). Ce
+	// sont des faits d'histoire, pas des verdicts : le SLO continue de se dériver, et l'épingle
+	// garde exactement son rôle — la prochaine colonne devra elle aussi passer par ici.
 	const EXPECTED_COLUMNS = [
 		'created_at',
 		'due_at',
@@ -367,12 +370,15 @@ async function main(): Promise<void> {
 		'published_at',
 		'readiness_json',
 		'report_schema_version',
+		'revision',
+		'revision_reason',
 		'schema_version',
 		'slot_at',
-		'status'
+		'status',
+		'supersedes_id'
 	];
 	check(
-		'l’ensemble des colonnes est exactement celui déclaré (11)',
+		'l’ensemble des colonnes est exactement celui déclaré (14)',
 		JSON.stringify(columns) === JSON.stringify(EXPECTED_COLUMNS),
 		`${columns.length} colonne(s)`
 	);

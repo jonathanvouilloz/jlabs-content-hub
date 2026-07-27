@@ -298,17 +298,32 @@ export function decidePublication(input: PublicationDecisionInput): PublicationD
 		};
 	}
 
-	const complete =
-		readiness.expected > 0 && readiness.blockers.length === 0 && readiness.degraded === 0;
-
 	return {
 		action: 'publish',
-		status: complete ? 'complete' : 'partial',
+		status: deriveStatus(readiness),
 		reason: readiness.blockers.length > 0 ? 'deadline_reached' : 'all_steps_terminal',
 		dueAtMs,
 		deadlineReached,
 		readiness
 	};
+}
+
+/**
+ * `complete` ou `partial`, à partir de la seule préparation.
+ *
+ * Extrait de `decidePublication` par REP-004 : la RÉVISION d'un créneau (`reviseWeeklyReport`)
+ * doit statuer sur la même règle sans repasser par la décision de publier — un geste délibéré
+ * n'attend pas une échéance. Deux copies de la règle auraient divergé au premier ajout d'état,
+ * et un créneau révisé aurait pu se dire `complete` là où sa publication d'origine disait
+ * `partial` sur exactement la même préparation.
+ *
+ * ⭐ `expected > 0` reste la garde : un parc entièrement suspendu (ou vide) rend `blockers` et
+ * `degraded` à zéro, et le calcul naïf annoncerait un rapport complet sur zéro projet examiné.
+ */
+export function deriveStatus(readiness: PublicationReadiness): PublicationStatus {
+	return readiness.expected > 0 && readiness.blockers.length === 0 && readiness.degraded === 0
+		? 'complete'
+		: 'partial';
 }
 
 /**
