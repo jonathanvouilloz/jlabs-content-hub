@@ -362,6 +362,8 @@ describe('SCHEDULE_CATALOG', () => {
 			'collect:url_inspection',
 			'detect:keyword_opportunity',
 			'detect:keyword_decline',
+			// FIND-006 — troisième lecteur des mêmes observations, au même niveau.
+			'detect:query_turnover',
 			'detect:index_transition',
 			'propose:actions'
 		]);
@@ -467,6 +469,22 @@ describe('SCHEDULE_CATALOG', () => {
 		expect((opportunity.dependsOn ?? []).some((d) => d.jobType === 'detect:keyword_decline')).toBe(
 			false
 		);
+	});
+
+	it('⭐ FIND-006 — le renouvellement est le TROISIÈME frère, jamais enchaîné aux deux autres', () => {
+		// Trois lecteurs des mêmes observations, aucun provider, rien à se dire. Les
+		// mettre en série ajouterait deux tours de propagation de skip (JOB-004 propage
+		// en N-1 passes) sans aucune contrepartie.
+		const weekly = catalogFor('weekly');
+		const turnover = weekly.find((e) => e.jobType === 'detect:query_turnover')!;
+		const decline = weekly.find((e) => e.jobType === 'detect:keyword_decline')!;
+		expect(turnover.dependsOn).toEqual([{ jobType: 'collect:gsc_query_page' }]);
+		expect(turnover.priority).toBe(decline.priority);
+		for (const sibling of ['detect:keyword_decline', 'detect:keyword_opportunity']) {
+			expect((turnover.dependsOn ?? []).some((d) => d.jobType === sibling)).toBe(false);
+			const other = weekly.find((e) => e.jobType === sibling)!;
+			expect((other.dependsOn ?? []).some((d) => d.jobType === 'detect:query_turnover')).toBe(false);
+		}
 	});
 
 	it('⭐ FIND-005 — le producteur de propositions ne dépend PAS du détecteur de baisses', () => {

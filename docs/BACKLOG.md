@@ -862,7 +862,13 @@ Acceptation :
 
 ## FIND-006 — Nouvelles, perdues et émergentes
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** M · **État :** ✅ DONE (2026-07-27) · **Dépendances :** FIND-001
+
+> Livré : `detect:query_turnover` — UN job, DEUX types de findings, deux closures, et
+> une **portée** (`scope`) du côté des pertes (leur fenêtre de référence glisse, donc
+> « je ne peux plus mesurer » ne doit pas se lire « c'est guéri »). Le regroupement de
+> variantes empêche les deux faux signaux symétriques (581 évités sur `barberconcept`).
+> Détail : `docs/features/e00-fondations-cockpit.md`.
 
 Travail :
 
@@ -2223,7 +2229,8 @@ Ces éléments ne bloquent pas l'objectif des 90 % et ne doivent pas retarder M1
 ### Gate M2 — Cockpit hebdomadaire
 
 - [ ] détecteurs opportunités, baisses, nouvelles requêtes, CTR et cannibalisation actifs ;
-      *(opportunités FIND-004 + baisses FIND-005 livrés ; reste FIND-006/007/008)*
+      *(opportunités FIND-004 + baisses FIND-005 + nouvelles/perdues FIND-006 livrés ;
+      reste FIND-007/008)*
 - [x] cycle de vie et fingerprints stables ; *(FIND-002/003)*
 - [x] rapport déterministe généré lundi 09:00 ; *(REP-001 + REP-003)*
 - [x] rapport disponible avant 10:00 ou marqué `partial` ; *(REP-003 — SLO mesuré, dérivé)*

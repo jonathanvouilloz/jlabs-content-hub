@@ -551,6 +551,21 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			priority: 10,
 			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
 		},
+		// FIND-006 — le renouvellement du portefeuille rejoint la fratrie : troisième
+		// lecteur des mêmes observations, sans provider, sans lien avec ses deux frères.
+		// Il produit DEUX types de findings (`new_query`, `lost_query`) depuis UNE passe,
+		// parce que chacun est la garde de l'autre — les séparer en deux jobs ferait
+		// reconstruire à chacun la moitié de l'information, et le premier décalage entre
+		// eux écrirait les deux faux signaux symétriques que le regroupement empêche.
+		//
+		// L'arête vers la collecte est **OBLIGATOIRE**, et plus littéralement ici que
+		// partout ailleurs : sans la semaine fraîche, la fenêtre courante n'a pas sa
+		// dernière semaine, et TOUT le portefeuille se lit comme perdu.
+		{
+			jobType: 'detect:query_turnover',
+			priority: 10,
+			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
+		},
 		{
 			jobType: 'detect:index_transition',
 			priority: 9,

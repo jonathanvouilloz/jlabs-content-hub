@@ -90,6 +90,9 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// par la collecte. Le classer `gsc` le mettrait au repos avec la cohorte au premier
 	// 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est déjà acquis.
 	'detect:keyword_decline': 'none',
+	// FIND-006 — même raisonnement : le détecteur de renouvellement relit
+	// `gsc_query_page_observations` et `index_observations`, toutes deux déjà payées.
+	'detect:query_turnover': 'none',
 	// IDX-005 — le détecteur de transitions ne sort PAS de Postgres : il relit
 	// `index_observations` que l'inspection a déjà payées. Le classer `gsc` le mettrait au repos
 	// avec la cohorte au premier 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est

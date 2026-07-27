@@ -79,6 +79,7 @@ import { coolDownQuotaLimitedJobs, loadLimitsContext } from './jobs-limits.js';
 import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runKeywordDeclineDetector } from './detectors/keyword-decline.js';
+import { runQueryTurnoverDetector } from './detectors/query-turnover.js';
 import { runIndexTransitionDetector } from './detectors/index-transition.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
@@ -150,6 +151,20 @@ export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
  * drain sans se disputer de quota.
  */
 export const JOB_TYPE_DETECT_KEYWORD_DECLINE = 'detect:keyword_decline';
+
+/**
+ * FIND-006 — détecteur de renouvellement du portefeuille de requêtes. UN job pour
+ * DEUX types de findings (`new_query` et `lost_query`), parce que chacun est la garde
+ * de l'autre : c'est en voyant les deux ensemble qu'on sait qu'une « nouveauté » n'est
+ * que l'orthographe d'une requête « perdue ». Deux jobs reliraient deux fois les mêmes
+ * lignes pour reconstruire chacun la moitié de l'information.
+ *
+ * Arête **obligatoire** `collect:gsc_query_page → detect:query_turnover`, pour la
+ * raison qui vaut pour les trois détecteurs GSC : sur des observations non
+ * rafraîchies, la fenêtre courante n'aurait tout simplement pas de dernière semaine —
+ * et TOUT le portefeuille se lirait comme perdu.
+ */
+export const JOB_TYPE_DETECT_QUERY_TURNOVER = 'detect:query_turnover';
 
 /**
  * IDX-005 — détecteur de transitions d'indexation. **Au catalogue hebdo depuis IDX-004**, en
@@ -383,6 +398,41 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					truncated: res.truncated,
 					// Une fenêtre non comparable ne produit rien — et le DIT, sinon un run qui
 					// n'a rien pu juger se lirait comme un run qui n'a rien trouvé.
+					skippedReason: res.skippedReason
+				});
+			}
+		],
+		[
+			JOB_TYPE_DETECT_QUERY_TURNOVER,
+			async ({ db, job }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await runQueryTurnoverDetector({
+					db,
+					projectId: (payload.projectId as string) ?? job.projectId,
+					runId: job.runId
+				});
+				logger.info('détection du renouvellement de requêtes terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					detector: res.detectorVersion,
+					created: res.counts.created,
+					refreshed: res.counts.refreshed,
+					newQueries: res.newQueries.length,
+					lostQueries: res.lostQueries.length,
+					// Ce que le regroupement a ÉVITÉ d'écrire : sans ces deux compteurs, la
+					// discrétion du détecteur se lirait comme un parc immobile alors qu'il vient
+					// d'écarter deux faux signaux symétriques.
+					variantOfKnown: res.variantOfKnown,
+					variantSurvived: res.variantSurvived,
+					returning: res.returning,
+					// Une perte rendue à IDX-005 : la dire ici évite de la chercher ailleurs.
+					attributedToIndexing: res.attributedToIndexing,
+					// La confirmation §10.4 n'est possible que si l'indexation a été inspectée.
+					indexationKnown: res.indexationKnown,
+					// Les pertes hors portée sont laissées INTACTES : ce n'est ni un maintien ni
+					// une guérison, c'est une absence de mesure.
+					outOfScope: res.lifecycle.outOfScope,
+					truncated: res.truncatedNew || res.truncatedLost,
 					skippedReason: res.skippedReason
 				});
 			}

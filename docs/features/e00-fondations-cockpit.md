@@ -4,6 +4,112 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (FIND-006 — nouvelles et perdues, et les deux faux signaux symétriques)
+
+**Fait :** FIND-006, le détecteur de renouvellement du portefeuille de requêtes
+(`new_query` + `lost_query`). Il ramasse ce que FIND-005 avait explicitement **refusé**
+de traiter : les couples `vanished` (107 sur `lecureux`), écartés là-bas parce qu'une
+disparition n'est pas une baisse. **Zéro DDL** (61 tables), **zéro appel provider**,
+**zéro modification** des détecteurs existants. Le catalogue hebdo passe à **7 entrées**.
+
+- **⭐ LE point du lot : le regroupement de variantes n'est pas un confort d'affichage,
+  il empêche deux faux signaux SYMÉTRIQUES.** Google réordonne et réécrit les requêtes.
+  Sans regroupement, « genève coiffeur » apparaîtrait comme une **découverte** le jour
+  même où « coiffeur genève » devient une **perte** — deux findings, deux fois faux,
+  pour un événement qui n'a pas eu lieu. D'où la règle des deux côtés : un groupe n'est
+  `new` que si **TOUS** ses membres sont neufs, `lost` que si **TOUS** ont disparu.
+  Mesuré en base, à seuils par défaut : **414 fausses découvertes et 167 fausses pertes
+  évitées sur le seul `barberconcept`** (581 findings qui n'auraient rien décrit), plus
+  11/5 sur `jonlabs`. La normalisation est volontairement **pauvre** — accents, casse,
+  ponctuation, ordre des mots, rien d'autre : ni stemming ni synonymie, parce qu'une
+  fusion abusive **fabrique** une perte ou une découverte, alors qu'un groupe manqué ne
+  fait que du bruit. Et elle ne sert **jamais** à l'affichage : le titre porte le terme
+  brut dominant, les preuves portent chaque terme avec sa propre durée de vie, et la clé
+  est publiée pour être **rejouable** (`normalizeQueryKey`) — « réversible et
+  inspectable » au sens littéral de l'acceptation.
+- **⭐ « Nouvelle » se juge sur TOUT l'historique, pas sur la fenêtre précédente.** Une
+  requête vue il y a six mois et revenue n'est pas une découverte, c'est un **retour** —
+  et une comparaison de deux fenêtres la déclarerait neuve. `firstSeen` vient donc d'un
+  agrégat par requête sur toutes les observations du projet (une requête groupée, servie
+  par `idx_gsc_qp_obs_project_query`, une ligne par requête distincte — 9 577 au maximum
+  du parc). C'est le même agrégat qui porte la **première/dernière apparition** exigée
+  par l'acceptation. Mesuré : **264 retours** sur `barberconcept`, 35 sur `jonlabs`,
+  15 sur `lecureux` — autant de découvertes que le raccourci aurait inventées.
+- **⭐ La portée (`scope`) n'existe que du côté des pertes, et c'est structurel.** Une
+  découverte est autoritaire (toutes les requêtes de la fenêtre courante sont observées) ;
+  une perte ne l'est pas : la fenêtre de référence **glisse d'une semaine à chaque run**,
+  donc au run suivant plus rien ne mesure ce que la requête pesait — alors qu'elle est
+  toujours absente. Sortir son fingerprint de la closure l'auto-résoudrait : « je ne peux
+  plus mesurer sa perte » se lirait « elle est revenue ». D'où `scope` = closure ∪ groupes
+  **présents** dans la fenêtre courante (163 contre 1 dans la preuve). Prouvé en base : le
+  finding devenu immesurable garde `consecutive_misses = 0` et son statut, tandis qu'un
+  **retour effectif** le fait compter puis résoudre à la 2ᵉ absence. C'est la doctrine
+  IDX-005 (« hors portée ≠ guéri ») appliquée à un glissement de fenêtre.
+- **⭐ Une perte dont la page n'est plus indexable n'est pas un finding de requête.**
+  C'est la colonne « Confirmation » de SPEC §10.4 (`page toujours indexable`) et une garde
+  anti-doublon : `index_drop` (IDX-005) possède déjà ce problème. Attention au **sens** de
+  la garde — seul un `not_indexed`/`excluded` **explicite** supprime ; `unknown` (le cas de
+  tout le parc, 0 inspection) ne bloque rien, il baisse la confiance **et change le skill
+  recommandé** (`seo-index-diagnose` tant que l'indexation n'a pas été vérifiée,
+  `seo-refresh` une fois la page connue indexée). Exiger la preuve d'indexabilité rendrait
+  le détecteur inerte partout.
+- **Les deux portes d'entrée, et le plancher qui reste.** « Volume minimal **ou**
+  croissance répétée » (ticket) : un groupe entre par ses impressions sur la fenêtre
+  (30) ou, sous ce seuil, par une croissance sur ≥ 2 semaines — mais **jamais** sous le
+  plancher (10), qui tient l'acceptation littérale « une requête à une impression ne
+  pollue pas le rapport ». Entré par la croissance ⇒ `emerging` ⇒ **plafonné `medium`**,
+  comme une baisse d'une seule semaine (FIND-005) ou une fluctuation isolée (IDX-005).
+  Le gate s'applique au **GROUPE** et du bon côté de la fenêtre : maintenant pour une
+  découverte, avant pour une perte (`minLostImpressions = 50`, même valeur et même
+  fenêtre que `minPriorImpressions` de FIND-005 — on ne perd que ce qu'on avait).
+
+**Vérifs :** 1264 tests (**+49** sur `query-turnover-state`, **+1** sur `schedule-state`) ·
+`npm run check` 0 erreur / 42 warnings (baseline) · `scripts/find-006-turnover-proof.ts`
+**40/40 sur Neon**, base rendue à l'identique (findings 0→0, `index_observations` 0→0,
+61 tables) · non-régression `find-005-decline`, `job-005-schedule`, `job-004-dag`,
+`job-006-limits`, `dash-002-home`, `dash-006-automations`, `rep-001-report`,
+`rep-003-publication`, `idx-005-transition` — **0 échec chacune**.
+
+**Prochain :** **FIND-007** (CTR gap et target URL mismatch, P1) ou **FIND-008**
+(cannibalisation persistante, **P0** — dernière case de la gate M2) ; sinon **REP-004**
+(historique et comparaison, qui rend la révision d'un `partial` possible).
+
+**Pièges :**
+- **⚠️ Le parc ne perd RIEN aujourd'hui : `LOST = 0` sur les 9 projets.** Mesuré en
+  dry-run à seuils par défaut. Ce n'est pas une inertie : 937 disparitions sur
+  `barberconcept` et 82 sur `lecureux` sont **comptées** (`lostBelowThreshold`) et
+  écartées parce qu'elles pèsent moins de 50 impressions ou n'ont pas tenu 2 semaines.
+  Le parc ne perd que de la longue traîne. Un `lost_query` qui apparaîtra un jour sera
+  donc un vrai événement — ne pas « débloquer » le détecteur en baissant le seuil sans
+  avoir relu cette mesure.
+- **⚠️ Au premier tick, `barberconcept` écrira 50 `new_query` de plus** (221 franchissent
+  le gate, plafond `maxCandidates` à 50, `truncated = true`). Les autres : `jonlabs` 13,
+  `physiopommier` 6, `bisrepetita` 2, le reste 0. Le premier tick d'un projet frais écrit
+  donc jusqu'à **150 findings** (50 opportunités + 50 baisses + 50 nouveautés).
+- **⚠️ Une découverte non traitée s'AUTO-RÉSOUT.** La nouveauté est périssable : passé
+  la fenêtre de 4 semaines, le groupe sort de la closure, compte ses absences et se
+  résout. C'est voulu (garder « news » ouvert indéfiniment saturerait l'inbox) mais
+  personne n'est prévenu — un `new_query` ignoré disparaît tout seul.
+- **⚠️ Le SLO de 10:00 s'éloigne encore : 9 projets × 7 entrées = 63 jobs** pour
+  `MAX_JOBS_PER_TICK = 25` (54 avant ce lot). Les leviers restent le plafond par tick et
+  `report.publish_deadline_minutes` — après avoir lu la mesure, pas avant.
+- **⚠️ Les 9 projets repassent de `full` à `partial` en couverture de diagnostic**
+  (DASH-002) : un détecteur neuf n'a jamais tourné. Même effet qu'à FIND-005, résorbé au
+  premier tick.
+- **⚠️ `spinlink` et `wildcat` (6 semaines) ne produiront jamais rien** tant que leur
+  historique ne remplit pas deux fenêtres de 4 semaines. Le run le **dit**
+  (`skippedReason`), il ne rend pas un vide muet — et `queriesKnown` vaut `null`, pas
+  `0` : le run s'est arrêté avant de les compter.
+- **⚠️ AGT-000 n'en fait AUCUNE proposition** (il ne traite que `keyword_opportunity`) :
+  une découverte se qualifie et une perte se diagnostique avant de se corriger. Elles
+  atterrissent dans l'onglet findings, pas dans la file d'approbation.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) ·
+  **le cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
+
+**Commit :** _(à renseigner)_
+
+---
+
 ## Etat session 2026-07-27 (REP-003 — le rapport du lundi existe pour de bon)
 
 **Fait :** REP-003, la publication du rapport hebdomadaire. REP-001 savait **construire** le
