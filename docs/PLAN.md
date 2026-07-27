@@ -238,6 +238,34 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   tester la distinction panne/baisse. Choix par **propriété** désormais.
   ⚠️ **La prod écrit dans la même base** (`gsc_query_page_observations`, `run_id: null`) : toute
   assertion « base rendue à l'identique » sur cette table est **racée** par construction.
+  Puis **FIND-005 — le détecteur de baisses** (`keyword_decline`) : le parc n'avait que **deux
+  détecteurs** (`keyword_opportunity`, `index_transition`) pour six écrans de cockpit, donc une
+  requête qui perdait 80 % de ses clics ne produisait **rien** — le plus gros trou de la gate M2, et
+  le seul consommateur possible des fenêtres GSC-004. ⭐ **Un couple disparu n'est pas une baisse de
+  −100 %** : il est indiscernable d'une semaine non collectée, donc seule l'**intersection** des deux
+  fenêtres est comparée — sur `lecureux` ils étaient **107**, soit 107 findings faux qu'une lecture
+  naïve aurait écrits en un run. C'est « une collecte partielle ne crée pas de baisse » rendu
+  **structurel** plutôt que déclaratif, et c'est aussi ce qui distingue baisse réelle et changement
+  de périmètre. ⭐ **L'écart 4 sem./1 sem. EST le niveau de confirmation** (`confirmed`/`sustained`/
+  `emerging`), le dernier **plafonné à `medium`** comme IDX-005 plafonne une fluctuation isolée. Une
+  page ne se **regroupe** que si **son total** baisse aussi, calculé sur **tous** ses couples
+  appariés (une page dont 3 requêtes baissent et 12 montent n'est pas en perte). La **saisonnalité
+  N-1 est déclarée absente**, jamais neutre. Découpage de fenêtres, complétude et gate N-1 réutilisés
+  de GSC-004 **tels quels** ; l'auto-résolution vient de FIND-003 **sans une ligne de plus**. Zéro
+  DDL (60 tables) · zéro appel provider · une **seule** lecture d'observations pour les 4 fenêtres ·
+  test **1102/1102** (+51) · preuve **47/47** sur Neon.
+  ⚠️ Contre-épreuve trouvée par un échec, et **l'assertion était fausse, pas le code** : un
+  effondrement massif rend `sustained`, pas `confirmed`, parce que la fenêtre récente compare **w0 à
+  w1** — un palier bas et stable ne la fait pas tomber. Le libellé du caveat, lui, était trompeur et
+  a été corrigé.
+  ⚠️ **Au premier run, les 9 projets passent de `ok` à `watch`** : un détecteur neuf n'a jamais
+  tourné ⇒ couverture `partial` ⇒ signal `watch` (règle DASH-002). Ce n'est pas une régression, et ça
+  se résorbe au premier tick hebdo. `dash-003-pause-health-proof` avait échoué là-dessus : sa liste
+  de détecteurs était **recopiée**, elle est maintenant **dérivée** de `SCHEDULE_CATALOG`.
+  ⚠️ **`propose:actions` n'en dépend volontairement pas** : AGT-000 ne traite que
+  `keyword_opportunity`. Ces findings vivent dans l'onglet **findings** de `/inbox`, jamais dans la
+  file d'approbation. Prochain : **FIND-006** (nouvelles/perdues — `vanished`/`appeared` déjà
+  comptés) ou **REP-001** (rapport hebdo déterministe).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
