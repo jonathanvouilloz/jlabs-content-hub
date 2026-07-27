@@ -46,6 +46,7 @@ import * as schema from '../src/lib/server/db/schema.js';
 import type { AppDb } from '../src/lib/server/db/types.js';
 import {
 	loadPublishedReport,
+	type PublishedReport,
 	loadPublishDeadlineMinutes,
 	loadSlotReadiness,
 	listPublishedReports,
@@ -73,6 +74,21 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema }) as unknown as AppDb;
+
+/**
+ * Le rapport d'une ligne publiée. Ces preuves supposent un détail PRÉSENT : depuis REP-004
+ * lot 2, `detail` est une union (un détail purgé n'est pas un rapport vide), et une preuve qui
+ * le traiterait comme absent se contenterait de comparer du vide à du vide.
+ */
+function reportOf(published: PublishedReport) {
+	if (published.detail.kind !== 'available') {
+		throw new Error(
+			`détail purgé (${published.periodSlot} rév. ${published.revision}) : cette preuve exige un rapport complet`
+		);
+	}
+	return published.detail.report;
+}
+
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -316,19 +332,19 @@ async function main(): Promise<void> {
 	const raw = (rawPayload.rows?.[0] as unknown as { payload_json: string }).payload_json;
 	check(
 		'le payload relu est IDENTIQUE à celui stocké (aucune régénération)',
-		JSON.stringify(stored.report) === raw,
+		JSON.stringify(reportOf(stored)) === raw,
 		`${raw.length} caractères`
 	);
 	check(
 		'le schéma du rapport est versionné dans la ligne ET dans le payload',
 		stored.reportSchemaVersion === REPORT_SCHEMA_VERSION &&
-			stored.report.schemaVersion === REPORT_SCHEMA_VERSION,
+			reportOf(stored).schemaVersion === REPORT_SCHEMA_VERSION,
 		`v${stored.reportSchemaVersion}`
 	);
 	check(
 		'⭐ la période est ancrée sur le CRÉNEAU, pas sur l’instant de publication',
-		stored.report.period.untilDb === stored.slotAt,
-		`until ${stored.report.period.untilDb} · slot ${stored.slotAt} · publié ${stored.publishedAt}`
+		reportOf(stored).period.untilDb === stored.slotAt,
+		`until ${reportOf(stored).period.untilDb} · slot ${stored.slotAt} · publié ${stored.publishedAt}`
 	);
 	check(
 		'la préparation est relue telle qu’elle a été écrite',
@@ -358,14 +374,21 @@ async function main(): Promise<void> {
 	const columns = ((columnsRes.rows ?? []) as unknown as Array<{ column_name: string }>).map(
 		(r) => r.column_name
 	);
-	// ⚠️ REP-004 lot 1 en a ajouté TROIS (`revision`, `revision_reason`, `supersedes_id`). Ce
-	// sont des faits d'histoire, pas des verdicts : le SLO continue de se dériver, et l'épingle
-	// garde exactement son rôle — la prochaine colonne devra elle aussi passer par ici.
+	// ⚠️ REP-004 lot 1 en a ajouté TROIS (`revision`, `revision_reason`, `supersedes_id`) et le
+	// lot 2 CINQ (`payload_bytes`, `payload_digest`, `payload_archived_at`, `payload_archive_ref`,
+	// `payload_purged_at`). Ce sont des faits d'histoire et de rétention, pas des verdicts : le
+	// SLO continue de se dériver, et l'épingle garde exactement son rôle — la prochaine colonne
+	// devra elle aussi passer par ici.
 	const EXPECTED_COLUMNS = [
 		'created_at',
 		'due_at',
 		'id',
+		'payload_archive_ref',
+		'payload_archived_at',
+		'payload_bytes',
+		'payload_digest',
 		'payload_json',
+		'payload_purged_at',
 		'period_slot',
 		'published_at',
 		'readiness_json',
@@ -378,7 +401,7 @@ async function main(): Promise<void> {
 		'supersedes_id'
 	];
 	check(
-		'l’ensemble des colonnes est exactement celui déclaré (14)',
+		'l’ensemble des colonnes est exactement celui déclaré (19)',
 		JSON.stringify(columns) === JSON.stringify(EXPECTED_COLUMNS),
 		`${columns.length} colonne(s)`
 	);

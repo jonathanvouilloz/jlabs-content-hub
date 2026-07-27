@@ -38,6 +38,7 @@ import type { AppDb } from '../src/lib/server/db/types.js';
 import {
 	listPublishedReports,
 	loadPublishedReport,
+	type PublishedReport,
 	publishWeeklyReport
 } from '../src/lib/server/report-publication.js';
 import {
@@ -56,6 +57,21 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema }) as unknown as AppDb;
+
+/**
+ * Le rapport d'une ligne publiée. Ces preuves supposent un détail PRÉSENT : depuis REP-004
+ * lot 2, `detail` est une union (un détail purgé n'est pas un rapport vide), et une preuve qui
+ * le traiterait comme absent se contenterait de comparer du vide à du vide.
+ */
+function reportOf(published: PublishedReport) {
+	if (published.detail.kind !== 'available') {
+		throw new Error(
+			`détail purgé (${published.periodSlot} rév. ${published.revision}) : cette preuve exige un rapport complet`
+		);
+	}
+	return published.detail.report;
+}
+
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -134,7 +150,7 @@ async function main(): Promise<void> {
 		reportSchemaVersion: loaded.reportSchemaVersion,
 		slo: loaded.slo,
 		readiness: loaded.readiness,
-		report: loaded.report
+		report: reportOf(loaded)
 	});
 
 	check(
@@ -156,7 +172,7 @@ async function main(): Promise<void> {
 		reportSchemaVersion: reloaded!.reportSchemaVersion,
 		slo: reloaded!.slo,
 		readiness: reloaded!.readiness,
-		report: reloaded!.report
+		report: reportOf(reloaded!)
 	});
 	check(
 		'deux lectures rendent la MÊME vue (aucune horloge, aucun recalcul)',

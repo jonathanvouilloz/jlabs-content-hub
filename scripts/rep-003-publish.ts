@@ -157,13 +157,13 @@ async function main(): Promise<void> {
 				periodSlot: baseRow.periodSlot,
 				revision: baseRow.revision,
 				reportSchemaVersion: baseRow.reportSchemaVersion,
-				report: baseRow.report
+				detail: baseRow.detail
 			},
 			head: {
 				periodSlot: headRow.periodSlot,
 				revision: headRow.revision,
 				reportSchemaVersion: headRow.reportSchemaVersion,
-				report: headRow.report
+				detail: headRow.detail
 			}
 		});
 		if (comparison.kind === 'unavailable') {
@@ -248,7 +248,16 @@ async function main(): Promise<void> {
 			}
 		}
 		console.log('');
-		console.log(renderWeeklyReportText(published.report));
+		if (published.detail.kind === 'purged') {
+			// REP-004 lot 2 — le détail a été retiré : on donne l'adresse, jamais un rapport vide.
+			console.log(`# détail purgé le ${published.detail.purgedAt}`);
+			console.log(`# archive : ${published.detail.archiveRef}`);
+			console.log(
+				`# empreinte attendue : ${published.retention.kind === 'purged' ? published.retention.digest : '∅'}`
+			);
+			return;
+		}
+		console.log(renderWeeklyReportText(published.detail.report));
 		return;
 	}
 

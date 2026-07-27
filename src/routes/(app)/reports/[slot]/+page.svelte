@@ -55,6 +55,16 @@
 	<header class="space-y-2">
 		<div class="flex flex-wrap items-center gap-2">
 			<h1 class="text-lg font-semibold text-surface-900">Rapport du {view.slotLabel}</h1>
+			{#if view.kind === 'purged'}
+				<!-- REP-004 lot 2 — VIOLET, comme toutes les absences du cockpit : ce n'est ni un
+				     succès ni une panne, c'est « je ne l'ai plus ici », et ça demande un autre geste
+				     (ouvrir le vault). -->
+				<span
+					class="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
+				>
+					détail archivé
+				</span>
+			{/if}
 			<span
 				class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium {STATUS_BADGE[
 					view.status
@@ -66,7 +76,9 @@
 				{view.sloLabel}
 			</span>
 		</div>
-		<p class="text-sm text-surface-700">{view.headline}</p>
+		{#if view.kind === 'available'}
+			<p class="text-sm text-surface-700">{view.headline}</p>
+		{/if}
 		<p class="text-[11px] text-surface-400">{view.statusNote}</p>
 		{#if view.revisionLabel}
 			<p class="text-[11px] text-surface-500">
@@ -82,10 +94,12 @@
 	<dl
 		class="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-surface-200 bg-white px-3 py-2 text-[11px] text-surface-400"
 	>
-		<div class="flex gap-1">
-			<dt class="font-medium">Période</dt>
-			<dd>{view.periodLabel}</dd>
-		</div>
+		{#if view.kind === 'available'}
+			<div class="flex gap-1">
+				<dt class="font-medium">Période</dt>
+				<dd>{view.periodLabel}</dd>
+			</div>
+		{/if}
 		<div class="flex gap-1">
 			<dt class="font-medium">Créneau</dt>
 			<dd class="font-mono">{view.periodSlot}</dd>
@@ -107,6 +121,28 @@
 
 	{#if view.readinessLabel}
 		<p class="text-[11px] text-surface-500">Périmètre : {view.readinessLabel}</p>
+	{/if}
+
+	<!--
+		── Le détail, et où il vit (REP-004 lot 2) ───────────────────────
+		⭐ Une page dont le détail a été purgé n'est ni une erreur ni une page vide : le créneau,
+		le statut, le SLO, le périmètre et les révisions sont tous encore là — c'est exactement ce
+		que la rétention ne touche pas. Seule la matière est ailleurs, et la page en donne
+		l'adresse. Rien ici ne peut afficher « 0 » : le cas purgé n'a ni sections ni compteurs.
+	-->
+	{#if view.kind === 'purged'}
+		<section class="rounded-xl border border-violet-200 bg-violet-50 p-4">
+			<h2 class="text-sm font-semibold text-violet-900">Détail archivé hors ligne</h2>
+			<p class="mt-1 text-xs text-violet-900">{view.detailNote}</p>
+			<p class="mt-2 text-[11px] text-violet-700">
+				Le rapport n'a pas été supprimé et rien n'a été recalculé : ce que vous lisez au-dessus
+				est ce qui a été publié. Ce qui manque — le résumé, les sections, les listes — se relit
+				dans le vault, à l'adresse ci-dessus.
+			</p>
+			<p class="mt-2 font-mono text-[11px] text-violet-600">{view.archiveRef}</p>
+		</section>
+	{:else if view.detailNote}
+		<p class="text-[11px] text-surface-400">{view.detailNote}</p>
 	{/if}
 
 	<!--
@@ -303,7 +339,8 @@
 		section extraite seule doit garder sa réserve), mais les répéter douze fois les noierait —
 		même compression que `renderWeeklyReportText`.
 	-->
-	{#if view.coverageNote}
+	{#if view.kind === 'available'}
+		{#if view.coverageNote}
 		<div class="flex gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
 			<EyeOff size={14} class="mt-0.5 flex-shrink-0 text-violet-700" />
 			<p class="text-[11px] text-violet-900">{view.coverageNote}</p>
@@ -418,6 +455,7 @@
 			{/if}
 		</section>
 	{/each}
+	{/if}
 
 	<p class="text-[11px] text-surface-400">
 		Ce rapport est rendu depuis le JSON archivé au moment de la publication : rien n'y est

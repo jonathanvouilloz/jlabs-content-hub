@@ -1797,6 +1797,14 @@ export const automationPauses = seostats.table(
 // CODE, où le chemin AUTOMATIQUE — `publishWeeklyReport`, appelé par le tick — n'écrit
 // jamais que `revision = 1`. Un cron qui repasse cent fois sur le même lundi produit
 // toujours exactement une ligne ; une révision >= 2 demande un geste délibéré et une raison.
+//
+// ⚠️ REP-004 lot 2 — **on purge le DÉTAIL, jamais la LIGNE.** Un rapport pèse ~28 kio de
+// `payload_json` ; la rétention le retire au-delà de N semaines, et tout le reste survit : le
+// créneau, le statut, le SLO, la préparation, la raison de révision et `supersedes_id`. C'est
+// pour ça que ce pointeur de lignage n'a jamais eu de FK, et pour ça que le numéro de révision
+// se dérive du `max` : les liens d'un créneau restent valides quand son détail est parti. La
+// contrainte `weekly_reports_payload_presence_check` interdit le seul état dangereux — un
+// détail disparu sans adresse ni empreinte.
 export const weeklyReports = seostats.table(
 	'weekly_reports',
 	{
@@ -1822,8 +1830,44 @@ export const weeklyReports = seostats.table(
 		 * statut vaut `partial`.
 		 */
 		readinessJson: text('readiness_json').notNull(),
-		/** Le rapport REP-001, tel quel. Le texte est une projection, jamais stockée. */
-		payloadJson: text('payload_json').notNull(),
+		/**
+		 * Le rapport REP-001, tel quel. Le texte est une projection, jamais stockée.
+		 *
+		 * ⚠️ **NULLABLE depuis REP-004 lot 2, et ce `null` a un sens précis** : le DÉTAIL a été
+		 * purgé, la ligne reste. Il ne veut jamais dire « rapport vide » — la lecture rend une
+		 * union discriminée (`ReportDetail`), donc aucun écran ne peut projeter un rapport purgé
+		 * comme un rapport à zéro section. Le CHECK `weekly_reports_payload_presence_check`
+		 * interdit l'état muet : sans payload, la ligne DOIT porter où le détail est parti
+		 * (`payload_archive_ref`), quand (`payload_purged_at`) et son empreinte (`payload_digest`).
+		 */
+		payloadJson: text('payload_json'),
+		/**
+		 * REP-004 lot 2 — Taille du détail (octets UTF-8), mesurée à l'écriture.
+		 *
+		 * C'est le fait qui justifiait la purge, et le seul qui lui survive : sans lui, une ligne
+		 * purgée ne saurait plus dire ce qu'elle portait.
+		 */
+		payloadBytes: integer('payload_bytes'),
+		/**
+		 * REP-004 lot 2 — SHA-256 du `payload_json`, calculé sur la chaîne EXACTE écrite en base.
+		 *
+		 * ⚠️ Jamais sur un objet reparsé puis re-sérialisé : l'ordre des clés n'est pas garanti,
+		 * et l'empreinte ne prouverait plus rien. C'est elle qui rend l'archive VÉRIFIABLE — la
+		 * note du vault porte le même hash, ou ce n'est pas ce rapport.
+		 */
+		payloadDigest: text('payload_digest'),
+		/** REP-004 lot 2 — Quand le détail a été RETROUVÉ dans le vault, empreinte comparée. */
+		payloadArchivedAt: text('payload_archived_at'),
+		/**
+		 * REP-004 lot 2 — OÙ le détail vit désormais (chemin relatif au vault Obsidian).
+		 *
+		 * C'est l'acceptation « les liens restent valides après rétention du détail » : une ligne
+		 * sans payload n'est pas un cul-de-sac, elle porte l'adresse de ce qu'elle ne contient
+		 * plus. Le CHECK le rend obligatoire dès que `payload_json` est `NULL`.
+		 */
+		payloadArchiveRef: text('payload_archive_ref'),
+		/** REP-004 lot 2 — Quand le détail a été retiré de la base. `NULL` = il est encore là. */
+		payloadPurgedAt: text('payload_purged_at'),
 		/**
 		 * REP-004 — Numéro de révision du créneau. `1` = la publication automatique du tick.
 		 *

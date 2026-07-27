@@ -37,6 +37,7 @@ import {
 	listPublishedReports,
 	listReportRevisions,
 	loadPublishedReport,
+	type PublishedReport,
 	publishWeeklyReport,
 	reviseWeeklyReport
 } from '../src/lib/server/report-publication.js';
@@ -52,6 +53,21 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema }) as unknown as AppDb;
+
+/**
+ * Le rapport d'une ligne publiée. Ces preuves supposent un détail PRÉSENT : depuis REP-004
+ * lot 2, `detail` est une union (un détail purgé n'est pas un rapport vide), et une preuve qui
+ * le traiterait comme absent se contenterait de comparer du vide à du vide.
+ */
+function reportOf(published: PublishedReport) {
+	if (published.detail.kind !== 'available') {
+		throw new Error(
+			`détail purgé (${published.periodSlot} rév. ${published.revision}) : cette preuve exige un rapport complet`
+		);
+	}
+	return published.detail.report;
+}
+
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -118,7 +134,7 @@ async function main(): Promise<void> {
 
 	const originalA = await loadPublishedReport({ db, periodSlot: SLOT_A.periodSlot });
 	if (!originalA) throw new Error('le rapport A ne se relit pas');
-	const originalPayload = JSON.stringify(originalA.report);
+	const originalPayload = JSON.stringify(reportOf(originalA));
 	const originalSlo = { ...originalA.slo };
 
 	// ── A. L'original survit ─────────────────────────────────────────
@@ -152,7 +168,7 @@ async function main(): Promise<void> {
 	// ⭐ L'acceptation, littéralement : le payload d'origine est intact, octet pour octet.
 	check(
 		'… et son payload est intact, octet pour octet',
-		JSON.stringify(survivor?.report) === originalPayload,
+		JSON.stringify(survivor ? reportOf(survivor) : null) === originalPayload,
 		`${originalPayload.length} caractères`
 	);
 
@@ -295,13 +311,13 @@ async function main(): Promise<void> {
 			periodSlot: currentA.periodSlot,
 			revision: currentA.revision,
 			reportSchemaVersion: currentA.reportSchemaVersion,
-			report: currentA.report
+			detail: currentA.detail
 		},
 		head: {
 			periodSlot: headB.periodSlot,
 			revision: headB.revision,
 			reportSchemaVersion: headB.reportSchemaVersion,
-			report: headB.report
+			detail: headB.detail
 		}
 	});
 	check('deux créneaux se comparent sur l’axe « slot »', slotDiff.kind === 'available' && slotDiff.axis === 'slot');
@@ -344,13 +360,13 @@ async function main(): Promise<void> {
 			periodSlot: SLOT_A.periodSlot,
 			revision: 1,
 			reportSchemaVersion: originalA.reportSchemaVersion,
-			report: originalA.report
+			detail: originalA.detail
 		},
 		head: {
 			periodSlot: currentA.periodSlot,
 			revision: currentA.revision,
 			reportSchemaVersion: currentA.reportSchemaVersion,
-			report: currentA.report
+			detail: currentA.detail
 		}
 	});
 	check('deux révisions se comparent sur l’axe « revision »', revDiff.kind === 'available' && revDiff.axis === 'revision');

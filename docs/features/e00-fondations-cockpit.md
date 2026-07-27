@@ -4,6 +4,89 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (REP-004 lot 2 — la rétention du détail, et l'archive qui la rend acceptable)
+
+**Fait :** la 3ᵉ acceptation de REP-004, « les liens restent valides après rétention du détail ».
+Un rapport pèse ~28 kio de `payload_json` et §7.11 range les rapports en « sans limite,
+protégés » : les deux tiennent ensemble dès qu'on cesse de confondre le **rapport** et son
+**détail**. **Un seul DDL, aucune table** (61) : `payload_json` devient nullable, cinq colonnes
+disent ce qu'il pesait et où il est parti, un CHECK interdit le seul état dangereux.
+
+- **⭐ LE point du lot : rendre une colonne nullable CRÉE un état, et c'est le CHECK qui le
+  rend sûr.** « Ligne sans détail » est exactement aussi dangereux que l'était une section
+  absente dans REP-001 — relu naïvement, un `payload_json` à `NULL` se lit **« rapport vide »**,
+  soit douze sections non branchées pour un rapport qui en portait dix.
+  `weekly_reports_payload_presence_check` interdit la version **muette** de cet état : sans
+  payload, la ligne DOIT porter son **adresse** (`payload_archive_ref`), sa **date de purge** et
+  son **empreinte**. Prouvé en base sur trois `UPDATE` nus successifs — celui qu'un humain
+  pressé taperait dans psql — **tous refusés** (§A). Sans ce CHECK, la garde ne vivrait que dans
+  le code applicatif, c'est-à-dire nulle part.
+- **⭐ On purge le DÉTAIL, jamais la LIGNE — et deux décisions du lot 1 en dépendaient déjà sans
+  le dire.** Aucun `DELETE` nulle part : le créneau, le statut, le SLO, la préparation, la raison
+  de révision et `supersedes_id` survivent tous (§G, prouvé sur un créneau révisé dont le lignage
+  reste entier après purge). C'est pour ça que `supersedes_id` n'a jamais eu de FK, et pour ça
+  que le numéro de révision se dérive du **`max`** : purger des lignes ferait mentir le second —
+  la révision 4 s'appellerait 3 et heurterait l'unique.
+- **⭐ « Archivé » est une CONDITION vérifiée, pas une intention.** Un rapport **ne se régénère
+  pas** (REP-003 l'a construit sur l'état du parc de son créneau ; `loadWeeklyReport` répondrait
+  aujourd'hui avec le parc d'aujourd'hui), donc `not_archived` retient une ligne **quel que soit
+  son âge** — et rien dans le modèle pur ne permet de passer outre. `confirmReportArchived` ne
+  marque qu'après avoir **retrouvé** la note du vault et **comparé son SHA-256**. La note embarque
+  le `payload_json` sur une ligne : l'empreinte du frontmatter **indexe**, celle du bloc rehashé
+  **prouve**. Testé de bout en bout : un caractère modifié dans le détail embarqué fait refuser
+  la confirmation, donc interdit la purge. Le mode de panne est du bon côté.
+- **⭐ Un détail purgé n'est pas un rapport vide — 4ᵉ et 5ᵉ endroits où « absent ≠ zéro » se
+  défait.** `PublishedReport.detail` est une union discriminée : `buildReportView` n'accepte plus
+  qu'un rapport présent (le cas purgé rend `buildPurgedReportView`, **sans `sections`, sans
+  `headline`, sans `coverage`** — vérifié sur les clés réelles de la vue), et `compareReports`
+  rend `unavailable / detail_purged` en **nommant l'archive**. Sans ce refus, comparer contre un
+  rapport purgé aurait annoncé **douze sections « hors plan »**, c'est-à-dire un changement de
+  **template** inventé par une politique de rétention.
+- **Le défaut ne détruit rien, et le pire cas non plus.** `report.detail_retention_weeks`
+  (`system_settings`, sans redéploiement) vaut `null` = **conserver sans limite** ; toute valeur
+  illisible y retombe (une valeur corrompue qui vaudrait « 4 semaines » purgerait sur un
+  malentendu). Plancher de **4 semaines** — jumeau du clamp à 60 % d'IDX-004 — pour qu'aucun
+  réglage ne puisse purger le rapport qu'on est en train de lire. Et la purge **ré-assert ses
+  conditions en SQL** : une ligne désarchivée entre le calcul du plan et son exécution n'est pas
+  purgée (§D).
+
+**Vérifs :** 1419 tests (**+21**, dont 17 sur `report-retention-state` et 4 sur la comparaison
+d'un détail purgé) · `npm run check` 0 erreur / 42 warnings (baseline) ·
+`scripts/rep-004-retention-proof.ts` **37/37 sur Neon**, base rendue à l'identique (rapports
+0→0, **61 tables**, réglage restauré) · non-régression `rep-004-history`, `rep-003-publication`
+(colonnes épinglées 14→**19**), `dash-003-reports`, `rep-001-report` — **0 échec chacune** ·
+**chaîne complète exercée pour de vrai** (publier → `--export` → `/seo-archive` sur un vault
+jetable → `--confirm` → `--purge` → relecture), y compris l'altération d'une archive, refusée.
+
+**Prochain :** le **portage de `/positions` sur le canon** (ex-onglet « Mots-clés »), ou **AGT-001**
+(API agent v1) — l'approbation n'exécute toujours rien.
+
+**Pièges :**
+- **⚠️ REP-004 est CLOS** : les trois acceptations sont tenues. Ce qui reste sur E07 est REP-002
+  (synthèse agentique, BLOCKED) et REP-005/006 (rapport client, P2).
+- **⚠️ La séquence d'archivage a QUATRE étapes et l'ordre EST la garantie** : `--export` →
+  `/seo-archive --projet _global` → `--confirm` → `--purge`. Sauter la confirmation ne « gagne »
+  rien : la purge refuse tout ce qui n'est pas archivé.
+- **⚠️ Le bloc ```json d'une note du vault ne doit JAMAIS être reformaté** : un prettify casse
+  l'empreinte, donc la vérification, donc la purge. Dans le bon sens (le hub refuse), mais la
+  note devient inarchivable tant qu'elle n'est pas réécrite.
+- **⚠️ `retention` ≠ `detail`** sur `PublishedReport` : le premier dit **où vit** le détail
+  (lisible sans charger le payload, cadeau du CHECK), le second **est** le détail. Confondre les
+  deux ferait charger 28 kio par ligne de liste.
+- **⚠️ L'âge se compte sur `slot_at`, jamais sur `published_at`** : c'est la semaine couverte qui
+  vieillit. Sinon réviser un vieux créneau lui rendrait N semaines de rétention.
+- **⚠️ `0` n'existe pas ici : la rétention désactivée est `null`.** Une fenêtre à 0 serait lue
+  « purger tout de suite » par n'importe quel lecteur pressé ; le type l'interdit.
+- **⚠️ Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé (nouveau wrapper
+  `weekly-report` qui embarque sa source, compteur, doc) — **non commité avec ce lot**. Son
+  défaut de vault pointait encore `~/Desktop/noyau/cerveau` : corrigé en `~/noyau/cerveau`.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
+  cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
+
+**Commit :** (à faire)
+
+---
+
 ## Etat session 2026-07-27 (REP-004 lot 1 — un rapport publié cesse d'être un cul-de-sac)
 
 **Fait :** la **révision** d'un créneau et la **comparaison** de deux rapports publiés.
@@ -3775,12 +3858,17 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (DASH-003 lot 2 ch.3 — l'écran Rapports)
+> Mise à jour : 2026-07-27 (REP-004 lot 2 — la rétention du détail)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/report-retention-state.ts`** (+ `.test.ts`) *(REP-004 lot 2)* | **Le modèle PUR de la rétention.** ⭐ `not_archived` retient une ligne **quel que soit son âge** : un rapport ne se régénère pas (REP-003 l'a construit sur le parc de son créneau), donc l'âge seul n'autorise rien — l'archive autorise. `DetailState` est une **union** (`stored`/`archived`/`purged`), pas trois booléens : un jeu de drapeaux permettrait « purgé mais pas archivé » dans le code alors que la base le refuse. ⚠️ L'âge se compte sur **`slot_at`** (la semaine couverte vieillit), jamais sur `published_at` — sinon réviser un vieux créneau lui rendrait N semaines. ⚠️ `resolveDetailRetentionWeeks` retombe sur **`null` = conserver** pour toute valeur illisible (une valeur corrompue qui vaudrait 4 semaines purgerait sur un malentendu), et remonte au **plancher de 4 semaines**. Le total d'octets libérables est une **borne inférieure** (`bytesKnown`, doctrine IDX-004). **17 tests.** |
+| **`src/lib/server/report-retention.ts`** *(REP-004 lot 2)* | **La base** : lit les candidats sans charger un seul payload, marque l'archivage **après vérification d'empreinte**, retire le détail. ⭐ `confirmReportArchived` compare le SHA-256 fourni à celui du détail EN BASE — trouver un fichier au bon nom ne suffit pas, sinon un homonyme autoriserait la destruction de l'original. ⚠️ `purgeReportDetails` **ré-assert ses conditions en SQL** (détail présent, archive posée, empreinte connue) : un plan est une photo, et une ligne désarchivée entre-temps ne doit pas être purgée. Aucun `DELETE` : la ligne survit toujours. |
+| **`scripts/rep-004-archive.ts`** *(REP-004 lot 2)* | Les quatre gestes, dry-run par défaut : `--export` (le `payload_json` **octet pour octet**, aucun en-tête — c'est ce qui rend l'empreinte de la base, du fichier et de la note identiques), `--confirm` (indexe le vault par empreinte, **extrait le JSON embarqué** et le rehashe), `--purge`, `--set-weeks/--unset`. ⚠️ Le vault par défaut est `~/noyau/cerveau` (`OBSIDIAN_VAULT` sinon). |
+| **`drizzle/manual-rep-004-lot2.sql`** + **`scripts/apply-rep-004-lot2.ts`** *(REP-004 lot 2)* | `payload_json` nullable, 5 colonnes de rétention, **le CHECK** `weekly_reports_payload_presence_check`. 61 tables inchangé, 14 → 19 colonnes. ⚠️ L'applicateur ne se contente pas de vérifier que le CHECK EXISTE : il **tente une ligne interdite** dans une transaction annulée. Un CHECK présent mais trop permissif laisserait passer exactement l'état que le lot interdit. |
+| **`scripts/rep-004-retention-proof.ts`** *(REP-004 lot 2)* | 37 vérifications sur Neon : le CHECK mord sur trois `UPDATE` nus, la purge ne supprime rien (lignage et `supersedes_id` intacts), un mauvais hash refuse **et n'écrit rien**, un plan périmé ne purge pas, un détail purgé se **lit** purgé, la comparaison est refusée en nommant l'archive. Créneaux synthétiques 1997, plan **restreint** à eux (une preuve qui purgerait une vraie ligne détruirait la donnée qu'elle vérifie). ⚠️ Ne pas piper dans `head`. |
 | **`src/lib/server/report-read-state.ts`** (+ `.test.ts`) *(DASH-003 lot 2 ch.3)* | **Le jugement pur de l'écran Rapports.** ⭐ `SectionView` est une **union discriminée**, et c'est tout le lot : REP-001 a rendu « absent ≠ zéro » structurel côté données, mais un template le défait en un caractère (`body.data?.items.length ?? 0`) — ici une section absente n'a **ni `items`, ni `metrics`, ni `truncated`, ni `isEmpty`**, donc le rendu ne peut pas atteindre un compteur qui n'existe pas. `isEmpty` (présente, 0 item) et `kind: 'absent'` restent **deux faits distincts** : « j'ai regardé, il n'y a rien » vs « je n'ai pas regardé ». ⚠️ `describeReportsFreshness` prend **deux** représentations du créneau et refuse de les confondre : `period_slot` est **local** (le passer à `dbTimestampToMs` décale l'âge d'1 à 2 h selon la saison), `slot_at` est l'**instant** (il afficherait 07:00 pour le lundi 09:00). `formatSlotLabel` **découpe** la chaîne, ne la parse jamais. `summarizeReportList` **reprend** `meta.slo` et `readiness_json` sans rien recompter — un second calcul divergerait de `toMeta`. Une préparation illisible rend `readinessLabel: null`, jamais un périmètre inventé. `describeCoverage` groupe les angles morts **une fois** (à 9 projets × 12 sections, la même liste s'imprimerait 108 fois). **24 tests.** |
 | **`src/routes/(app)/reports/`** *(DASH-003 lot 2 ch.3)* | **L'écran, cross-projet parce que la TABLE l'est.** `weekly_reports` n'a pas de `project_id` (REP-003) : un onglet sous `/projects/[slug]` afficherait des `count(*)` de parc au-dessus du nom d'un projet. `+page.server.ts` liste 12 créneaux **sans charger un seul payload** (28 kio pièce) ; `[slot]/+page.server.ts` lève un **404** sur un créneau inconnu (« pas encore publié » ≠ « n'existe pas ») et laisse remonter un payload illisible. Le détail rend les sections **dans l'ordre du JSON archivé** (`report.sections`, jamais `SECTION_ORDER` — un rapport de 2026 doit se relire dans son plan d'origine), affiche le `rank` de chaque item (un tri dont le critère est caché se lit comme arbitraire) et nomme la table source quand `href` est `null`. |
 | **`src/routes/(app)/+page.server.ts` · `+layout.svelte`** *(DASH-003 lot 2 ch.3)* | L'accueil **POINTE** vers le rapport consolidé (SPEC §13.1) via `listPublishedReports({ limit: 1 })` — **pas** via un compteur ajouté à `home-state.ts`, qui serait une seconde autorité sur le SLO et afficherait « tenu » au-dessus d'un « manqué ». Entrée « Rapports » dans la barre latérale, après Inbox. |

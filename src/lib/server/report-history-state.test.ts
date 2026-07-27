@@ -30,6 +30,7 @@ import {
 	sectionHasChange,
 	SECTION_NATURE,
 	type ComparisonPoint,
+	type ReportDetail,
 	type SectionComparison
 } from './report-history-state.js';
 
@@ -75,12 +76,20 @@ function report(sections: ReportSection[], over: Partial<WeeklyReport> = {}): We
 	};
 }
 
-function point(over: Partial<ComparisonPoint> & { report: WeeklyReport }): ComparisonPoint {
+/**
+ * Un point de comparaison. `report` reste accepté par commodité (le cas nominal) ; `detail`
+ * permet d'exercer le cas PURGÉ (REP-004 lot 2), où il n'y a précisément pas de rapport.
+ */
+function point(
+	over: Partial<Omit<ComparisonPoint, 'detail'>> & { report?: WeeklyReport; detail?: ReportDetail }
+): ComparisonPoint {
+	const { report, detail, ...rest } = over;
 	return {
 		periodSlot: '2026-07-20T09:00',
 		revision: 1,
 		reportSchemaVersion: 2,
-		...over
+		detail: detail ?? { kind: 'available', report: report as WeeklyReport },
+		...rest
 	};
 }
 
@@ -585,5 +594,61 @@ describe('sectionHasChange — « rien n’a changé » est un jugement, pas un 
 		const collected = report([section('indexation', { body: absent('never_collected', '…') })]);
 		expect(sectionHasChange(firstSection(notWired, notWired))).toBe(false);
 		expect(sectionHasChange(firstSection(notWired, collected))).toBe(true);
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════
+// REP-004 lot 2 — un détail purgé n'est pas un rapport vide
+// ════════════════════════════════════════════════════════════════════
+
+describe('compareReports — la rétention ne fabrique pas un changement de template', () => {
+	const purged: ReportDetail = {
+		kind: 'purged',
+		purgedAt: '2027-01-04 09:00:00',
+		archiveRef: '00-Inbox/2026-07-20-_global-weekly-report.md'
+	};
+	const full = report([section('opportunities')]);
+
+	it('⭐ refuse de comparer quand le point de RÉFÉRENCE a été purgé', () => {
+		// La contre-épreuve de tout le lot 2 : avec un `WeeklyReport | null` et un `?? EMPTY`,
+		// cette comparaison aurait annoncé « 1 section hors du plan de l’autre rapport », donc un
+		// changement de TEMPLATE — un mouvement fabriqué par une politique de rétention.
+		const c = compareReports({
+			base: point({ periodSlot: '2026-07-20T09:00', detail: purged }),
+			head: point({ periodSlot: '2026-07-27T09:00', report: full })
+		});
+		expect(c.kind).toBe('unavailable');
+		if (c.kind !== 'unavailable') throw new Error('disponible');
+		expect(c.reason).toBe('detail_purged');
+		// Le refus ENVOIE quelque part : l’adresse de l’archive est dans la phrase.
+		expect(c.note).toContain('00-Inbox/2026-07-20-_global-weekly-report.md');
+		expect(c.note).toContain('de référence');
+	});
+
+	it('refuse aussi quand c’est le point COURANT qui a été purgé, et le nomme', () => {
+		const c = compareReports({
+			base: point({ periodSlot: '2026-07-20T09:00', report: full }),
+			head: point({ periodSlot: '2026-07-27T09:00', detail: purged })
+		});
+		if (c.kind !== 'unavailable') throw new Error('disponible');
+		expect(c.reason).toBe('detail_purged');
+		expect(c.note).toContain('courant');
+	});
+
+	it('CONTRE-ÉPREUVE : deux détails présents comparent normalement', () => {
+		const c = compareReports({
+			base: point({ periodSlot: '2026-07-20T09:00', report: full }),
+			head: point({ periodSlot: '2026-07-27T09:00', report: full })
+		});
+		expect(c.kind).toBe('available');
+	});
+
+	it('l’ORDRE est vérifié avant la rétention : deux fois le même point reste « same_point »', () => {
+		// Un point purgé comparé à lui-même n’est pas « détail purgé », c’est « il n’y a rien à
+		// comparer » — la première question posée reste la bonne.
+		const p = point({ detail: purged });
+		const c = compareReports({ base: p, head: p });
+		if (c.kind !== 'unavailable') throw new Error('disponible');
+		expect(c.reason).toBe('same_point');
 	});
 });

@@ -1202,14 +1202,14 @@ Acceptation :
 
 ## REP-004 — Historique, comparaison et archivage
 
-**Priorité :** P1 · **Taille :** M · **État :** **lot 1 DONE (2026-07-27)** · lot 2 READY · **Dépendances :** REP-001
+**Priorité :** P1 · **Taille :** M · **État :** ✅ **DONE (2026-07-27)** — lot 1 (révision + comparaison) et lot 2 (rétention du détail + `/seo-archive`) · **Dépendances :** REP-001
 
 Travail :
 
 - versionner données, template et agent ; ✅ (lot 1 — `ReportMetric.key`, schéma de rapport 2)
 - comparer deux rapports ; ✅ (lot 1 — `compareReports`, axes `slot` et `revision`)
 - archiver décisions et outcomes ; ✅ (lot 1 — révisions : `revision`, `revision_reason`, `supersedes_id`)
-- adapter `seo-archive` à ce rôle. ⏳ **lot 2**
+- adapter `seo-archive` à ce rôle. ✅ (lot 2 — wrapper `weekly-report` qui **embarque sa source**, `--projet _global`)
 
 > **Lot 1 livré :** la RÉVISION d'un créneau et la COMPARAISON de deux rapports publiés. Un seul
 > DDL, **aucune table** (61) : l'unique passe de `(period_slot)` à `(period_slot, revision)`, et
@@ -1221,16 +1221,25 @@ Travail :
 > semaine). ⚠️ Le SLO d'un créneau se dérive de sa **première** publication : réviser ne réécrit
 > pas la ponctualité du cron.
 >
-> **Lot 2 (reste) :** rétention du détail (purger `payload_json` au-delà de N semaines en gardant
-> la ligne et ses liens) et adaptation de `/seo-archive`. Volontairement différé : écrire une
-> politique de purge pour une table qui compte **0 ligne** serait de la spéculation.
+> **Lot 2 livré (2026-07-27) :** la RÉTENTION du détail. **Un seul DDL, aucune table** (61) :
+> `payload_json` devient nullable, cinq colonnes disent ce que le détail pesait et où il est
+> parti, et **le CHECK** `weekly_reports_payload_presence_check` interdit le seul état dangereux
+> — un détail disparu **sans adresse ni empreinte**. ⭐ Rendre une colonne nullable CRÉE un état,
+> et « ligne sans détail » se lit naïvement « rapport vide » : douze sections non branchées pour
+> un rapport qui en portait dix. ⭐ **On purge le détail, jamais la ligne** — le SLO, la
+> préparation et le lignage (`supersedes_id`, numéro dérivé du `max`) survivent tous. ⭐
+> **« Archivé » est une condition VÉRIFIÉE** : un rapport ne se régénère pas, donc `not_archived`
+> retient quel que soit l'âge, et la marque n'est posée qu'après avoir retrouvé la note du vault
+> et comparé son SHA-256 au détail en base. ⚠️ Fenêtre **désactivée par défaut**
+> (`system_settings` → `report.detail_retention_weeks`, plancher 4 semaines) : le défaut, comme
+> le pire cas d'une valeur illisible, doit être celui qui ne détruit rien.
 
 Acceptation :
 
 - régénérer un rapport ne remplace pas silencieusement l'original ; ✅ **lot 1**
 - les changements de template sont traçables ; ✅ **lot 1** (schéma versionné, sections hors
   plan nommées, métriques renommées signalées)
-- les liens restent valides après rétention du détail. ⏳ **lot 2**
+- les liens restent valides après rétention du détail. ✅ **lot 2** (la ligne purgée porte l'adresse de son archive ; `/reports/[slot]` rend une vue purgée, jamais une page vide ou une 404)
 
 ## REP-005 — Template de rapport client
 

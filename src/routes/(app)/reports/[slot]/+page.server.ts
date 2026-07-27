@@ -5,7 +5,7 @@ import {
 	listReportRevisions,
 	loadPublishedReport
 } from '$lib/server/report-publication.js';
-import { buildReportView } from '$lib/server/report-read-state.js';
+import { buildPurgedReportView, buildReportView } from '$lib/server/report-read-state.js';
 import {
 	compareReports,
 	describeLineage,
@@ -28,6 +28,11 @@ import type { PageServerLoad } from './$types.js';
  * ⚠️ **Un payload illisible LÈVE** (`loadPublishedReport`) : un rapport archivé qu'on ne sait
  * plus relire est une anomalie à voir tout de suite, pas un `null` à interpréter comme « pas
  * encore publié ». On ne l'attrape donc pas ici.
+ *
+ * ⚠️ **Un payload ABSENT ne lève pas** (REP-004 lot 2) : c'est une rétention. La page rend alors
+ * la vue purgée — même en-tête, même lignage, même SLO, et l'adresse de l'archive à la place du
+ * corps. Corruption et rétention demandent deux gestes opposés ; les confondre ferait chercher
+ * un incident là où tout s'est bien passé.
  *
  * ⚠️ **La comparaison charge un SECOND payload** (~28 kio) : elle vit sur le détail, jamais sur
  * la liste. `?compare=none` la coupe pour qui veut la page nue.
@@ -67,7 +72,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				)
 			: null;
 
-	const view = buildReportView({
+	const header = {
 		periodSlot: published.periodSlot,
 		status: published.status,
 		publishedAt: published.publishedAt,
@@ -76,12 +81,25 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		// sur la PREMIÈRE publication du créneau, pas sur la révision affichée.
 		slo: published.slo,
 		readiness: published.readiness,
-		report: published.report,
 		revision: published.revision,
 		revisionCount: published.revisionCount,
 		revisionReason: published.revisionReason,
+		retention: published.retention,
 		lineage
-	});
+	};
+
+	// ⭐ REP-004 lot 2 — un détail purgé rend une AUTRE vue, pas une vue creuse. `buildReportView`
+	// n'accepte plus qu'un rapport présent : il n'y a donc aucun chemin par lequel une page
+	// pourrait afficher « 0 finding » pour un détail qui a simplement été archivé ailleurs.
+	const view =
+		published.detail.kind === 'available'
+			? buildReportView({ ...header, report: published.detail.report })
+			: buildPurgedReportView({
+					...header,
+					purgedAt: published.detail.purgedAt,
+					archiveRef: published.detail.archiveRef,
+					bytes: published.retention.bytes
+				});
 
 	// ── Le point de référence ────────────────────────────────────────
 	//
@@ -103,19 +121,23 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		? await loadPublishedReport({ db, periodSlot: basePoint.periodSlot, revision: basePoint.revision })
 		: null;
 
+	// ⚠️ Les deux `detail` passent TELS QUELS : c'est `compareReports` qui refuse de comparer
+	// contre un détail purgé (`reason: 'detail_purged'`), et pas ce loader. Le jugement vit dans
+	// le module pur — un `if` ici deviendrait une seconde règle, non testée, qu'un refactor
+	// pourrait perdre.
 	const comparison = baseReport
 		? compareReports({
 				base: {
 					periodSlot: baseReport.periodSlot,
 					revision: baseReport.revision,
 					reportSchemaVersion: baseReport.reportSchemaVersion,
-					report: baseReport.report
+					detail: baseReport.detail
 				},
 				head: {
 					periodSlot: published.periodSlot,
 					revision: published.revision,
 					reportSchemaVersion: published.reportSchemaVersion,
-					report: published.report
+					detail: published.detail
 				}
 			})
 		: null;

@@ -173,13 +173,28 @@ export function describeLineage(
 // 2. La comparaison de deux rapports
 // ════════════════════════════════════════════════════════════════════
 
+/**
+ * Le détail d'un rapport publié — présent, ou retiré par la rétention (REP-004 lot 2).
+ *
+ * ⭐ **Une union, et c'est le quatrième endroit où « absent ≠ zéro » se défait.** `payload_json`
+ * est nullable depuis le lot 2 ; un `report: WeeklyReport | null` aurait invité le premier
+ * `?? EMPTY_REPORT` venu, et un rapport vide n'est pas un rapport purgé : il porterait douze
+ * sections sans corps, donc la comparaison annoncerait douze sections « hors plan » et un
+ * changement de TEMPLATE — un mouvement fabriqué par une politique de rétention. Ici le cas
+ * purgé n'a pas de `report` du tout : il n'y a aucune case où un rapport de substitution
+ * pourrait vivre.
+ */
+export type ReportDetail =
+	| { kind: 'available'; report: WeeklyReport }
+	| { kind: 'purged'; purgedAt: string; archiveRef: string };
+
 /** Un rapport publié, réduit à ce qu'une comparaison a besoin de savoir. */
 export interface ComparisonPoint {
 	periodSlot: string;
 	revision: number;
 	/** Version du schéma de rapport telle qu'elle a été PUBLIÉE — jamais celle du code courant. */
 	reportSchemaVersion: number;
-	report: WeeklyReport;
+	detail: ReportDetail;
 }
 
 /**
@@ -377,7 +392,12 @@ export interface ComparisonSummary {
 export type ReportComparison =
 	| {
 			kind: 'unavailable';
-			reason: 'same_point' | 'not_ordered';
+			/**
+			 * `detail_purged` (REP-004 lot 2) — le détail d'un des deux points a été retiré par la
+			 * rétention. Ce n'est ni une erreur ni « rien n'a changé » : la comparaison n'a plus de
+			 * sujet d'un côté, et le nommer envoie vers l'archive plutôt que vers un support.
+			 */
+			reason: 'same_point' | 'not_ordered' | 'detail_purged';
 			note: string;
 	  }
 	| {
@@ -713,6 +733,32 @@ export function compareReports(input: {
 		};
 	}
 
+	// ⭐ Un détail purgé n'est pas un rapport vide (REP-004 lot 2). Le comparer comme tel
+	// produirait douze sections « hors plan » et annoncerait un changement de TEMPLATE là où il
+	// n'y a eu qu'une rétention. Le refus NOMME le côté et son archive : la question « qu'est-ce
+	// qui a changé ? » reste répondable, ailleurs.
+	if (base.detail.kind === 'purged' || head.detail.kind === 'purged') {
+		const sides: string[] = [];
+		if (base.detail.kind === 'purged') {
+			sides.push(
+				`de référence (${base.periodSlot} rév. ${base.revision}) — archivé dans « ${base.detail.archiveRef} »`
+			);
+		}
+		if (head.detail.kind === 'purged') {
+			sides.push(
+				`courant (${head.periodSlot} rév. ${head.revision}) — archivé dans « ${head.detail.archiveRef} »`
+			);
+		}
+		return {
+			kind: 'unavailable',
+			reason: 'detail_purged',
+			note: `le détail d’un des deux rapports a été retiré par la rétention : ${sides.join(' · ')}. Rien n’est comparé plutôt que de comparer contre un rapport vide, qui annoncerait un changement de template.`
+		};
+	}
+
+	const baseReport = base.detail.report;
+	const headReport = head.detail.report;
+
 	const axis: ComparisonAxis = base.periodSlot === head.periodSlot ? 'revision' : 'slot';
 
 	const blocks: ComparisonBlock[] = [];
@@ -722,20 +768,20 @@ export function compareReports(input: {
 			note: `schéma de rapport ${base.reportSchemaVersion} → ${head.reportSchemaVersion} : les métriques ne sont pas garanties désigner la même chose, aucun écart n’est chiffré.`
 		});
 	}
-	if (base.report.period.windowDays !== head.report.period.windowDays) {
+	if (baseReport.period.windowDays !== headReport.period.windowDays) {
 		blocks.push({
 			reason: 'window_mismatch',
-			note: `périodes de longueurs différentes (${base.report.period.windowDays} j → ${head.report.period.windowDays} j) : un écart mesurerait la fenêtre, pas le parc.`
+			note: `périodes de longueurs différentes (${baseReport.period.windowDays} j → ${headReport.period.windowDays} j) : un écart mesurerait la fenêtre, pas le parc.`
 		});
 	}
 
-	const baseByKey = new Map(base.report.sections.map((s) => [s.key, s]));
-	const headByKey = new Map(head.report.sections.map((s) => [s.key, s]));
+	const baseByKey = new Map(baseReport.sections.map((s) => [s.key, s]));
+	const headByKey = new Map(headReport.sections.map((s) => [s.key, s]));
 
 	// L'ordre est celui du rapport COURANT (son propre plan, jamais `SECTION_ORDER`), suivi de
 	// ce que seul l'ancien portait — même discipline que `buildReportView`.
 	const sections: SectionComparison[] = [];
-	for (const headSection of head.report.sections) {
+	for (const headSection of headReport.sections) {
 		const baseSection = baseByKey.get(headSection.key);
 		if (!baseSection) {
 			sections.push({
@@ -748,7 +794,7 @@ export function compareReports(input: {
 		}
 		sections.push(compareSection({ base: baseSection, head: headSection, blocks }));
 	}
-	for (const baseSection of base.report.sections) {
+	for (const baseSection of baseReport.sections) {
 		if (headByKey.has(baseSection.key)) continue;
 		sections.push({
 			key: baseSection.key,
@@ -765,13 +811,13 @@ export function compareReports(input: {
 			periodSlot: base.periodSlot,
 			revision: base.revision,
 			reportSchemaVersion: base.reportSchemaVersion,
-			periodLabel: base.report.period.label
+			periodLabel: baseReport.period.label
 		},
 		head: {
 			periodSlot: head.periodSlot,
 			revision: head.revision,
 			reportSchemaVersion: head.reportSchemaVersion,
-			periodLabel: head.report.period.label
+			periodLabel: headReport.period.label
 		},
 		blocks,
 		sections,

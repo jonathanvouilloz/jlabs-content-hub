@@ -20,6 +20,7 @@
  * publications du même lundi porteraient deux périodes différentes, et REP-004 comparerait des
  * semaines qui ne se recouvrent pas.
  */
+import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { monitoringRuns, weeklyReports } from './db/schema.js';
 import type { AppDb } from './db/types.js';
@@ -49,9 +50,30 @@ import {
 	type PublicationStatus,
 	type SloVerdict
 } from './report-publication-state.js';
-import { decideRevision, type RevisionRefusal } from './report-history-state.js';
+import {
+	decideRevision,
+	type ReportDetail,
+	type RevisionRefusal
+} from './report-history-state.js';
+import { deriveDetailState, type DetailState } from './report-retention-state.js';
 
 const logger = log('report-publication');
+
+/**
+ * Taille et empreinte du détail, mesurées sur la chaîne EXACTEMENT écrite en base.
+ *
+ * ⚠️ Jamais sur un objet reparsé puis re-sérialisé : `JSON.stringify` ne garantit pas l'ordre
+ * des clés d'un objet reconstruit, et l'empreinte cesserait alors de prouver quoi que ce soit.
+ * Les deux valeurs sont écrites à la PUBLICATION (donc connues avant toute archive) : REP-004
+ * lot 2 s'en sert pour vérifier qu'un fichier du vault est bien CE rapport, et pour dire ce
+ * qu'une ligne purgée pesait.
+ */
+export function measurePayload(json: string): { bytes: number; digest: string } {
+	return {
+		bytes: Buffer.byteLength(json, 'utf8'),
+		digest: createHash('sha256').update(json, 'utf8').digest('hex')
+	};
+}
 
 /** Clé portant l'échéance de publication dans `system_settings` (réglable sans redéploiement). */
 export const PUBLISH_DEADLINE_KEY = 'report.publish_deadline_minutes';
@@ -360,6 +382,8 @@ export async function publishWeeklyReport(
 	}
 
 	const id = createId();
+	const payloadJson = JSON.stringify(report);
+	const measured = measurePayload(payloadJson);
 	const inserted = await db
 		.insert(weeklyReports)
 		.values({
@@ -372,7 +396,11 @@ export async function publishWeeklyReport(
 			dueAt: dueAtDb,
 			publishedAt: publishedAtDb,
 			readinessJson: JSON.stringify(decision.readiness),
-			payloadJson: JSON.stringify(report),
+			payloadJson,
+			// REP-004 lot 2 — mesurés à l'écriture : c'est le seul moment où la chaîne exacte est
+			// entre les mains du code qui l'écrit.
+			payloadBytes: measured.bytes,
+			payloadDigest: measured.digest,
 			// ⭐ Le chemin AUTOMATIQUE n'écrit QUE la révision 1, et c'est ce qui préserve
 			// l'acceptation REP-003 après le déplacement de l'unique : un cron qui repasse cent
 			// fois sur le même lundi produit toujours exactement une ligne. Une révision >= 2
@@ -568,6 +596,8 @@ export async function reviseWeeklyReport(input: {
 	}
 
 	const id = createId();
+	const payloadJson = JSON.stringify(report);
+	const measured = measurePayload(payloadJson);
 	const inserted = await db
 		.insert(weeklyReports)
 		.values({
@@ -581,7 +611,11 @@ export async function reviseWeeklyReport(input: {
 			dueAt: current.dueAt,
 			publishedAt: publishedAtDb,
 			readinessJson: JSON.stringify(readiness),
-			payloadJson: JSON.stringify(report),
+			payloadJson,
+			// Chaque révision porte SA propre empreinte : deux révisions d'un même créneau ont deux
+			// détails différents (c'est leur raison d'être), donc deux archives distinctes.
+			payloadBytes: measured.bytes,
+			payloadDigest: measured.digest,
 			revision: decision.revision,
 			revisionReason: decision.reason,
 			supersedesId: decision.supersedesId
@@ -687,10 +721,22 @@ export interface PublishedReportMeta {
 	readiness: PublicationReadiness | null;
 	/** DÉRIVÉ à chaque lecture, jamais stocké — sur `firstPublishedAt`. */
 	slo: SloVerdict;
+	/**
+	 * REP-004 lot 2 — OÙ vit le détail de ce rapport (`stored` / `archived` / `purged`).
+	 *
+	 * ⭐ **Lisible SANS charger le payload**, et c'est un cadeau du CHECK : `payload_purged_at`
+	 * n'est renseigné que quand `payload_json` est `NULL`, donc la colonne légère suffit à
+	 * discriminer. La liste peut dire « détail archivé » sans payer 28 kio par ligne.
+	 */
+	retention: DetailState;
 }
 
 export interface PublishedReport extends PublishedReportMeta {
-	report: WeeklyReport;
+	/**
+	 * Le rapport, ou son absence NOMMÉE (rétention). Jamais `WeeklyReport | null` : voir
+	 * `ReportDetail` — un rapport purgé n'est pas un rapport vide.
+	 */
+	detail: ReportDetail;
 }
 
 interface ReportRow {
@@ -706,6 +752,11 @@ interface ReportRow {
 	revision: number;
 	revisionReason: string | null;
 	supersedesId: string | null;
+	payloadBytes: number | null;
+	payloadDigest: string | null;
+	payloadArchivedAt: string | null;
+	payloadArchiveRef: string | null;
+	payloadPurgedAt: string | null;
 }
 
 /** Ce que le créneau porte AUTOUR de la ligne lue : sa première publication et son compte. */
@@ -741,6 +792,17 @@ function toMeta(row: ReportRow, history?: SlotHistory): PublishedReportMeta {
 		supersedesId: row.supersedesId,
 		firstPublishedAt,
 		revisionCount: history?.revisionCount ?? 1,
+		// ⚠️ `hasPayload` se dérive de `payload_purged_at`, jamais d'un `payload_json` qu'on ne
+		// charge pas ici : c'est le CHECK `weekly_reports_payload_presence_check` qui rend les
+		// deux équivalents, et c'est ce qui permet à la liste de rester légère.
+		retention: deriveDetailState({
+			hasPayload: row.payloadPurgedAt === null,
+			payloadBytes: row.payloadBytes,
+			payloadDigest: row.payloadDigest,
+			payloadArchivedAt: row.payloadArchivedAt,
+			payloadArchiveRef: row.payloadArchiveRef,
+			payloadPurgedAt: row.payloadPurgedAt
+		}),
 		readiness,
 		// ⚠️ Sur `firstPublishedAt`, pas sur `publishedAt` : le SLO est celui du CRÉNEAU. Une
 		// révision écrite le mercredi ne dégrade pas la ponctualité du lundi, et ne la répare
@@ -767,7 +829,14 @@ const META_COLUMNS = {
 	readinessJson: weeklyReports.readinessJson,
 	revision: weeklyReports.revision,
 	revisionReason: weeklyReports.revisionReason,
-	supersedesId: weeklyReports.supersedesId
+	supersedesId: weeklyReports.supersedesId,
+	// REP-004 lot 2 — cinq colonnes LÉGÈRES qui disent où vit le détail. Elles ne coûtent rien
+	// à charger, et sans elles la liste devrait ouvrir le payload pour savoir s'il existe.
+	payloadBytes: weeklyReports.payloadBytes,
+	payloadDigest: weeklyReports.payloadDigest,
+	payloadArchivedAt: weeklyReports.payloadArchivedAt,
+	payloadArchiveRef: weeklyReports.payloadArchiveRef,
+	payloadPurgedAt: weeklyReports.payloadPurgedAt
 } as const;
 
 /**
@@ -912,6 +981,11 @@ export async function listReportRevisions(input: {
  *
  * Lève si le payload est illisible : un rapport archivé qu'on ne sait plus relire est une
  * anomalie à voir tout de suite, pas un `null` à interpréter comme « pas encore publié ».
+ *
+ * ⚠️ **Un payload ABSENT ne lève pas** (REP-004 lot 2) : c'est une rétention, pas une
+ * corruption. Il rend `detail: { kind: 'purged' }`, avec l'adresse de l'archive. Les deux cas
+ * demandent deux gestes opposés — réparer une donnée d'un côté, ouvrir le vault de l'autre —
+ * et les confondre ferait passer une purge réussie pour un incident.
  */
 export async function loadPublishedReport(input: {
 	db?: AppDb;
@@ -939,6 +1013,24 @@ export async function loadPublishedReport(input: {
 	const row = rows[0];
 	if (!row) return null;
 
+	const histories = await loadSlotHistories(db, [row.periodSlot]);
+	const meta = toMeta(row, histories.get(row.periodSlot));
+
+	if (row.payloadJson === null) {
+		// Détail retiré par la rétention. L'adresse vient de `meta.retention`, elle-même dérivée
+		// des colonnes — jamais reconstruite ici, pour qu'il n'y ait qu'une autorité.
+		const retention = meta.retention;
+		return {
+			...meta,
+			detail: {
+				kind: 'purged',
+				purgedAt: retention.kind === 'purged' ? retention.purgedAt : (row.payloadPurgedAt ?? ''),
+				archiveRef:
+					retention.kind === 'purged' ? retention.archiveRef : (row.payloadArchiveRef ?? '')
+			}
+		};
+	}
+
 	let report: WeeklyReport;
 	try {
 		report = JSON.parse(row.payloadJson) as WeeklyReport;
@@ -949,6 +1041,5 @@ export async function loadPublishedReport(input: {
 			}`
 		);
 	}
-	const histories = await loadSlotHistories(db, [row.periodSlot]);
-	return { ...toMeta(row, histories.get(row.periodSlot)), report };
+	return { ...meta, detail: { kind: 'available', report } };
 }

@@ -47,6 +47,7 @@ import type {
 	SloVerdict
 } from './report-publication-state.js';
 import type { RevisionLineage } from './report-history-state.js';
+import { describeDetailState, type DetailState } from './report-retention-state.js';
 
 // ── Le lien d'un rapport : l'URL et son libellé naissent ensemble ────
 
@@ -110,6 +111,20 @@ export interface ReportListRow {
 	revisionCount: number;
 	/** Une phrase, ou `null` quand le créneau n'a jamais été révisé (rien à signaler). */
 	revisionLabel: string | null;
+	/**
+	 * REP-004 lot 2 — où vit le détail de ce créneau (`stored` / `archived` / `purged`).
+	 *
+	 * ⚠️ Lu depuis les colonnes légères, jamais depuis le payload : la liste ne charge aucun
+	 * détail, et c'est précisément ce qui lui permet d'en parler sans le payer.
+	 */
+	detailState: DetailState['kind'];
+	/**
+	 * Une phrase, ou `null` quand le détail est simplement là.
+	 *
+	 * Le cas nominal ne se commente pas : annoncer « détail conservé » sur douze lignes ferait
+	 * du bruit là où il n'y a pas de fait.
+	 */
+	detailNote: string | null;
 }
 
 /**
@@ -179,11 +194,13 @@ export function summarizeReportList(
 		slo: SloVerdict;
 		revision?: number;
 		revisionCount?: number;
+		retention?: DetailState;
 	}[]
 ): ReportListRow[] {
 	return metas.map((meta) => {
 		const revision = meta.revision ?? 1;
 		const revisionCount = meta.revisionCount ?? 1;
+		const retention: DetailState = meta.retention ?? { kind: 'stored', bytes: null };
 		return {
 			periodSlot: meta.periodSlot,
 			slotLabel: formatSlotLabel(meta.periodSlot),
@@ -197,7 +214,9 @@ export function summarizeReportList(
 			statusNote: STATUS_NOTE[meta.status],
 			revision,
 			revisionCount,
-			revisionLabel: describeRevision(revision, revisionCount)
+			revisionLabel: describeRevision(revision, revisionCount),
+			detailState: retention.kind,
+			detailNote: retention.kind === 'stored' ? null : describeDetailState(retention)
 		};
 	});
 }
@@ -381,7 +400,16 @@ export function sectionView(section: ReportSection): SectionView {
 
 // ── Le rapport entier ───────────────────────────────────────────────
 
-export interface ReportView {
+/**
+ * Ce qu'un rapport porte AVANT son détail : le créneau, le verdict, la préparation, le lignage.
+ *
+ * ⭐ **C'est exactement ce qui survit à la rétention** (REP-004 lot 2), et c'est pour ça que
+ * l'en-tête est un type à part : une ligne dont le détail a été purgé garde tout ceci, et la
+ * page reste donc une page — avec son statut, son SLO, ses révisions et l'adresse de son
+ * archive. « Les liens restent valides après rétention du détail » n'est pas une promesse de
+ * l'écran, c'est la forme de ce type.
+ */
+export interface ReportHeaderView {
 	periodSlot: string;
 	slotLabel: string;
 	status: PublicationStatus;
@@ -389,17 +417,8 @@ export interface ReportView {
 	slo: SloVerdict;
 	sloLabel: string;
 	publishedAt: string;
-	generatedAt: string;
-	/** Bornes RÉELLES de ce qui a été compté, reprises du payload. */
-	periodLabel: string;
-	headline: string;
-	/** Les angles morts du PARC, une fois — non répétés section par section. */
-	coverage: BlindSpot[];
-	coverageNote: string | null;
 	readiness: PublicationReadiness | null;
 	readinessLabel: string | null;
-	/** Les sections **dans l'ordre du JSON archivé**, jamais dans celui de la spec courante. */
-	sections: SectionView[];
 	/** Version du schéma de rapport telle qu'elle a été publiée. */
 	reportSchemaVersion: number;
 	/** REP-004 — la révision affichée, et le nombre de révisions du créneau. */
@@ -410,6 +429,48 @@ export interface ReportView {
 	revisionReason: string | null;
 	/** Le lignage complet du créneau — `null` quand il n'a qu'une révision. */
 	lineage: RevisionLineage | null;
+	/** REP-004 lot 2 — où vit le détail, et ce que ça implique, en une phrase. */
+	detailNote: string;
+}
+
+/**
+ * Le détail d'un rapport, projeté — ou son absence NOMMÉE.
+ *
+ * ⭐ **Union, cinquième application de « absent ≠ zéro ».** Le cas `purged` n'a ni `sections`,
+ * ni `headline`, ni `coverage` : un template ne peut donc pas rendre un rapport purgé comme un
+ * rapport à zéro section (ce qui afficherait douze providers non branchés pour un rapport qui
+ * en portait dix). Le prix est un `{#if}` de plus dans la page ; le bénéfice est qu'aucun oubli
+ * de `{#if}` ne peut mentir.
+ */
+export type ReportDetailView =
+	| ({ kind: 'available' } & ReportHeaderView & ReportBody)
+	| ({ kind: 'purged' } & ReportHeaderView & PurgedBody);
+
+/** Ce que porte un rapport dont le détail est encore là. */
+export interface ReportBody {
+	generatedAt: string;
+	/** Bornes RÉELLES de ce qui a été compté, reprises du payload. */
+	periodLabel: string;
+	headline: string;
+	/** Les angles morts du PARC, une fois — non répétés section par section. */
+	coverage: BlindSpot[];
+	coverageNote: string | null;
+	/** Les sections **dans l'ordre du JSON archivé**, jamais dans celui de la spec courante. */
+	sections: SectionView[];
+}
+
+/**
+ * Ce que porte un rapport dont le détail a été retiré par la rétention.
+ *
+ * Aucun champ chiffré, aucune section, aucun résumé : ce que ce rapport DISAIT n'est pas ici,
+ * il est à `archiveRef`. Le seul contenu est l'adresse et l'empreinte — de quoi retrouver le
+ * fichier et prouver que c'est le bon.
+ */
+export interface PurgedBody {
+	purgedAt: string;
+	archiveRef: string;
+	/** Ce que pesait le détail. `null` sur une ligne archivée avant qu'on le mesure. */
+	bytes: number | null;
 }
 
 /** Le lien vers une révision précise d'un créneau. */
@@ -446,30 +507,27 @@ export function describeCoverage(coverage: readonly BlindSpot[]): string | null 
 	} — ${parts.join(' · ')}.`;
 }
 
-/**
- * Projette un rapport publié pour `/reports/[slot]`.
- *
- * Le seul paramètre est ce qui a été PERSISTÉ — même discipline que `renderWeeklyReportText`
- * (« générable sans LLM » devient structurel quand la fonction n'a rien d'autre à lire) et que
- * `renderPublicationAnnouncement`. L'écran ne peut donc rien affirmer que la base ne porte pas.
- */
-export function buildReportView(input: {
+/** Ce qui ne dépend PAS du détail — donc ce qui survit à sa purge. */
+interface HeaderInput {
 	periodSlot: string;
 	status: PublicationStatus;
 	publishedAt: string;
 	reportSchemaVersion: number;
 	slo: SloVerdict;
 	readiness: PublicationReadiness | null;
-	report: WeeklyReport;
 	revision?: number;
 	revisionCount?: number;
 	revisionReason?: string | null;
 	/** Le lignage du créneau, tel que `describeLineage` le rend. */
 	lineage?: RevisionLineage | null;
-}): ReportView {
-	const { report } = input;
+	/** REP-004 lot 2 — l'état du détail, tel que `deriveDetailState` le rend. */
+	retention?: DetailState;
+}
+
+function buildHeader(input: HeaderInput): ReportHeaderView {
 	const revision = input.revision ?? 1;
 	const revisionCount = input.revisionCount ?? 1;
+	const retention: DetailState = input.retention ?? { kind: 'stored', bytes: null };
 	return {
 		periodSlot: input.periodSlot,
 		slotLabel: formatSlotLabel(input.periodSlot),
@@ -478,19 +536,58 @@ export function buildReportView(input: {
 		slo: input.slo,
 		sloLabel: describeSlo(input.slo, input.readiness?.deadlineMinutes ?? null, revisionCount),
 		publishedAt: input.publishedAt,
-		generatedAt: report.generatedAt,
-		periodLabel: report.period.label,
-		headline: report.headline,
-		coverage: report.coverage,
-		coverageNote: describeCoverage(report.coverage),
 		readiness: input.readiness,
 		readinessLabel: input.readiness ? describeReadiness(input.readiness) : null,
-		sections: report.sections.map(sectionView),
 		reportSchemaVersion: input.reportSchemaVersion,
 		revision,
 		revisionCount,
 		revisionLabel: describeRevision(revision, revisionCount),
 		revisionReason: input.revisionReason ?? null,
-		lineage: input.lineage ?? null
+		lineage: input.lineage ?? null,
+		detailNote: describeDetailState(retention)
+	};
+}
+
+/**
+ * Projette un rapport publié pour `/reports/[slot]`.
+ *
+ * Le seul paramètre est ce qui a été PERSISTÉ — même discipline que `renderWeeklyReportText`
+ * (« générable sans LLM » devient structurel quand la fonction n'a rien d'autre à lire) et que
+ * `renderPublicationAnnouncement`. L'écran ne peut donc rien affirmer que la base ne porte pas.
+ */
+export function buildReportView(
+	input: HeaderInput & { report: WeeklyReport }
+): Extract<ReportDetailView, { kind: 'available' }> {
+	const { report } = input;
+	return {
+		kind: 'available',
+		...buildHeader(input),
+		generatedAt: report.generatedAt,
+		periodLabel: report.period.label,
+		headline: report.headline,
+		coverage: report.coverage,
+		coverageNote: describeCoverage(report.coverage),
+		sections: report.sections.map(sectionView)
+	};
+}
+
+/**
+ * Projette un rapport dont le DÉTAIL a été purgé (REP-004 lot 2).
+ *
+ * ⭐ **Ce n'est pas une page d'erreur, et ce n'est pas une page vide.** Le rapport a existé, il
+ * a été publié à l'heure (ou non), il a peut-être été révisé — tout cela est encore vrai et
+ * encore affiché. Seule sa matière est ailleurs, à une adresse que la page donne. C'est le sens
+ * exact de l'acceptation « les liens restent valides après rétention du détail » : le lien vers
+ * le créneau ne casse pas, il change de destination.
+ */
+export function buildPurgedReportView(
+	input: HeaderInput & { purgedAt: string; archiveRef: string; bytes?: number | null }
+): Extract<ReportDetailView, { kind: 'purged' }> {
+	return {
+		kind: 'purged',
+		...buildHeader(input),
+		purgedAt: input.purgedAt,
+		archiveRef: input.archiveRef,
+		bytes: input.bytes ?? null
 	};
 }
