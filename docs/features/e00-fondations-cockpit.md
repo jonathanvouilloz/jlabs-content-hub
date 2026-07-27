@@ -83,7 +83,7 @@ jetable → `--confirm` → `--purge` → relecture), y compris l'altération d'
 - Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
   cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
 
-**Commit :** (à faire)
+**Commit :** `3840dba` [hub] add: un rapport peut perdre son detail sans perdre sa ligne (REP-004 lot 2)
 
 ---
 

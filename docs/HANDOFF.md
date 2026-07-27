@@ -64,4 +64,4 @@ déclarées, 61 en base).
 ⚠️ **Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé avec ce lot (wrapper
 `weekly-report`, défaut de vault corrigé) — non commité ici.
 
-Commit : (REP-004 lot 2, à faire) · précédent `1d4a6b4` (E00) · prod : `e5efc83` sur `main`
+Commit : `3840dba` (REP-004 lot 2) · précédent `1d4a6b4` (E00) · prod : `e5efc83` sur `main`
