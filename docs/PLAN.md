@@ -447,6 +447,17 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   maison (incident de ce lot, réparé).
   Prochain : le **portage de `/positions` sur le canon** (débloque FIND-007) ou **AGT-001**
   (API agent v1 — approuver n'exécute toujours rien).
+  **Et la mise en prod commence** (2026-07-27) : le cockpit n'a jamais tourné en production, et
+  trois choses seulement le séparent du merge — aucun écran vu à l'œil, aucun build Vercel de la
+  branche, et un premier tick à **81 jobs hebdo pour un plafond de 25**. Les deux gestes qui
+  doivent le précéder sont faits : **`scripts/pauses.ts`** (la porte hors-écran des pauses —
+  `/automations` n'est pas déployée, or c'est précisément avant le déploiement que la décision se
+  prend ; **les 9 cadences hebdo sont en pause**, reprise projet par projet ensuite) et le cron
+  **`gmb-reviews`** dans `vercel.json`, une route qui existait sans être planifiée **nulle part**
+  (les avis ne descendaient que par le bouton Sync ; `physiopommier` n'avait pas été synchronisé
+  depuis avril). Reste : la **revue visuelle**, le **preview Vercel**, le **merge `--ff-only`** et
+  l'observation du premier tick. ⚠️ Le DDL est **déjà en base** (61 tables) — le merge ne touche
+  pas au schéma, il **supprime** le risque `db:push`.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

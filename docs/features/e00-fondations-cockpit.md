@@ -4,6 +4,72 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (mise en prod du cockpit — étapes 1 à 3 sur 5)
+
+**Fait :** l'audit de l'écart prod ↔ `feat/cockpit`, puis les deux gestes qui doivent précéder
+le déploiement. Aucun code applicatif touché : un script d'exploitation et une ligne de cron.
+
+- **⭐ Le premier tick est désarmé AVANT d'exister.** `scripts/pauses.ts` (nouveau) pose une
+  décision de pause hors de tout écran — les pauses n'avaient qu'une porte humaine
+  (`POST /api/ops/automations/pause`, qui exige `locals.user`, donc `/automations`), or la
+  décision qui compte le plus se prend précisément quand cet écran n'est pas déployé. Il
+  **n'implémente aucune règle** : il appelle `recordPauseDecision`, donc l'idempotence (dans
+  la transaction) et le journal append-only viennent de là. Dry-run par défaut, `--reason`
+  obligatoire **dans les deux sens**, reprise comprise. **Les 9 cadences hebdo sont en pause
+  en base**, raison journalisée, acteur `user:contact@jonlabs.ch`.
+- **⚠️ La cadence `daily` reste ACTIVE, et c'est un choix.** Elle porte 3 entrées
+  (`findings:lifecycle`, `collect:url_inspection` scope `due`, `detect:index_transition`) :
+  faire expirer les veilles et honorer les échéances d'inspection sont deux gestes qu'on veut
+  voir tourner **pendant** une reprise progressive. Elle est quasi vide aujourd'hui
+  (`index_selection` sans échéance due). La suspendre est un geste explicite
+  (`--cadence daily --pause-all`), jamais un effet de bord de la mise en prod.
+- **Le cron des avis existait sans être planifié nulle part.**
+  `/api/cron/gmb-reviews` est dans le code depuis des mois et n'est dans **aucun**
+  `vercel.json` — ni `main`, ni `feat/cockpit`. Les avis Google ne descendaient que par le
+  bouton « Sync » de la page projet. Mesuré en base : dernière écriture réelle
+  `bisrepetita` 2026-05-21, `physiopommier` 2026-04-06. Ajouté à 05:00 UTC.
+- **L'audit chiffré de l'écart** (lecture seule sur Neon) : 9 projets, 13 findings ouverts,
+  4 propositions, 217 jobs (1 `queued`), 11 runs, **0 rapport publié**, `system_settings`
+  **vide** (tous les réglages aux défauts du code), 3 avis sans réponse (2 `barberconcept`,
+  1 `physiopommier` **depuis mars**), `index_observations` = 0, 82 652 observations GSC.
+- **Vérifications d'avant-merge, vertes** : `npx vitest run` **1419 passés / 42 fichiers**,
+  `npm run check` **0 erreur / 42 warnings** — les deux baselines exactes. `npm run build`
+  compile tout et n'échoue qu'au `symlink` EPERM de l'adaptateur Vercel (limitation Windows,
+  présente aussi sur `main`).
+
+**Prochain :** **l'étape 2 du plan — la revue visuelle**, seule étape restante avant le merge.
+`npm run dev` puis login `contact@jonlabs.ch` sur `http://localhost:5173/login` (le mot de
+passe doit être saisi par Jonathan). Parcourir `/`, `/inbox` (+ un finding et une proposition),
+`/jobs` (+ un job), `/reports` (liste **vide**), `/automations` (les 9 pauses), un projet et ses
+8 onglets, puis `/calendar`, `/seo`, `/content/[id]`. **Navigation seule** : le `.env` local
+pointe la base de PROD, donc aucun bouton d'action. Puis étapes 4 et 5 : `git push origin
+feat/cockpit` (preview Vercel, les crons n'y tournent pas), merge `--ff-only` dans `main`,
+et observation du premier tick.
+
+**Pieges :**
+- ⚠️ **Le `.env` local pointe la base de PROD.** Toute la revue visuelle est en lecture ;
+  approuver, rejeter, relancer un job, poser une pause depuis l'UI ou répondre à un avis
+  écrirait dans la vraie base.
+- ⚠️ **La page de login annonce encore « Content Hub / Jon Labs »**, pas seo-stats. À corriger
+  avec les autres correctifs visuels.
+- ⚠️ **Double navigation à trancher pendant la revue** : la sidebar
+  (`(app)/+layout.svelte` → `projectNav()`) garde **12** entrées projet, la barre d'onglets
+  (`projects/[slug]/+layout.svelte`) en pose **8**, avec des libellés divergents (« Avis » /
+  « Avis Google », « Présence locale » / « Fiche Google ») et sans Indexation côté sidebar.
+  Rien n'est perdu, rien n'est cohérent.
+- ⚠️ **`MAX_JOBS_PER_TICK = 25` est une constante de la route** (`api/cron/tick/+server.ts`),
+  pas un réglage `system_settings` : contrairement aux limites JOB-006, la changer demande un
+  redéploiement.
+- ⚠️ **Le tick publiera le rapport même avec les 9 projets en pause** — une pause de cadence
+  empêche `planDueJobs` d'ouvrir le run, elle n'arrête ni le drain ni REP-003. Le premier
+  rapport sera donc un constat d'absence, **révisable** (`rep-003-publish.ts --revise`).
+- ⚠️ Bash ne connaît pas les here-strings PowerShell (`@'…'@`) : pour un message de commit
+  multi-ligne, heredoc (`git commit -F - <<'EOF'`).
+
+**Commit :** `803256d` [hub] add: un garde-fou avant la mise en prod du cockpit
+
+---
+
 ## Recap epic — REP-004 Historique, comparaison et archivage (2026-07-27) · CLÔTURÉ
 
 **Objectif** : un rapport publié cessait d'être un cul-de-sac. Trois acceptations : régénérer ne
@@ -3967,12 +4033,14 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (REP-004 lot 2 — la rétention du détail)
+> Mise à jour : 2026-07-27 (mise en prod — le garde-fou du premier tick)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`scripts/pauses.ts`** *(mise en prod)* | **La porte hors-écran des pauses d'automatisation.** ⭐ Elle existe parce que la décision la plus lourde — désarmer le premier tick — se prend **avant** que `/automations` soit déployé, et que l'endpoint `POST /api/ops/automations/pause` exige une session. **Aucune règle ici** : `recordPauseDecision` reste seule juge, donc l'idempotence (relecture de l'état dérivé **dans** la transaction) et l'append-only ne sont pas rejoués. Dry-run par défaut (`limits.ts`, `schedule.ts`), `--reason` obligatoire **dans les deux sens** — reprise comprise. ⚠️ La cadence par défaut est **`weekly` seule** : `daily` fait expirer les veilles et honore les échéances d'inspection, deux gestes qu'on veut voir tourner pendant une reprise progressive. ⚠️ L'état affiché montre **aussi** les pauses de scope `project`, sinon un projet entièrement gelé se lirait « actif » sur sa ligne de cadence. |
+| **`vercel.json`** *(mise en prod)* | Le cron `tick` (horaire, JOB-005) que la branche apporte, **et** `/api/cron/gmb-reviews` à 05:00 UTC — une route qui existait dans le code sans être planifiée nulle part, ni sur `main` ni ici. `gsc-snapshot` en sort (GSC-002 : la collecte passe par la file, un second chemin consommerait deux fois le même quota). |
 | **`src/lib/server/report-retention-state.ts`** (+ `.test.ts`) *(REP-004 lot 2)* | **Le modèle PUR de la rétention.** ⭐ `not_archived` retient une ligne **quel que soit son âge** : un rapport ne se régénère pas (REP-003 l'a construit sur le parc de son créneau), donc l'âge seul n'autorise rien — l'archive autorise. `DetailState` est une **union** (`stored`/`archived`/`purged`), pas trois booléens : un jeu de drapeaux permettrait « purgé mais pas archivé » dans le code alors que la base le refuse. ⚠️ L'âge se compte sur **`slot_at`** (la semaine couverte vieillit), jamais sur `published_at` — sinon réviser un vieux créneau lui rendrait N semaines. ⚠️ `resolveDetailRetentionWeeks` retombe sur **`null` = conserver** pour toute valeur illisible (une valeur corrompue qui vaudrait 4 semaines purgerait sur un malentendu), et remonte au **plancher de 4 semaines**. Le total d'octets libérables est une **borne inférieure** (`bytesKnown`, doctrine IDX-004). **17 tests.** |
 | **`src/lib/server/report-retention.ts`** *(REP-004 lot 2)* | **La base** : lit les candidats sans charger un seul payload, marque l'archivage **après vérification d'empreinte**, retire le détail. ⭐ `confirmReportArchived` compare le SHA-256 fourni à celui du détail EN BASE — trouver un fichier au bon nom ne suffit pas, sinon un homonyme autoriserait la destruction de l'original. ⚠️ `purgeReportDetails` **ré-assert ses conditions en SQL** (détail présent, archive posée, empreinte connue) : un plan est une photo, et une ligne désarchivée entre-temps ne doit pas être purgée. Aucun `DELETE` : la ligne survit toujours. |
 | **`scripts/rep-004-archive.ts`** *(REP-004 lot 2)* | Les quatre gestes, dry-run par défaut : `--export` (le `payload_json` **octet pour octet**, aucun en-tête — c'est ce qui rend l'empreinte de la base, du fichier et de la note identiques), `--confirm` (indexe le vault par empreinte, **extrait le JSON embarqué** et le rehashe), `--purge`, `--set-weeks/--unset`. ⚠️ Le vault par défaut est `~/noyau/cerveau` (`OBSIDIAN_VAULT` sinon). |
