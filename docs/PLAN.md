@@ -373,8 +373,42 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   `MAX_JOBS_PER_TICK = 25`. ⚠️ **Les 9 projets repassent de `full` à `partial`** en couverture de
   diagnostic (détecteur neuf), résorbé au premier tick. ⚠️ **AGT-000 n'en fait aucune
   proposition** : une découverte se qualifie et une perte se diagnostique avant de se corriger.
-  Prochain : **FIND-008** (cannibalisation persistante, **P0**, dernière case de la gate M2 avec
-  FIND-007) ou **REP-004** (historique et comparaison).
+  Puis **FIND-008 — la cannibalisation persistante**, **dernière case P0 de la gate M2**. Le parc
+  avait un ÉCRAN de cannibalisation (epic 23) qui lit les tables **legacy**, n'écrit aucun finding,
+  n'a ni cycle de vie ni preuves, et ne survit pas à la requête qui l'affiche.
+  ⭐ **La normalisation d'URL n'est pas un confort d'affichage : c'est la moitié du détecteur.**
+  GSC remonte `…/article#section`, `http://`, `https://www.` et `…/page/` comme des pages
+  **distinctes** — ce sont la même ressource. Mesuré : sur `barberconcept`, **143 pages brutes se
+  replient en 51**, et les conflits persistants tombent de **397 à 180** (**217 faux conflits
+  évités**). Le détail qui compte : deux ancres d'un même article se partagent les impressions à
+  parts égales, donc elles prennent **exactement la forme d'une compétition équilibrée** — **391
+  de ces faux conflits se seraient lus « probables », contre 171 vrais** (`split` : 299 avant
+  repli, 58 après). Règle **fermée**, **versionnée** (`gsc_page_url@1`), **publiée** dans les
+  preuves et **rejouable** ; le repli reste réversible (`rawUrls`).
+  ⭐ **Le grain HEBDO est obligatoire** : `aggregateWindow` collapse les semaines, donc l'alternance
+  — le meilleur discriminant, **122 des 197** conflits du parc — disparaîtrait **sans que rien
+  n'échoue**. Et sa contiguïté est celle de la **sous-suite de chevauchement**, pas de la fenêtre :
+  on compare les choix de Google sur les semaines où il avait un choix à faire.
+  ⭐ **La persistance est un gate DUR** (acceptation littérale, ≠ FIND-005 qui écrit et plafonne),
+  et son cas trompeur porte un nom : deux URLs qui ne se **chevauchent jamais** sont un
+  **REMPLACEMENT**, pas une cannibalisation.
+  ⭐ **La forme mécanique ne gate pas, elle plafonne** (`!probable ⇒ ≤ low`) — gater dessus ferait
+  clignoter les findings (écrit → auto-résolu → rouvert). Et c'est écrit franchement dans le
+  module : **elle n'écarte que 11 conflits sur 197**, le verdict appartient au skill (§10.5).
+  ⭐ **« merge, redirect et canonical restent L4 » est PROUVÉ, pas affirmé** : `action_proposals`
+  à 0 après le run, et `mapFindingToActions` appelé directement sur un finding réel rend `[]`.
+  **Inversion assumée de FIND-006** : on ne regroupe **pas** les variantes de requêtes — ici la
+  fusion **fabriquerait** un conflit. Zéro DDL (**61 tables**) · zéro appel provider · catalogue
+  hebdo à **9 entrées** · tests **1338/1338** (+74) · preuve **51/51** sur Neon.
+  ⚠️ **Le tripwire `maxUrls` est mathématiquement inatteignable au défaut** (`relativeShare = 0.15`
+  borne déjà à ⌊1/0,15⌋ = 6) : il surveille un projet qui **abaisse** sa part, pas la
+  normalisation. ⚠️ **`barberconcept` a UN problème d'architecture éditoriale, pas 25 problèmes
+  ponctuels** : 180 retenus, 25 écrits. ⚠️ **Premier tick : 42 findings sur tout le parc**, pas
+  200. ⚠️ **Le SLO de 10:00 : 81 jobs hebdo** pour `MAX_JOBS_PER_TICK = 25` — **déjà cassé à 72**,
+  FIND-008 ajoute 12 % à un déficit de 31. ⚠️ **Les 9 projets repassent de `full` à `partial`**
+  (5ᵉ détecteur attendu), résorbé au premier tick.
+  Prochain : **FIND-007** (CTR gap, P1, `BLOCKED` sur GSC-005) ou **REP-004** (historique et
+  comparaison), sinon **DASH-003 lot 2 ch. 3** (l'onglet Rapports).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.

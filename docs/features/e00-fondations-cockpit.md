@@ -4,6 +4,143 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-27 (FIND-008 — la cannibalisation, et la normalisation qui en est la moitié)
+
+**Fait :** FIND-008, le détecteur de cannibalisation persistante (`detect:cannibalization`),
+**dernière case P0 de la gate M2**. Le parc avait un ÉCRAN de cannibalisation
+(`gsc-analytics.computeCannibalization`, epic 23) : il lit les tables **legacy**, n'écrit
+aucun finding, n'a ni cycle de vie ni preuves, et ne survit pas à la requête qui l'affiche.
+Le vocabulaire est repris, porté sur le canon `gsc_query_page_observations`. **Zéro DDL**
+(61 tables), **zéro appel provider**, **zéro modification** des détecteurs existants. Le
+catalogue hebdo passe à **9 entrées**, la fratrie GSC à **4 détecteurs**.
+
+- **⭐ LE point du lot : la normalisation d'URL n'est pas un confort d'affichage, c'est la
+  moitié du détecteur.** GSC remonte `…/article#section`, `http://`, `https://www.` et
+  `…/page/` comme des pages **distinctes** — ce sont la même ressource. Mesuré en base, à
+  seuils par défaut : sur `barberconcept`, **143 pages brutes se replient en 51**, et les
+  conflits persistants tombent de **397 à 180** — **217 faux conflits évités**. Et le
+  détail qui fait la différence : deux ancres d'un même article se partagent les
+  impressions à parts quasi égales, donc elles prennent **exactement la forme d'une
+  compétition équilibrée** — **391 de ces faux conflits se seraient lus « probables »,
+  contre 171 vrais** (`split` : 299 avant repli, 58 après). C'est le symétrique exact du
+  regroupement de variantes de FIND-006, avec la même asymétrie de coût : trop pauvre ⇒ on
+  FABRIQUE des conflits, trop riche ⇒ on en EFFACE. D'où une règle **fermée** (cinq gestes,
+  liste close de paramètres de tracking), **versionnée** (`URL_NORMALIZATION_RULE =
+  'gsc_page_url@1'`, incrémentée avec `DETECTOR_CANNIBALIZATION`), **publiée** dans chaque
+  preuve et **rejouable** (§B rejoue `normalizePageUrl` sur chaque forme brute et retrouve
+  la clé publiée). Le repli reste **réversible** : `rawUrls` porte les formes brutes.
+  ⚠️ Un geste s'écarte du legacy : la **query string est CONSERVÉE** (tracking retiré, clés
+  triées). Le legacy la jette entière ; le parc porte
+  `https://www.barberconcept.ch/?f9688240_page=4`, et fusionner une page 4 de listing avec
+  la racine fabriquerait un conflit entre la home et sa propre pagination.
+- **⭐ Le grain HEBDO est obligatoire : l'alternance ne s'observe pas sur un agrégat.**
+  `aggregateWindow` (query×page) collapse les semaines — l'utiliser « pour réutiliser
+  l'existant » ferait perdre le meilleur discriminant **sans que rien n'échoue**. Or
+  l'alternance (l'URL dominante change d'une semaine à l'autre) est le fait qui distingue
+  « Google hésite entre deux de mes pages » d'une coexistence stable : **122 des 197**
+  conflits du parc. D'où `aggregateByQueryUrl`, qui garde la série hebdomadaire par URL.
+  ⚠️ La contiguïté de l'alternance est celle de la **sous-suite de chevauchement**, pas de
+  la fenêtre : on compare les choix de Google **sur les semaines où il avait un choix à
+  faire**. Exiger la contiguïté dans la fenêtre ferait dépendre l'alternance d'une semaine
+  de collecte manquante — le faux signal que GSC-004 interdit.
+- **⭐ La persistance est un gate DUR, et son cas le plus trompeur porte un nom.**
+  L'acceptation est littérale (« un conflit n'est créé qu'après persistance minimale »),
+  donc à l'inverse de FIND-005 (une baisse d'une semaine est écrite mais plafonnée) et
+  d'IDX-005 (une fluctuation isolée est écrite en `pending`) : sous le seuil, **rien n'est
+  écrit** — mais tout est **compté** (`belowPersistence`). Corollaire nommé : deux URLs
+  significatives qui ne se **chevauchent jamais** (A en semaines 1-2, B en 3-4) sont un
+  **REMPLACEMENT**, pas une cannibalisation. Google n'a pas hésité, il a changé d'avis une
+  fois. C'est le faux positif structurel du détecteur, refusé par construction (`replacements`).
+- **⭐ La forme mécanique n'est PAS un gate d'écriture, c'est un plafond de sévérité.**
+  Le fingerprint est la requête, et la forme (`alternating`/`split`/`dominant`/`stacked`)
+  bouge d'une semaine à l'autre : gater dessus ferait **clignoter** les findings — écrit,
+  auto-résolu à la 2ᵉ absence, rouvert, re-résolu — exactement le churn que le fingerprint
+  cherche à éviter, déplacé d'un cran. Donc la forme est écrite dans les preuves, elle
+  **plafonne** (`!probable` ⇒ jamais au-dessus de `low`) et elle **trie** ; c'est
+  `maxCandidates` qui supprime, pendant que la closure reste complète.
+  ⚠️ Et il faut le dire franchement, c'est écrit dans le module : **la règle mécanique
+  n'écarte que 11 conflits sur 197.** Elle n'EST PAS la classification — SPEC §10.5 réserve
+  le verdict (mot-clé exact / même intention / proximité légitime / triade SERP / variante
+  technique / mauvais mapping) au skill `seo-cannibalisation`. C'est ce qui protège le
+  ticket de la dérive « mini-classifieur ».
+- **On ne regroupe PAS les variantes de requêtes — inversion explicite de FIND-006.** Là-bas,
+  fusionner « coiffeur genève » et « genève coiffeur » empêche deux faux signaux ; **ici la
+  même fusion en fabriquerait un** : deux orthographes qui sortent légitimement sur deux
+  pages différentes deviendraient un conflit qui n'a jamais eu lieu. L'entité est donc la
+  requête **BRUTE**, fingerprint compris — le seul détecteur du parc dans ce cas. Risque
+  résiduel assumé (aucun cas trouvé) : `urlSetKey` est posé dans les preuves pour rendre un
+  dédoublonnage futur possible **sans toucher au fingerprint**.
+- **Fenêtre unique, et `comparable` n'est pas un gate.** La cannibalisation est un **ÉTAT**,
+  pas un delta : la persistance se lit DANS la fenêtre. Conséquence mesurée et voulue —
+  **`spinlink` et `wildcat` (6 semaines) PRODUISENT** (1 conflit chacun), là où FIND-005 et
+  FIND-006 s'arrêtent faute de fenêtre comparable.
+- **La portée (`scope`) est celle de la MESURABILITÉ.** Un conflit dont la requête a disparu
+  de la fenêtre — ou dont le volume est tombé sous le plancher — n'a pas « guéri » : le run
+  ne peut plus dire si le conflit tient. Il reste **strictement intact**
+  (`consecutive_misses` compris) ; la disparition d'une requête est déjà le métier de
+  `lost_query`. ⚠️ `measurableQueries` se calcule **avant** le gate de significativité,
+  sinon une requête revenue à une seule URL — la guérison même — sortirait de la portée et
+  ne pourrait jamais résoudre son finding. §I et §I′ prouvent les **deux** moitiés.
+- **« merge, redirect et canonical restent L4 » est prouvé, pas affirmé.** §G : le skill
+  recommandé est un skill d'**analyse**, `action_proposals` est à **0** après le run, et
+  `mapFindingToActions` appelé **directement** sur un finding réel rend `[]`
+  (`proposer-state.ts` : `if (finding.type !== 'keyword_opportunity') return []`). Aucune
+  arête du catalogue ne mène un conflit vers `propose:actions`.
+
+**Vérifs :** 1338 tests (**+74** sur `cannibalization-state`, **+1** sur `schedule-state`) ·
+`npm run check` 0 erreur / 42 warnings (baseline) · `scripts/find-008-cannibalization-proof.ts`
+**51/51 sur Neon**, lancé deux fois, base rendue à l'identique (findings 0→0 sur `lecureux` et
+`spinlink`, observations marquées 0, 61 tables) · non-régression `find-006-turnover`,
+`find-005-decline`, `idx-005-transition`, `dash-002-home`, `dash-006-automations`,
+`rep-001-report`, `rep-003-publication`, `job-006-limits` — **0 échec chacune**.
+
+**Prochain :** **FIND-007** (CTR gap et target URL mismatch, P1 — dernier détecteur de la
+gate M2, mais `BLOCKED` sur GSC-005) ou **REP-004** (historique et comparaison, qui rend la
+révision d'un rapport `partial` possible). Sinon **DASH-003 lot 2 chantier 3** (l'onglet
+Rapports, qui donnerait enfin un lecteur à `weekly_reports`).
+
+**Pièges :**
+- **⚠️ Le tripwire `maxUrls` est mathématiquement INATTEIGNABLE au défaut.** `relativeShare
+  = 0.15` borne déjà le nombre d'URLs significatives à `⌊1/0,15⌋ = 6` (la somme des parts ne
+  peut pas dépasser 1) — découvert par trois tests qui échouaient en ayant raison. Il ne
+  surveille donc **pas** la normalisation, contrairement à ce qu'on pourrait croire : il
+  surveille un projet qui **abaisse** sa part de significativité, seul chemin par lequel une
+  requête peut se retrouver avec dix concurrentes. C'est écrit dans le module.
+- **⚠️ `barberconcept` a UN problème d'architecture éditoriale, pas 25 problèmes ponctuels.**
+  180 conflits retenus, 25 écrits : **155 ne seront jamais écrits** tant que les 25 premiers
+  ne sont pas traités. C'est correct (la closure les garde vivants, rien ne s'auto-résout par
+  troncature) mais le premier rapport devrait le **nommer** comme tel.
+- **⚠️ Premier tick : 42 findings sur tout le parc**, pas 200 (dry-run du vrai module).
+  `barberconcept` 25 (tronqué), `jonlabs` 8, `lecureux` 3, `barbermedia` 2, puis 1 chacun
+  pour `bisrepetita`, `physiopommier`, `spinlink`, `wildcat` ; `cardrank` 0. Formes écrites :
+  27 `alternating`, 13 `split`, 2 `stacked`.
+- **⚠️ Le SLO de 10:00 s'éloigne encore : 9 projets × 9 entrées = 81 jobs** pour
+  `MAX_JOBS_PER_TICK = 25` (72 avant ce lot). **Mais c'était DÉJÀ cassé à 72** : FIND-008
+  ajoute 12 % à un déficit de 31. Le bon levier est de relever le plafond par tick (les
+  quatre détecteurs sont `provider: 'none'`, le goulot réel est les 9
+  `collect:gsc_query_page` sous refroidissement JOB-006) — **hors périmètre FIND-008**.
+- **⚠️ Les 9 projets repassent de `full` à `partial`** en couverture de diagnostic
+  (`expectedDetectorsFor` passe de 4 à 5 détecteurs attendus, dérivé du catalogue). Même
+  effet qu'à FIND-005 et FIND-006, résorbé au premier tick.
+- **⚠️ Une majorité des conflits de `barberconcept` ont `impact = 0`** (aucun clic sur 4
+  semaines). C'est **correct** : SPEC §10.5 exige « les métriques des deux pages », et une
+  page sans clic n'en a pas à arbitrer. Ne pas « réparer » en ajoutant un terme
+  d'impressions — « beaucoup vue, peu cliquée » est le métier de `keyword_opportunity`, et
+  le doubler ferait remonter deux fois le même signal dans l'inbox.
+- **⚠️ Ne PAS piper un script de preuve dans `head`** : le SIGPIPE tue le process avant le
+  bloc de nettoyage, et laisse observations **et** findings en base — ce qui fait ensuite
+  échouer la garde d'isolation d'une AUTRE preuve (`find-006` a accusé le code d'une fuite
+  qui venait de là). Utiliser `tail`, qui lit tout.
+- **⚠️ `AGT-000` n'en fait AUCUNE proposition** (et c'est prouvé, §G) : un conflit se
+  diagnostique avant de se corriger. Il atterrit dans l'onglet findings, jamais dans la file
+  d'approbation.
+- Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) ·
+  **le cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
+
+**Commit :** [à compléter] [hub] add: la cannibalisation persistante, et la normalisation qui en est la moitié (FIND-008)
+
+---
+
 ## Etat session 2026-07-27 (FIND-006 — nouvelles et perdues, et les deux faux signaux symétriques)
 
 **Fait :** FIND-006, le détecteur de renouvellement du portefeuille de requêtes
@@ -3462,12 +3599,17 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (REP-001 — rapport hebdomadaire déterministe)
+> Mise à jour : 2026-07-27 (FIND-008 — cannibalisation persistante)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/detectors/cannibalization-state.ts`** (+ `.test.ts`) *(FIND-008)* | **Le jugement pur du détecteur de cannibalisation.** ⭐ `normalizePageUrl` est **la moitié du détecteur**, pas un utilitaire : cinq gestes (fragment, protocole, `www.`, slash final, query string **conservée** avec tracking retiré et clés triées), liste de tracking **fermée**, percent-encoding déplié, casse du chemin **préservée**. Versionnée par `URL_NORMALIZATION_RULE` — toute évolution incrémente **aussi** `DETECTOR_CANNIBALIZATION`, sans quoi deux semaines de findings deviendraient incomparables en silence. Mesuré : 143 → 51 pages et 397 → 180 conflits sur `barberconcept`. ⭐ `aggregateByQueryUrl` garde la **série hebdomadaire par URL** — `aggregateWindow` est un **faux ami** (elle collapse les semaines, l'alternance disparaît, rien n'échoue). Les quatre grandeurs : `dominance` sur **S(q)** et jamais T(q) (avec T, une longue traîne marginale fait tout basculer en `split`, donc en `probable`), `overlapWeeksOf` (le CHEVAUCHEMENT — un `overlap` vide avec 2 URLs est un **remplacement**), `countSwitches` sur la **sous-suite** de chevauchement, `longestStreakOf` (preuves seulement, ne gate rien). `classifyShape` ordonne strictement (`alternating` gagne toujours) ; `isProbableConflict` laisse `misallocation` **déborder** la forme, parce qu'une dominante qui ranke plus bas que sa voisine est un fait, pas une interprétation. `deriveCannibalizationSeverity` a **deux** plafonds : `!probable ⇒ ≤ low` (propre à FIND-008 — la machine doute par défaut) puis le plafond commun FIND-002. ⚠️ `resolveCannibalizationThresholds` **clampe `relativeShare` et `dominanceCeiling` dans `]0,1]`** : la discipline maison ignore les négatifs mais **accepte 0**, et `relativeShare = 0` est le seul override capable de produire ~2 000 « conflits » sur `barberconcept`. **73 tests.** |
+| **`src/lib/server/detectors/cannibalization.ts`** *(FIND-008)* | **La lecture/écriture, client injecté.** ⭐ **`comparison.comparable` n'est PAS un gate** : la cannibalisation est un ÉTAT, pas un delta — le seul gate est `current.weeks >= minOverlapWeeks`. C'est ce qui rend `spinlink` et `wildcat` (6 semaines) **détectables ici** alors que FIND-005/006 les écartent. Une seule `loadWindowRows` ; `windowWeeks` est dérivé des **lignes** et non des bornes (une semaine vide ne doit pas compter comme une semaine sans conflit). ⭐ `scope` = closure ∪ requêtes **mesurables**, et `measurableQueries` se calcule **avant** le gate de significativité — sinon une requête revenue à une seule URL (la guérison même) sortirait de la portée au lieu de résoudre. Mode de défaillance **accepté et nommé dans le code** : un conflit dont le volume s'effondre reste `open`, atténué par `lost_query`, le dismiss humain, et le compteur `outOfScope` visible au log. ⚠️ **N'importe PAS `loadLatestIndexStates`** : Google ne peut pas montrer une page désindexée, donc elle n'a pas d'impressions, donc elle n'est pas significative — la garde est déjà structurelle, l'ajouter coûterait une requête pour zéro effet. `cannibalizationFingerprint` = la requête **BRUTE** seule (pas l'ensemble d'URLs, qui ferait churner ; pas la clé normalisée, qui fabriquerait des conflits). |
+| **`src/lib/server/schedule-state.ts`** *(FIND-008)* | ⭐ `detect:cannibalization` entre au catalogue hebdo en **4ᵉ frère** : même prérequis (`collect:gsc_query_page`, arête **OBLIGATOIRE**), même priorité, **aucune arête** avec les trois autres ni vers `propose:actions`. Le mode de défaillance de l'arête est le plus vicieux de la fratrie : sans la semaine fraîche, la dernière semaine de la fenêtre manque, donc le **chevauchement** y manque — un conflit réel se lirait comme résolu, puis s'auto-résoudrait. Un défaut de collecte écrirait une **guérison**. **1 test dédié**, qui verrouille aussi l'absence d'arête vers le producteur. |
+| `src/lib/server/job-runner.ts` · `job-limits.ts` · `home-state.ts` *(FIND-008)* | `JOB_TYPE_DETECT_CANNIBALIZATION` + son handler, qui **annonce `urlVariantsCollapsed`** (sans ce compteur, la moitié du travail du détecteur serait invisible), `belowPersistence`/`replacements`, `legitimate`, `suspiciousUrlCount` et `outOfScope`. Provider **`none`** — il relit des observations déjà payées et n'inspecte rien. Libellé « conflits de cannibalisation ». ⚠️ `expectedDetectorsFor` (`home.ts`) dérive du catalogue : le parc passe de 4 à **5** détecteurs attendus, donc de `full` à `partial` **avant même le premier run**. |
+| **`scripts/find-008-cannibalization-proof.ts`** | **Preuve sur Neon (51 vérifs), ZÉRO réseau, base rendue à l'identique.** Isolation par **DEUX** gates à l'absurde (`minUrlImpressions = 500 000` **et** `minQueryImpressions = 2 000 000`) — `relativeShare` ne borne rien, c'est une **part**, pas un plancher. ⭐ §B : quatre formes de la même page ⇒ **aucun** conflit, puis une vraie seconde page ⇒ conflit à **2** URLs, `rawUrlCount = 4`, et chaque forme brute **rejouée** rend la clé publiée. §C : une semaine ⇒ rien (compté) ; deux ⇒ finding. §D : le **remplacement** (A puis B, jamais ensemble) ⇒ rien. §E : deux orthographes mono-URL ⇒ zéro conflit, `entityKey` = terme brut. §F : leader A,B,A,B ⇒ `switches = 3`, dominance **revérifiée à la main** depuis les preuves seules. ⭐ §G : `action_proposals = 0` **et** `mapFindingToActions` appelé directement ⇒ `[]`. §I/§I′ : immesurable **intact** vs guérison qui compte puis résout. §K : dry-run base inchangée, **`spinlink` produit**, projet fantôme. ⚠️ Le §B a d'abord échoué parce que les quatre formes pesaient trop : la part étant **relative**, une page repliée trop lourde écrase la seconde sous le seuil. |
 | **`src/lib/server/weekly-report-state.ts`** (+ `.test.ts`) *(REP-001)* | **Le modèle du rapport, pur.** ⭐ `Availability<T>` est une **union discriminée** : une section absente n'a **pas de `SectionBody`**, donc aucune case où un `0` pourrait s'écrire — « absent, pas zéro » cesse d'être une convention. Trois absences distinctes parce qu'elles demandent trois gestes : `not_wired` (brancher), `never_collected` (attendre/réparer), `not_examined` (diagnostiquer). `deriveAvailability` reprend la règle de `derivePanelState` (**`hasData` prime** sur l'absence d'intégration déclarée) sans le réutiliser : ce dernier répond à « ce panneau demande-t-il un geste ? » (d'où `stale`/`broken`), celui-ci à « cette section a-t-elle de quoi parler ? » — une collecte en retard **a** des faits à rapporter. ⭐ Le **gate d'examen passe avant le comptage** (`isNeverExamined`) : sur un parc jamais diagnostiqué, il n'existe aucun chemin qui écrive « 0 nouveau finding », même avec des findings en entrée. `ReportSource` est **obligatoire** sur `ReportItem` (acceptation §3 rendue non contournable) ; `rankItems` trie par rang puis **clé de source** (ordre TOTAL, sans quoi deux rapports du même instant différeraient) ; `capItems` compte la troncature contre le **total réel**, donc un plafond de LECTURE est dit lui aussi. `deriveBlindSpots` distingue `never_examined`, `partially_examined` et `paused` — et une pause **partielle** ne masque pas la couverture réelle (`pause.full`). ⭐ `renderWeeklyReportText(report)` n'a **d'autre paramètre que le rapport** : « générable sans LLM » devient structurel, le texte ne pouvant rien ajouter. **60 tests.** |
 | **`src/lib/server/weekly-report.ts`** *(REP-001)* | **La lecture, client injecté.** ⚠️ La santé vient de **`loadHomeCockpit` et de nulle part ailleurs** — portefeuille, cartes, ordre d'urgence et **compteurs avec leurs liens** sont repris tels quels : le rapport du lundi ne peut pas contredire l'accueil qu'il résume. Chaque section porte **son `count(*)` ET sa page lue** (`ReportSet`) : dériver le total de `rows.length` ferait d'un plafond de lecture un fait. Les sections d'activité passent par **le même filtre que les compteurs** (`FINDING_STATUSES` + `EXISTS` sur le journal depuis le même `since`) — restreindre aux statuts actifs écarterait les `resolved` que la section « résolus » compte. ⭐ **Aucune lecture de `plausible_page_observations`** : la table est vide et rien ne l'écrit, l'interroger pour en tirer des `0` serait la manière technique de mentir. On lit l'**état du branchement**, et le module pur en fait une absence nommée — le jour où E10 écrira, la section s'allumera seule. `summarizeIndexation` reste l'autorité du **taux** ; `dueNow` vient du compteur groupé, dont le prédicat « honorée » est **partagé**, pas recopié. |
 | **`src/lib/server/indexing-read.ts` → `countIndexClassesByProject`** *(REP-001)* | La répartition d'indexation pour **tous** les projets en un `DISTINCT ON (project_id, url)`, au lieu de neuf appels à `countIndexClasses`. ⚠️ **Pas une seconde autorité** : la classe sort de `classifyCoverage`, la **même** fonction, appliquée en mémoire — seule la clé de dédoublonnage change. Un `group by coverage_state` en SQL, lui, aurait divergé au premier libellé nouveau de Google. Égalité **prouvée en base** sur les 9 projets. |

@@ -80,6 +80,7 @@ import { toDbTimestamp } from './timestamps.js';
 import { runKeywordOpportunityDetector } from './detectors/keyword-opportunity.js';
 import { runKeywordDeclineDetector } from './detectors/keyword-decline.js';
 import { runQueryTurnoverDetector } from './detectors/query-turnover.js';
+import { runCannibalizationDetector } from './detectors/cannibalization.js';
 import { runIndexTransitionDetector } from './detectors/index-transition.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
@@ -165,6 +166,23 @@ export const JOB_TYPE_DETECT_KEYWORD_DECLINE = 'detect:keyword_decline';
  * et TOUT le portefeuille se lirait comme perdu.
  */
 export const JOB_TYPE_DETECT_QUERY_TURNOVER = 'detect:query_turnover';
+
+/**
+ * FIND-008 — détecteur de cannibalisation persistante : les requêtes pour lesquelles
+ * Google montre PLUSIEURS de tes URLs, semaine après semaine.
+ *
+ * Arête **obligatoire** `collect:gsc_query_page → detect:cannibalization`, pour la
+ * raison qui vaut pour les quatre détecteurs GSC. Elle est même plus tranchante ici :
+ * sur des observations non rafraîchies, la dernière semaine de la fenêtre manque,
+ * donc le CHEVAUCHEMENT y manque aussi — et un conflit bien réel se lirait comme
+ * résolu, puis s'auto-résoudrait au run suivant.
+ *
+ * ⚠️ Aucune arête vers `propose:actions`, et c'est structurel : un conflit se
+ * DIAGNOSTIQUE (§10.5 : mot-clé exact / même intention / triade SERP / variante
+ * technique / mauvais mapping) avant de se corriger, et merge, redirect et canonical
+ * restent L4. Le producteur ne saurait qu'en faire — `buildProposals` rend `[]`.
+ */
+export const JOB_TYPE_DETECT_CANNIBALIZATION = 'detect:cannibalization';
 
 /**
  * IDX-005 — détecteur de transitions d'indexation. **Au catalogue hebdo depuis IDX-004**, en
@@ -433,6 +451,46 @@ export function defaultHandlers(): Map<string, JobHandler> {
 					// une guérison, c'est une absence de mesure.
 					outOfScope: res.lifecycle.outOfScope,
 					truncated: res.truncatedNew || res.truncatedLost,
+					skippedReason: res.skippedReason
+				});
+			}
+		],
+		[
+			JOB_TYPE_DETECT_CANNIBALIZATION,
+			async ({ db, job }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await runCannibalizationDetector({
+					db,
+					projectId: (payload.projectId as string) ?? job.projectId,
+					runId: job.runId
+				});
+				logger.info('détection de cannibalisation terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					detector: res.detectorVersion,
+					created: res.counts.created,
+					refreshed: res.counts.refreshed,
+					conflicts: res.conflicts.length,
+					totalMatched: res.totalMatched,
+					// Ce que la NORMALISATION a évité d'écrire. Sans ce compteur, la moitié du
+					// travail du détecteur serait invisible : sur le parc, le repli des ancres
+					// et des variantes de protocole écarte plus de faux conflits qu'il n'en
+					// reste de vrais.
+					urlVariantsCollapsed: res.urlVariantsCollapsed,
+					// Le gate DUR de l'acceptation, et son cas le plus trompeur : deux URLs
+					// significatives qui ne se croisent jamais sont un REMPLACEMENT.
+					belowPersistence: res.belowPersistence,
+					replacements: res.replacements,
+					belowVolume: res.belowVolume,
+					// Écrits mais plafonnés `low` : la machine ne sait pas les distinguer d'un
+					// conflit, elle les fait descendre dans la pile au lieu de les taire.
+					legitimate: res.legitimate,
+					// Tripwire : ne peut se déclencher que si `relativeShare` a été abaissée.
+					suspiciousUrlCount: res.suspiciousUrlCount,
+					// Hors portée = laissés INTACTS : ni maintien, ni guérison, une absence de
+					// mesure (la requête a disparu ou est tombée sous le plancher).
+					outOfScope: res.lifecycle.outOfScope,
+					truncated: res.truncated,
 					skippedReason: res.skippedReason
 				});
 			}

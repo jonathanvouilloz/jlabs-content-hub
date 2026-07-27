@@ -93,6 +93,10 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// FIND-006 — même raisonnement : le détecteur de renouvellement relit
 	// `gsc_query_page_observations` et `index_observations`, toutes deux déjà payées.
 	'detect:query_turnover': 'none',
+	// FIND-008 — le détecteur de cannibalisation relit `gsc_query_page_observations` et
+	// RIEN d'autre : pas d'inspection d'indexation, pas d'appel provider. Aucun quota à
+	// consommer, donc aucune raison d'attendre la cohorte GSC.
+	'detect:cannibalization': 'none',
 	// IDX-005 — le détecteur de transitions ne sort PAS de Postgres : il relit
 	// `index_observations` que l'inspection a déjà payées. Le classer `gsc` le mettrait au repos
 	// avec la cohorte au premier 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est

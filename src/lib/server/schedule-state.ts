@@ -566,6 +566,25 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			priority: 10,
 			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
 		},
+		// FIND-008 — la cannibalisation est le QUATRIÈME frère : même collecte, même
+		// niveau, aucun lien avec les trois autres. Elle lit les mêmes observations sous
+		// un angle qu'aucun d'eux ne regarde — non plus ce qu'une requête PÈSE, mais
+		// combien de tes URLs se la disputent, et depuis combien de semaines.
+		//
+		// L'arête vers la collecte est **OBLIGATOIRE**, et le mode de défaillance est le
+		// plus vicieux de la fratrie : sans la semaine fraîche, la dernière semaine de la
+		// fenêtre manque, donc le CHEVAUCHEMENT y manque — un conflit bien réel se lirait
+		// comme résolu, puis s'auto-résoudrait au run suivant. Un défaut de collecte
+		// écrirait une guérison.
+		//
+		// ⚠️ Aucune arête vers `propose:actions`, comme pour FIND-005 et FIND-006 : un
+		// conflit se DIAGNOSTIQUE avant de se corriger (§10.5), et merge, redirect et
+		// canonical restent L4.
+		{
+			jobType: 'detect:cannibalization',
+			priority: 10,
+			dependsOn: [{ jobType: 'collect:gsc_query_page' }]
+		},
 		{
 			jobType: 'detect:index_transition',
 			priority: 9,

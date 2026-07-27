@@ -7,40 +7,38 @@
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 ## Reprendre ici
-**FIND-006 livré** — le portefeuille de requêtes a enfin ses **entrées et ses sorties**
-(`new_query` + `lost_query`), là où FIND-005 comptait les disparitions sans pouvoir les
-traiter. Le point du lot n'est pas la détection mais le **regroupement de variantes** :
-il empêche deux faux signaux symétriques (une « découverte » qui n'est que l'orthographe
-d'une « perte ») — **581 évités sur le seul `barberconcept`**. Suivant : **FIND-008**
-(cannibalisation, **P0**, dernière case de la gate M2) ou **FIND-007** (CTR gap, P1) ;
-sinon **REP-004** (historique et comparaison).
+**FIND-008 livré** — le parc a enfin un détecteur de **cannibalisation** (`detect:cannibalization`,
+4ᵉ frère du catalogue hebdo). Le point du lot n'est pas la détection mais la **normalisation
+d'URL** : elle évite **217 faux conflits sur `barberconcept`** (397 → 180), dont **220 qui se
+seraient lus « probables »** — les ancres d'un même article se partagent les impressions à parts
+égales, donc elles prennent exactement la forme d'une compétition équilibrée.
+**Gate M2 : tout est coché sauf `ctr_gap`** (FIND-007, P1, `BLOCKED` sur GSC-005).
+Suivant : **REP-004** (historique et comparaison) ou **DASH-003 lot 2 ch. 3** (l'onglet Rapports,
+qui donnerait enfin un lecteur à `weekly_reports`).
 
-**Gate M2 :** tout est coché **sauf** `ctr_gap` et `cannibalization` (FIND-007/008).
-REP-002/004 sont P1.
-
-⚠️ **Le parc ne perd rien aujourd'hui : `LOST = 0` sur les 9 projets** (937 disparitions
-comptées et écartées sur `barberconcept`, 82 sur `lecureux` — toutes sous 50 impressions
-ou moins de 2 semaines). Ne pas baisser le seuil sans avoir relu cette mesure.
-⚠️ **Une découverte non traitée s'auto-résout** au bout de la fenêtre de 4 semaines : la
-nouveauté est périssable, et personne n'est prévenu.
-⚠️ **Un rapport publié `partial` ne devient jamais `complete`** : republier est un no-op
-(graine de REP-004).
-⚠️ **Au premier tick après merge : jusqu'à 150 findings par projet frais** (50
-opportunités + 50 baisses + 50 nouveautés) et le rapport de la semaine part `partial`
-avec les 9 projets `missing`. C'est la mesure exacte, pas un bug.
-⚠️ **Le SLO de 10:00 s'éloigne : 63 jobs hebdo** (9 projets × 7 entrées) pour
-`MAX_JOBS_PER_TICK = 25`. Leviers : le plafond par tick, ou
-`report.publish_deadline_minutes` (`system_settings`, sans redéploiement) — après avoir
-lu la mesure.
-⚠️ **L'annonce de disponibilité est produite, pas envoyée** (TEL-001 BLOCKED) ; l'envoi
-est TEL-002.
-⚠️ **Aucun écran ne lit `weekly_reports`** ni les findings de turnover :
-`npx tsx scripts/rep-003-publish.ts --list | --show [créneau] | --dry-run`. L'onglet
-Rapports est DASH-003 lot 2 chantier 3.
-⚠️ **Le cockpit n'est PAS en prod** : `main` = socle epics 1-23 sur Neon, ni `/jobs`, ni
-`/inbox`, ni cron `tick`. `npm run db:push` depuis `main` = risque de PROD (29 tables
-déclarées, 61 en base).
+⚠️ **Le tripwire `maxUrls` est mathématiquement inatteignable au défaut** : `relativeShare = 0.15`
+borne déjà le nombre d'URLs significatives à ⌊1/0,15⌋ = 6. Il surveille un projet qui **abaisse**
+sa part, pas la normalisation.
+⚠️ **`barberconcept` a UN problème d'architecture éditoriale, pas 25 problèmes ponctuels** :
+180 conflits retenus, 25 écrits. Le premier rapport devrait le nommer comme tel.
+⚠️ **Premier tick FIND-008 : 42 findings sur tout le parc** (pas 200) — 25 sur `barberconcept`
+(tronqué), 8 `jonlabs`, 3 `lecureux`, 2 `barbermedia`, 1 pour les quatre suivants, 0 `cardrank`.
+⚠️ **Ne PAS piper un script de preuve dans `head`** : le SIGPIPE tue le process avant le nettoyage
+et laisse observations + findings en base, ce qui fait échouer la garde d'isolation d'une AUTRE
+preuve. Utiliser `tail`.
+⚠️ **Une découverte `new_query` non traitée s'auto-résout** au bout de 4 semaines ; personne n'est
+prévenu. **`LOST = 0` sur les 9 projets** — ne pas baisser le seuil sans relire la mesure FIND-006.
+⚠️ **Un rapport publié `partial` ne devient jamais `complete`** : republier est un no-op (graine de
+REP-004). **L'annonce de disponibilité est produite, pas envoyée** (TEL-001 BLOCKED ; envoi = TEL-002).
+⚠️ **Le SLO de 10:00 : 81 jobs hebdo** (9 projets × 9 entrées) pour `MAX_JOBS_PER_TICK = 25` —
+**déjà cassé à 72**, FIND-008 ajoute 12 % à un déficit de 31. Leviers : le plafond par tick (les 4
+détecteurs sont `provider: 'none'`) ou `report.publish_deadline_minutes` (`system_settings`, sans
+redéploiement) — après avoir lu la mesure.
+⚠️ **Aucun écran ne lit `weekly_reports`** ni les findings de turnover/cannibalisation
+(`npx tsx scripts/rep-003-publish.ts --list | --show [créneau] | --dry-run`).
+⚠️ **Le cockpit n'est PAS en prod** : `main` = socle epics 1-23 sur Neon, ni `/jobs`, ni `/inbox`,
+ni cron `tick`. `npm run db:push` depuis `main` = risque de PROD (29 tables déclarées, 61 en base).
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
-`gsc_query_page_observations` est racée (`dash-002-home-proof` en porte une).
+`gsc_query_page_observations` est racée.
 
-Commit : `535c9ef` (E00) · prod : `e5efc83` sur `main`
+Commit : `<à compléter>` (E00) · prod : `e5efc83` sur `main`

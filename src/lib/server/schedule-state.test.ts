@@ -364,6 +364,8 @@ describe('SCHEDULE_CATALOG', () => {
 			'detect:keyword_decline',
 			// FIND-006 — troisième lecteur des mêmes observations, au même niveau.
 			'detect:query_turnover',
+			// FIND-008 — quatrième lecteur : combien d'URLs se disputent une requête.
+			'detect:cannibalization',
 			'detect:index_transition',
 			'propose:actions'
 		]);
@@ -485,6 +487,32 @@ describe('SCHEDULE_CATALOG', () => {
 			const other = weekly.find((e) => e.jobType === sibling)!;
 			expect((other.dependsOn ?? []).some((d) => d.jobType === 'detect:query_turnover')).toBe(false);
 		}
+	});
+
+	it('⭐ FIND-008 — la cannibalisation est le QUATRIÈME frère, et rien ne dépend d’elle', () => {
+		const weekly = catalogFor('weekly');
+		const cannibal = weekly.find((e) => e.jobType === 'detect:cannibalization')!;
+		const decline = weekly.find((e) => e.jobType === 'detect:keyword_decline')!;
+		expect(cannibal.dependsOn).toEqual([{ jobType: 'collect:gsc_query_page' }]);
+		expect(cannibal.priority).toBe(decline.priority);
+		// Aucun lien avec les trois autres, dans les deux sens.
+		for (const sibling of [
+			'detect:keyword_decline',
+			'detect:keyword_opportunity',
+			'detect:query_turnover'
+		]) {
+			expect((cannibal.dependsOn ?? []).some((d) => d.jobType === sibling)).toBe(false);
+			const other = weekly.find((e) => e.jobType === sibling)!;
+			expect((other.dependsOn ?? []).some((d) => d.jobType === 'detect:cannibalization')).toBe(
+				false
+			);
+		}
+		// ⭐ Et surtout : le producteur ne la consomme pas. « merge, redirect et canonical
+		// restent L4 » commence ici — aucune arête ne mène un conflit vers une proposition.
+		const propose = weekly.find((e) => e.jobType === 'propose:actions')!;
+		expect((propose.dependsOn ?? []).some((d) => d.jobType === 'detect:cannibalization')).toBe(
+			false
+		);
 	});
 
 	it('⭐ FIND-005 — le producteur de propositions ne dépend PAS du détecteur de baisses', () => {

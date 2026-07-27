@@ -902,7 +902,15 @@ Acceptation :
 
 ## FIND-008 — Cannibalisation persistante
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** FIND-001
+**Priorité :** P0 · **Taille :** L · **État :** ✅ DONE (2026-07-27) · **Dépendances :** FIND-001
+
+> Livré : `detect:cannibalization` — 4ᵉ frère du catalogue hebdo. La **normalisation
+> d'URL** est la moitié du détecteur, pas un utilitaire : 143 pages brutes → 51 sur
+> `barberconcept`, et 397 → 180 conflits (**217 faux évités**, dont 220 qui se seraient
+> lus « probables », les ancres se partageant les impressions à parts égales). Le grain
+> hebdo est obligatoire (l'alternance ne s'observe pas sur un agrégat), la persistance
+> est un gate **dur**, et le **remplacement** (deux URLs qui ne se croisent jamais) est
+> refusé par construction. Détail : `docs/features/e00-fondations-cockpit.md`.
 
 Travail :
 

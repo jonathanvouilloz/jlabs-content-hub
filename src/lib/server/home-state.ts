@@ -426,6 +426,7 @@ const DETECTOR_LABELS: Record<string, string> = {
 	'detect:keyword_opportunity': 'opportunités de mots-clés',
 	'detect:keyword_decline': 'baisses de mots-clés',
 	'detect:query_turnover': 'requêtes nouvelles et perdues',
+	'detect:cannibalization': 'conflits de cannibalisation',
 	'detect:index_transition': 'transitions d’indexation'
 };
 
