@@ -4,6 +4,115 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Recap epic — REP-004 Historique, comparaison et archivage (2026-07-27) · CLÔTURÉ
+
+**Objectif** : un rapport publié cessait d'être un cul-de-sac. Trois acceptations : régénérer ne
+remplace pas silencieusement l'original · les changements de template sont traçables · les liens
+restent valides après rétention du détail. Livré en deux lots (`1d4a6b4`, `3840dba`).
+
+**Livré**
+- **Lot 1 — la révision** : `revision` / `revision_reason` / `supersedes_id`, l'unique déplacé de
+  `(period_slot)` vers `(period_slot, revision)`, un CHECK. Réviser **insère** ; l'original garde
+  son id, son statut, son heure et son payload octet pour octet (29 599 caractères comparés en
+  base).
+- **Lot 1 — la comparaison** : `compareReports` sur deux axes (`slot`, `revision`), avec quatre
+  refus de chiffrer et un appariement par **clé** (schéma de rapport 1 → 2).
+- **Lot 2 — la rétention** : `payload_json` nullable + 5 colonnes (`payload_bytes`,
+  `payload_digest`, `payload_archived_at`, `payload_archive_ref`, `payload_purged_at`) + le CHECK
+  `weekly_reports_payload_presence_check`. Aucun `DELETE` : on purge le détail, jamais la ligne.
+- **Lot 2 — l'archivage vérifié** : `--export` (payload octet pour octet) → `/seo-archive --projet
+  _global` (wrapper `weekly-report` qui **embarque sa source**) → `--confirm` (retrouve la note,
+  **rehashe le détail embarqué**, compare) → `--purge`.
+- **Écrans** : `/reports` annonce « détail archivé » sans charger un payload ; `/reports/[slot]`
+  rend une **vue purgée** (en-tête, SLO, lignage, adresse de l'archive) au lieu d'une page vide.
+- **Réglage sans redéploiement** : `report.detail_retention_weeks` (`system_settings`, `null` =
+  conserver, plancher 4 semaines).
+
+**Décisions techniques** (reportées dans `docs/DECISIONS.md`, 4 lignes)
+- **« Ne remplace pas silencieusement » devient une FORME, pas une abstention** : le chemin
+  automatique (le tick) n'écrit jamais que `revision = 1` — alternatives écartées : `UPDATE` avec
+  `revised_at` (l'original disparaît), table d'archive séparée (deux formes pour le même objet),
+  tick autorisé à incrémenter (un cron instable réécrit la semaine).
+- **Une disponibilité qui change n'est pas un écart, et l'appariement ne se fait jamais sur de la
+  prose** : `became_available`/`became_absent` ne portent aucun champ chiffré ; `ReportMetric`
+  gagne une `key` — alternatives écartées : `+13` avec une note (le chiffre est lu, la note ne
+  l'est pas), appariement par libellé ou par position.
+- **On purge le DÉTAIL, jamais la LIGNE — et le CHECK interdit le détail sans adresse** :
+  alternatives écartées : supprimer les lignes anciennes (casse le lignage et la numérotation des
+  révisions), colonne nullable sans CHECK (la garde ne vivrait que dans le code applicatif),
+  garder un résumé chiffré (2ᵉ autorité qui divergerait).
+- **« Archivé » est une condition VÉRIFIÉE, et le défaut ne détruit rien** : alternatives
+  écartées : se fier au nom du fichier ou au `content_hash` du frontmatter seul (il indexe, il ne
+  prouve pas), fenêtre par défaut de 52 semaines (spéculatif sur une table à 0 ligne), autoriser
+  1 semaine (purgerait le rapport qu'on est en train de lire).
+
+**Problèmes rencontrés**
+- **Prettier lancé sur 12 fichiers alors qu'il n'est pas configuré dans ce repo** (aucun
+  `.prettierrc`, aucune dépendance) : reformatage complet aux réglages par défaut (2 espaces,
+  double quotes) contre le style maison (tabulations, quotes simples), soit ~10 000 lignes de
+  bruit. **Solution** : `git checkout` des 10 fichiers suivis, réapplication une à une des
+  modifications de contenu, `git diff --stat` revérifié (550 insertions, 0 bruit). Consigné dans
+  `docs/HANDOFF.md` pour ne pas recommencer.
+- **La preuve `rep-003-publication` a échoué au premier run** (colonnes épinglées : 14 attendues,
+  19 trouvées) — c'était exactement son rôle. **Solution** : épingle mise à 19, avec la raison
+  (des faits de rétention, pas des verdicts ; le SLO continue de se dériver).
+- **Le vault par défaut du skill `/seo-archive` pointait `~/Desktop/noyau/cerveau`**, chemin mort
+  depuis la consolidation. **Solution** : corrigé en `~/noyau/cerveau` (hors repo).
+
+**Fichiers**
+
+### Créés
+- `src/lib/server/report-history-state.ts` (+ `.test.ts`) — révision et comparaison (pur, 39 tests)
+- `src/lib/server/report-retention-state.ts` (+ `.test.ts`) — décision de rétention (pur, 17 tests)
+- `src/lib/server/report-retention.ts` — la base : candidats, archivage vérifié, purge
+- `drizzle/manual-rep-004.sql` · `scripts/apply-rep-004.ts` — DDL lot 1
+- `drizzle/manual-rep-004-lot2.sql` · `scripts/apply-rep-004-lot2.ts` — DDL lot 2 (l'applicateur
+  **exerce** le CHECK au lieu de vérifier sa présence)
+- `scripts/rep-004-archive.ts` — export / confirm / purge / réglage, dry-run par défaut
+- `scripts/rep-004-history-proof.ts` · `scripts/rep-004-retention-proof.ts` — 37 + 37 sur Neon
+
+### Modifiés
+- `src/lib/server/db/schema.ts` — 8 colonnes sur `weekly_reports` (11 → 19), unique déplacé, 2 CHECK
+- `src/lib/server/report-publication.ts` — `reviseWeeklyReport`, `PublishedReport.detail` (union),
+  `retention`, `measurePayload`, lecture d'un détail purgé sans lever
+- `src/lib/server/report-read-state.ts` — `ReportDetailView` (union), `buildPurgedReportView`,
+  état du détail dans la liste
+- `src/lib/server/weekly-report-state.ts` · `report-publication-state.ts` — `ReportMetric.key`,
+  schéma de rapport 1 → 2
+- `src/routes/(app)/reports/` — lignage, « ce qui a changé », vue purgée (liste et détail)
+- `scripts/rep-003-publish.ts` — `--revise`, `--diff`, `--show` sur un détail purgé
+- 3 preuves de non-régression adaptées à l'union `detail`
+
+**Vérifications**
+
+| Test | Résultat |
+|---|---|
+| `npx vitest run` | **1419 passés** (+56 sur l'epic : 1363 → 1419) |
+| `npm run check` | **0 erreur / 42 warnings** — baseline exacte |
+| `scripts/rep-004-history-proof.ts` (Neon) | **37/37**, base rendue à l'identique |
+| `scripts/rep-004-retention-proof.ts` (Neon) | **37/37**, base rendue à l'identique |
+| `scripts/rep-003-publication-proof.ts` | passé **après correction** de l'épingle (14 → 19 colonnes) |
+| `scripts/dash-003-reports-proof.ts` · `rep-001-report-proof.ts` | passés, 0 échec |
+| Chaîne réelle export → `/seo-archive` → confirm → purge → relecture | passée, **y compris le cas d'une archive altérée** (refusée) |
+| `npm run build` | **échoue** à l'adaptateur Vercel sous Windows — **préexistant**, hors périmètre |
+
+**Dettes assumées**
+- **Aucun de ces écrans n'a jamais été vu à l'œil** (pas de session admin). Vrai de tout le
+  cockpit, pas de ce lot seul — à lever au premier accès authentifié.
+- **La rétention n'a jamais tourné sur de la vraie donnée** : `weekly_reports` compte 0 ligne, et
+  la fenêtre est désactivée par défaut. Le mécanisme est prouvé sur des créneaux synthétiques ; la
+  première purge réelle n'aura lieu qu'après plusieurs mois de publication.
+- **Le chemin `schema_changed` de la comparaison n'est testé qu'en vitest** : aucun rapport de
+  schéma 1 n'existe en base. Il s'exercera au premier changement de schéma — c'est voulu.
+- **`--confirm` balaie trois dossiers du vault à chaque appel** (`00-Inbox`, `20-Knowledge`,
+  `10-Projets`). Linéaire, acceptable pour un CLI manuel appelé quelques fois par an ; à revoir si
+  le vault grossit d'un ordre de grandeur.
+- **Le skill `/seo-archive` n'est pas versionné avec ce repo** (couche skills, hors git) : le
+  wrapper `weekly-report` et le hub peuvent diverger sans que rien ne le signale. Le garde-fou est
+  l'empreinte — une divergence de format fait échouer `--confirm`, donc bloque la purge.
+
+---
+
 ## Etat session 2026-07-27 (REP-004 lot 2 — la rétention du détail, et l'archive qui la rend acceptable)
 
 **Fait :** la 3ᵉ acceptation de REP-004, « les liens restent valides après rétention du détail ».

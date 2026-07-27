@@ -407,8 +407,46 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   200. ⚠️ **Le SLO de 10:00 : 81 jobs hebdo** pour `MAX_JOBS_PER_TICK = 25` — **déjà cassé à 72**,
   FIND-008 ajoute 12 % à un déficit de 31. ⚠️ **Les 9 projets repassent de `full` à `partial`**
   (5ᵉ détecteur attendu), résorbé au premier tick.
-  Prochain : **FIND-007** (CTR gap, P1, `BLOCKED` sur GSC-005) ou **REP-004** (historique et
-  comparaison), sinon **DASH-003 lot 2 ch. 3** (l'onglet Rapports).
+  Prochain : **DASH-003 lot 2 ch. 3** (l'écran Rapports), puis **REP-004**.
+  Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
+- **REP-004 — historique, comparaison et archivage** (2026-07-27) · **DONE**, epic **CLÔTURÉ**
+  (3 acceptations sur 3), deux lots `1d4a6b4` et `3840dba`. Précédé de **DASH-003 lot 2 ch. 3**
+  (`8cd0113`), qui a donné son premier lecteur à `weekly_reports` (`/reports`, cross-projet).
+  ⭐ **Lot 1 : « ne remplace pas silencieusement » cesse d'être une abstention et devient une
+  FORME.** Jusque-là l'acceptation était tenue en ne faisant rien (republier = no-op), donc le
+  seul moyen de ne pas écraser l'original était de **ne jamais corriger le rapport** — un
+  `partial` publié à l'échéance restait faux pour toujours. Réviser **insère** : l'unique passe de
+  `(period_slot)` à `(period_slot, revision)`, et « un seul rapport par semaine » se déplace dans
+  le code — **le tick n'écrit jamais que `revision = 1`**, donc un cron qui repasse cent fois
+  produit toujours une ligne, et une révision ≥ 2 exige un geste délibéré **et une raison**
+  (CHECK en base). L'original garde id, statut, heure et payload **octet pour octet**.
+  ⭐ **Lot 1 : une disponibilité qui change n'est PAS un écart** — 3ᵉ endroit où « absent ≠ zéro »
+  se défait, et le seul où il produit un **mouvement inventé** : une section branchée cette
+  semaine annoncerait `+13`, un provider tombé `−13` (donc « treize problèmes résolus »). Même
+  refus pour les sections d'**activité**, les listes **plafonnées** et les schémas/fenêtres
+  différents. Et la comparaison **n'apparie jamais sur de la prose** (`ReportMetric.key`, schéma
+  de rapport 1 → 2) : le libellé de la métrique L4 porte un nombre qui change chaque semaine.
+  ⭐ **Lot 2 : rendre `payload_json` nullable CRÉE un état, et c'est le CHECK qui le rend sûr.**
+  « Ligne sans détail » se lit naïvement « rapport vide » — douze sections non branchées pour un
+  rapport qui en portait dix. `weekly_reports_payload_presence_check` interdit sa version
+  **muette** : pas de payload ⇒ **adresse d'archive, date de purge et empreinte obligatoires**.
+  Trois `UPDATE` nus, ceux qu'on taperait dans psql, sont **refusés en base**.
+  ⭐ **Lot 2 : on purge le DÉTAIL, jamais la LIGNE** (SLO, préparation et lignage survivent — ce
+  dont `supersedes_id` sans FK et le numéro de révision dérivé du `max` dépendaient déjà sans le
+  dire), et **« archivé » est une condition VÉRIFIÉE** : un rapport ne se régénère pas, donc
+  `not_archived` retient quel que soit l'âge, et la marque n'est posée qu'après avoir retrouvé la
+  note du vault et **comparé son SHA-256**. Un caractère modifié dans le détail embarqué fait
+  refuser la confirmation, donc **interdit la purge** (mode de panne du bon côté).
+  Deux DDL, **aucune table** (61) · 11 → 19 colonnes sur `weekly_reports` · tests **1419/1419**
+  (+56) · preuves **37/37** et **37/37** sur Neon · chaîne réelle export → `/seo-archive` →
+  confirm → purge → relecture exercée, altération d'archive comprise.
+  ⚠️ **Rétention DÉSACTIVÉE par défaut** (`report.detail_retention_weeks` = `null`, plancher
+  4 semaines) : le défaut, comme le pire cas d'une valeur illisible, doit être celui qui ne
+  détruit rien. ⚠️ **La séquence d'archivage a quatre étapes et l'ordre EST la garantie.**
+  ⚠️ **Prettier n'est pas configuré dans ce repo** — le lancer reformate tout au lieu du style
+  maison (incident de ce lot, réparé).
+  Prochain : le **portage de `/positions` sur le canon** (débloque FIND-007) ou **AGT-001**
+  (API agent v1 — approuver n'exécute toujours rien).
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
