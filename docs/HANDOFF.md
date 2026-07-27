@@ -4,40 +4,51 @@
 | Feature | Fichier | Statut |
 |---------|---------|--------|
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
-| Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 2/5** |
+| Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 5/5** |
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 ## Reprendre ici
-**Mise en prod du cockpit, étape 2 sur 5 : la revue visuelle.** Étapes 1 et 3 faites — les
-**9 cadences hebdo sont en pause en base** (via le nouveau `scripts/pauses.ts`) et le cron
-`gmb-reviews` est dans `vercel.json`. Vérifications d'avant-merge vertes : **1419 tests**,
-**0 erreur / 42 warnings**.
-Suivant : `npm run dev`, login `contact@jonlabs.ch` (mot de passe saisi par Jonathan), parcourir
-`/`, `/inbox`, `/jobs`, `/reports`, `/automations`, un projet et ses 8 onglets — **navigation
-seule**. Puis étape 4 (`git push origin feat/cockpit` → preview Vercel, merge `--ff-only`) et
-étape 5 (observer le premier tick, reprendre `lecureux` en canary).
+✅ **LE COCKPIT EST EN PRODUCTION** depuis le 2026-07-27 ~19:40 UTC. `main` = `7a8e04b`
+(fast-forward de `feat/cockpit`, **113 commits**), `/api/whoami` répond
+`{"env":"production","version":"7a8e04b","project_count":9}`. Étapes 1 à 4 faites : les
+**9 cadences hebdo sont en pause en base** (`scripts/pauses.ts`, raison « reprise projet par
+projet »), `vercel.json` déclare les **5 crons** (`tick` horaire, `gmb-publish`,
+`linkedin-publish`, `gmb-weekly-digest`, **`gmb-reviews` 5h** — le trou des avis Google est
+bouché), le preview Vercel a été vérifié vert avant le merge, revue visuelle RAS.
+
+**Étape 5 — observer le premier tick.** Avec les 9 cadences en pause il doit : ne planifier
+**aucun** run hebdo, drainer le job `queued` résiduel, et **publier le rapport de la semaine**.
+À contrôler après le passage de l'heure : aucun job `running` orphelin, aucun `monitoring_runs`
+ouvert sur un projet en pause, **1 ligne dans `weekly_reports`**. Puis canary : reprendre
+`lecureux` (`npx tsx scripts/pauses.ts --resume lecureux --reason "…" --execute`), observer le
+tick suivant, et reprendre les autres un par un — **`barberconcept` en dernier**.
+Au lendemain : `max(created_at)` de `gmb_reviews` doit avoir bougé pour `physiopommier` et
+`bisrepetita` (dernières synchros 2026-04-06 et 2026-05-21).
+
 Après la prod : **portage de `/positions` sur le canon** (débloque FIND-007) ou **AGT-001**.
 
-⚠️ **Le `.env` local pointe la base de PROD.** La revue visuelle est en lecture : approuver,
-rejeter, relancer un job, poser une pause depuis l'UI ou répondre à un avis écrirait dans la
-vraie base.
+⚠️ **Le `.env` local pointe la base de PROD.** Tout script sans `--dry-run` écrit dans la vraie base.
 ⚠️ **La cadence `daily` reste ACTIVE, et c'est un choix** (veilles qui expirent, échéances
 d'inspection honorées). La suspendre est un geste explicite : `--cadence daily --pause-all`.
 ⚠️ **Le tick publiera le rapport même avec les 9 projets en pause** — une pause de cadence
 empêche `planDueJobs` d'ouvrir le run, pas le drain ni REP-003. Premier rapport = constat
-d'absence, **révisable** (`rep-003-publish.ts --revise <slot> --reason "…"`).
+d'absence (`partial`, 9 projets `missing`), jamais réécrit, mais **révisable**
+(`rep-003-publish.ts --revise <slot> --reason "…"`).
+⚠️ **Au premier tick d'un projet repris** : le catalogue hebdo porte 4 détecteurs, plafond 50
+**par détecteur** — `barberconcept`, jamais diagnostiqué, peut écrire jusqu'à 150 findings.
 ⚠️ **`MAX_JOBS_PER_TICK = 25` est une constante de la route**, pas un réglage `system_settings` :
-la changer demande un redéploiement (contrairement aux limites JOB-006).
-⚠️ **Double navigation à trancher** : la sidebar garde 12 entrées projet, la barre d'onglets en
-pose 8, avec des libellés divergents (« Avis » / « Avis Google », « Présence locale » / « Fiche
-Google ») et sans Indexation côté sidebar.
-⚠️ **La page de login annonce encore « Content Hub / Jon Labs »**, pas seo-stats.
+la changer demande un redéploiement (contrairement aux limites JOB-006). 63 jobs hebdo si les 9
+projets repartent ensemble — d'où la reprise un par un.
+⚠️ **Deux défauts connus partis en prod tels quels** (revue visuelle RAS, décision assumée) :
+la **double navigation** (sidebar 12 entrées vs barre d'onglets 8, libellés divergents « Avis » /
+« Avis Google », « Présence locale » / « Fiche Google », pas d'Indexation côté sidebar) et la
+**page de login qui annonce encore « Content Hub / Jon Labs »**.
 ⚠️ **E08 (avis GMB) = 8 tickets, 0 livré.** Le cron rétablit la *synchro* ; il n'existe toujours
-aucun job `collect:gmb_reviews` ni finding « avis sans réponse ». 3 avis en attente aujourd'hui.
+aucun job `collect:gmb_reviews` ni finding « avis sans réponse ». 3 avis en attente.
 ⚠️ **Approuver n'exécute rien** (`proposal_approvals` = 0) et **rien n'est notifié** (TEL-001/002
 BLOCKED) : le rapport est publié, son annonce journalisée, jamais envoyée.
-⚠️ **Le DDL est déjà en base** (61 tables) : le merge ne touche pas au schéma — il **supprime**
-le risque `npm run db:push` (`main` déclare 29 tables pour 61 en base).
+⚠️ **`npm run db:push` n'est plus le piège qu'il était** : `main` déclare enfin les 61 tables de
+la base. Le merge a supprimé l'écart 29/61.
 ⚠️ **Ne PAS lancer Prettier** (non configuré : reformate ~10 000 lignes au lieu du style maison).
 ⚠️ **Ne PAS piper un script de preuve dans `head`** (SIGPIPE laisse des lignes de test en base).
 ⚠️ **Bash ne connaît pas les here-strings PowerShell** (`@'…'@`) : heredoc pour un message de
@@ -56,5 +67,4 @@ rapport interne cross-projet.
 ⚠️ **Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé au lot REP-004 lot 2
 (wrapper `weekly-report`, défaut de vault corrigé) — non commité ici.
 
-Commit : `803256d` (garde-fou de mise en prod) · précédent `2f95143` (recap REP-004 · CLÔTURÉ) ·
-prod : `e5efc83` sur `main`
+Commit : `7a8e04b` (= `main` = prod) · précédent `803256d` (garde-fou de mise en prod)
