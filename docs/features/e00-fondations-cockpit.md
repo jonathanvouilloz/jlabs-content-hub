@@ -106,7 +106,7 @@ disparition n'est pas une baisse. **Zéro DDL** (61 tables), **zéro appel provi
 - Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) ·
   **le cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
 
-**Commit :** _(à renseigner)_
+**Commit :** `535c9ef` [hub] add: les requêtes nouvelles et perdues, et les deux faux signaux symétriques (FIND-006)
 
 ---
 

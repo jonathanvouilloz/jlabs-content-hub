@@ -43,4 +43,4 @@ déclarées, 61 en base).
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
 `gsc_query_page_observations` est racée (`dash-002-home-proof` en porte une).
 
-Commit : `HEAD` (E00) · prod : `e5efc83` sur `main`
+Commit : `535c9ef` (E00) · prod : `e5efc83` sur `main`
