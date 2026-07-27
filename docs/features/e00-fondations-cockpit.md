@@ -80,7 +80,7 @@ raison d'être). Sinon **FIND-006** (nouvelles et perdues), toujours ouvert.
   cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil** (le rapport,
   lui, l'a été — c'est du texte).
 
-**Commit :** _(à figer)_
+**Commit :** `9cf59c6` [hub] add: le rapport hebdo sait dire ce qu'il ne sait pas (REP-001)
 
 ---
 

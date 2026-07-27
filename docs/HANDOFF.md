@@ -30,4 +30,4 @@ est à 0 ligne et aucun projet ne déclare `plausible`.
 ⚠️ **La prod écrit dans la même base** → toute assertion « base rendue à l'identique » sur
 `gsc_query_page_observations` est racée (`dash-002-home-proof` en porte une).
 
-Commit : `<REP-001>` (E00) · prod : `e5efc83` sur `main`
+Commit : `9cf59c6` (E00) · prod : `e5efc83` sur `main`
