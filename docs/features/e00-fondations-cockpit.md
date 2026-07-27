@@ -91,7 +91,7 @@ lignes à comparer, et c'est là que la révision d'un rapport `partial` devient
 - Inchangé : `npm run build` échoue à l'adaptateur Vercel sous Windows (**préexistant**) · **le
   cockpit n'est toujours pas déployé** · **aucun écran n'a jamais été vu à l'œil**.
 
-**Commit :** _(à venir)_
+**Commit :** `ddff597` [hub] add: le rapport du lundi existe pour de bon (REP-003)
 
 ---
 
