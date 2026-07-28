@@ -115,11 +115,34 @@ Variables d'env requises (voir `.env.example`) :
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob store (auto-injecté si lié au projet via dashboard)
 - `CRON_SECRET` — bearer attendu par les routes `/api/cron/*`
 
+**Avis GMB (E08/GMB-002, 2026-07-28) :** la synchro est un **job de la file**
+(`collect:gmb_reviews`, catalogue **quotidien**, provider `gmb` — cohorte séparée de `gsc`), et
+non plus un cron autonome : `/api/cron/gmb-reviews` est **retiré de `vercel.json`** et
+conservé pour rattrapage manuel (précédent `gsc-snapshot` — le hub n'a qu'UNE ligne de
+credential, que le rafraîchissement réécrit sans verrou). ⭐ **`replied_at` (local) et
+`remote_reply_at` (distant) ne fusionnent jamais** : une colonne unique ne pourrait jamais se
+contredire, donc jamais révéler une divergence. `pendingReviewFilter()` interroge les deux et
+est **la** définition de « en attente » (11 copies avant). ⭐ La réconciliation ne coûte
+**aucun appel Google de plus** (la pagination était déjà totale, le filtre venait après) ; le
+vrai verrou était `onConflictDoNothing`. ⭐ `GmbApiError` rend la classification JOB-003
+**délibérée** au lieu d'accidentelle, **sans modifier `job-retry.ts`**. Santé par
+établissement (`last_sync_*`). ⚠️ **L'auth vit dans `gmb-auth.ts` (`process.env`), jamais
+derrière `$env`** — un handler qui importe `gmb.ts` marche sur Vercel et meurt en dead-letter
+sous un worker local. ⚠️ **382 → 3 189 avis, 502 en attente (vrai) contre 11 (faux)** : le
+filtre `!reply && <30 j` mentait par omission. ⚠️ **Aucun finding encore** (lot 2).
+
 Crons (vercel.json) :
 - `/api/cron/tick` — **horaire** (JOB-005) — planifie les cadences dues en heure métier `Europe/Zurich` (DST comprise), **draine la file de jobs** (worker borné + reaper + **passe de dépendances**, JOB-004), **puis tente la publication du rapport hebdo** (REP-003 : publie si les steps du créneau sont conclus, ou à l'échéance). C'est le seul chemin par lequel la queue avance en production : sans lui, un job relancé depuis `/jobs` ne repartirait jamais. Idempotent par créneau local — rejouer un tick, redémarrer, ou rattraper un créneau manqué sont la même opération.
 - `/api/cron/gmb-publish` — quotidien 9h00 — publie les posts GMB dus + envoie le digest admin (idempotent via `gmb_settings.last_daily_digest_date`)
 - `/api/cron/gmb-weekly-digest` — lundi 8h00 — récap hebdo aux clients opt-in (`projects.weekly_digest_enabled = true` + `client_email` renseigné)
 - `/api/cron/linkedin-publish` — quotidien 9h00
+
+> ⚠️ **`/api/cron/gmb-reviews` n'est plus planifié** (GMB-002). La collecte passe par la file :
+> `collect:gmb_reviews`, au catalogue **quotidien** (07:00 `Europe/Zurich`), drainé par le tick.
+> La route reste appelable **à la main** pour un rattrapage. **Ne pas la replanifier** : le hub
+> n'a qu'une ligne de credential Google (`gmb_settings.account_tokens`) que le rafraîchissement
+> réécrit **sans verrou** — deux chemins concurrents ne doublent pas seulement le quota, ils
+> font une course en écriture dont le perdant garde un jeton invalidé.
 
 > ⚠️ **`/api/cron/gsc-snapshot` n'est plus planifié** (GSC-002). La collecte GSC passe par la file :
 > `collect:gsc_query_page`, enfilé par la cadence hebdo (lundi 09:00 `Europe/Zurich`) et drainé par

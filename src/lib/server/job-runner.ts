@@ -86,6 +86,8 @@ import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
 import { collectUrlInspection } from './collectors/url-inspection.js';
+import { collectGmbReviews } from './collectors/gmb-reviews.js';
+import { gmbReviewDeps } from './gmb-auth.js';
 import {
 	planInspectionSelection,
 	type SelectionPlan
@@ -136,6 +138,24 @@ export const JOB_TYPE_COLLECT_SITEMAP = 'collect:sitemap';
  * lui qu'utilisent les preuves et tout appelant qui sait déjà ce qu'il veut inspecter.
  */
 export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
+
+/**
+ * GMB-002 — synchronisation des avis Google. **Premier type de job dont le provider est
+ * `gmb`**, donc le premier à faire mordre `perProviderConcurrency.gmb` et le refroidissement
+ * de cette cohorte (JOB-006 les avait déclarés d'avance).
+ *
+ * Il est au catalogue QUOTIDIEN, pas horaire, et c'est une décision assumée : SPEC §8.1
+ * prescrit une synchro horaire et §17.3 un SLO de 2 h, que la cadence quotidienne casse par
+ * construction (jusqu'à 24 h). Cf. `docs/DECISIONS.md`. Le passer en horaire est un geste
+ * délibéré, pas une correction évidente.
+ *
+ * ⚠️ Il **remplace** l'appel direct que faisait `/api/cron/gmb-reviews` : la route reste
+ * appelable à la main pour un rattrapage, mais n'est plus planifiée. Le hub n'a qu'UN compte
+ * Google (`gmb_settings.account_tokens`), et `refreshAccountToken` réécrit cette ligne sans
+ * verrou — deux chemins de collecte concurrents ne consommeraient pas seulement deux fois le
+ * quota, ils feraient une course en écriture sur l'unique credential.
+ */
+export const JOB_TYPE_COLLECT_GMB_REVIEWS = 'collect:gmb_reviews';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
@@ -367,6 +387,44 @@ export function defaultHandlers(): Map<string, JobHandler> {
 								guards: plan.guards
 							}
 						: {})
+				});
+			}
+		],
+		[
+			JOB_TYPE_COLLECT_GMB_REVIEWS,
+			async ({ db, job, signal }) => {
+				const payload = parsePayload(job.payloadJson);
+				const res = await collectGmbReviews({
+					projectId: (payload.projectId as string) ?? job.projectId,
+					// `gmb-auth.ts` et non `gmb.ts` : ce dernier importe `$env/dynamic/private`,
+					// ce qui rendait ce job exécutable sur Vercel et mort en dead-letter dès
+					// qu'un worker local le réclamait. Un job qu'on ne peut pas drainer hors
+					// production est un job qu'on ne peut pas prouver.
+					deps: gmbReviewDeps(db),
+					runId: job.runId,
+					client: db,
+					// Le bail : on n'engage pas l'établissement suivant si on l'a perdu. Ce qui
+					// est déjà écrit reste, et `last_sync_at` porte le succès des précédents.
+					signal
+				});
+				logger.info('synchronisation des avis terminée', {
+					jobId: job.id,
+					projectId: job.projectId,
+					// Un projet sans fiche GMB (5 des 9) réussit avec un motif NOMMÉ : « 0 avis »
+					// se lirait sinon comme un parc propre plutôt que comme un parc hors sujet.
+					skippedReason: res.skippedReason,
+					locations: res.summary.locations,
+					succeeded: res.summary.succeeded,
+					// Un établissement en échec remonte ici ET reste écrit dans
+					// `project_gmb_locations.last_sync_error` — c'est la fin du `catch {}`.
+					failed: res.summary.failed,
+					seen: res.summary.seen,
+					inserted: res.summary.inserted,
+					updated: res.summary.updated,
+					unchanged: res.summary.unchanged,
+					unreadable: res.summary.unreadable,
+					truncated: res.summary.truncated,
+					draftsInvalidated: res.draftsInvalidated
 				});
 			}
 		],

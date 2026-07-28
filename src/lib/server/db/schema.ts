@@ -188,28 +188,71 @@ export const projectGmbLocations = seostats.table(
 		gmbLocationId: text('gmb_location_id').notNull(),
 		label: text('label').notNull(),
 		address: text('address'),
+		// GMB-002 — la santé de la synchro, par établissement. Le cron avalait ses erreurs dans
+		// un `catch {}` anonyme : impossible de distinguer « mois calme » de « panne depuis
+		// avril ». Ces trois colonnes rendent la question décidable, et portent le `scope` du
+		// détecteur d'avis — un avis n'est jugeable que si SA location a été synchronisée avec
+		// succès ET récemment. Sans DEFAULT : NULL veut dire « jamais synchronisée », un état
+		// qui ne doit pas se lire comme sain.
+		lastSyncAt: text('last_sync_at'),
+		lastSyncStatus: text('last_sync_status'), // 'success' | 'error'
+		lastSyncError: text('last_sync_error'),
 		createdAt: text('created_at').notNull().default(nowText)
 	},
 	(table) => [uniqueIndex('project_gmb_loc_unique').on(table.projectId, table.gmbLocationId)]
 );
 
-export const gmbReviews = seostats.table('gmb_reviews', {
-	id: text('id').primaryKey(),
-	projectId: text('project_id')
-		.notNull()
-		.references(() => projects.id),
-	locationId: text('location_id').notNull(),
-	locationLabel: text('location_label').notNull(),
-	reviewId: text('review_id').notNull().unique(),
-	authorName: text('author_name').notNull(),
-	rating: integer('rating').notNull(),
-	comment: text('comment').notNull().default(''),
-	createTime: text('create_time').notNull(),
-	draftReply: text('draft_reply'),
-	mentionedEmployees: text('mentioned_employees'),
-	repliedAt: text('replied_at'),
-	createdAt: text('created_at').notNull().default(nowText)
-});
+export const gmbReviews = seostats.table(
+	'gmb_reviews',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => projects.id),
+		locationId: text('location_id').notNull(),
+		locationLabel: text('location_label').notNull(),
+		reviewId: text('review_id').notNull().unique(),
+		authorName: text('author_name').notNull(),
+		rating: integer('rating').notNull(),
+		comment: text('comment').notNull().default(''),
+		createTime: text('create_time').notNull(),
+		// ── Colonnes LOCALES : ce que le hub propose et ce qu'il croit avoir fait. ──────────
+		draftReply: text('draft_reply'),
+		mentionedEmployees: text('mentioned_employees'),
+		/**
+		 * Marqueur d'écriture LOCALE (« le hub a envoyé »). ⚠️ Déjà contaminé sur les lignes
+		 * antérieures à GMB-002 : `reviews/backfill` y écrivait le `replyTime` de Google. La
+		 * divergence `repliedAt NOT NULL AND remoteReplyAt IS NULL` n'est donc fiable que pour
+		 * les lignes écrites APRÈS ce lot.
+		 */
+		repliedAt: text('replied_at'),
+		// ── Colonnes DISTANTES (GMB-002) : ce que Google dit. Jamais fusionnables avec les ──
+		// ── locales — une colonne unique répondrait « répondu » aux deux questions et ne    ──
+		// ── pourrait jamais se contredire, donc jamais révéler une divergence.              ──
+		/** Le TEXTE publié chez Google. Distinct de `draftReply`, notre proposition. */
+		remoteReplyText: text('remote_reply_text'),
+		/** `reviewReply.updateTime`, format DB. C'est LUI qui dit « cet avis a une réponse ». */
+		remoteReplyAt: text('remote_reply_at'),
+		/** `updateTime` de l'AVIS. L'ancrage de « avis modifié » (GMB-002, SPEC §9.6). */
+		remoteUpdateAt: text('remote_update_at'),
+		/**
+		 * Dernière fois que cette ligne a été VUE chez Google. NULL = état distant jamais lu
+		 * ⇒ hors scope ET hors closure du détecteur (la garde du premier run). Antérieur au
+		 * `lastSyncAt` réussi de sa location ⇒ l'avis a disparu chez Google, sans jamais
+		 * DELETE une ligne.
+		 */
+		lastSeenAt: text('last_seen_at'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		index('idx_gmb_reviews_project_last_seen').on(table.projectId, table.lastSeenAt),
+		index('idx_gmb_reviews_project_rating_created').on(
+			table.projectId,
+			table.rating,
+			table.createTime
+		)
+	]
+);
 
 export const employeeMentions = seostats.table(
 	'employee_mentions',

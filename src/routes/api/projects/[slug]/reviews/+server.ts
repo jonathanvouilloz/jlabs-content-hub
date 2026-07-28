@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews } from '$lib/server/db/schema.js';
-import { eq, desc, isNull, and } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
+import { pendingReviewFilter } from '$lib/server/reviews/pending-filter.js';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -17,7 +18,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const reviews = await db
 		.select()
 		.from(gmbReviews)
-		.where(and(eq(gmbReviews.projectId, project.id), isNull(gmbReviews.repliedAt)))
+		.where(and(eq(gmbReviews.projectId, project.id), pendingReviewFilter()))
 		.orderBy(desc(gmbReviews.createTime));
 
 	return json({ reviews });

@@ -24,6 +24,7 @@ import type { AppDb } from './db/types.js';
 import { loadHomeCockpit, GSC_STALE_AFTER_HOURS } from './home.js';
 import { DEFAULT_WINDOW_DAYS } from './home-state.js';
 import { ACTIVE_STATUSES, FINDING_STATUSES } from './finding-state.js';
+import { pendingReviewFilter } from './reviews/pending-filter.js';
 import { countFindings, listFindings, type FindingListRow } from './findings.js';
 import { countProposals, listProposals, type ProposalRow } from './proposals.js';
 import { countIndexClassesByProject } from './indexing-read.js';
@@ -137,17 +138,35 @@ async function proposalSet(
  * `create_time` (l'horodatage Google) et non `created_at` (la date d'import) : un import de
  * rattrapage ferait sinon apparaître trois ans d'avis comme « reçus cette semaine ». Les
  * négatifs sont les 1–2 étoiles, seuil de §14.3.
+ *
+ * ⚠️ GMB-002 — DEUX défauts corrigés ici, tous deux silencieux :
+ *
+ *  1. **`unanswered` ne lisait que `replied_at`**, un marqueur LOCAL : une réponse écrite
+ *     directement dans l'application Google n'y laisse aucune trace, donc le rapport
+ *     comptait des avis traités comme un arriéré. Le prédicat vient maintenant de
+ *     `pendingReviewFilter()`, comme partout ailleurs.
+ *
+ *  2. **`create_time` était comparé LEXICALEMENT à un horodatage au format DB**, alors que
+ *     Google l'envoie en ISO 8601 (`2026-07-18T10:52:48.406099Z`). À l'index 10, `'T'`
+ *     (0x54) contre `' '` (0x20) : tout avis du MÊME JOUR que la borne comparait donc plus
+ *     grand, quelle que soit son heure. Un créneau de lundi 07:00 comptait ainsi tous les
+ *     avis du lundi, y compris ceux de 3 h du matin — le piège exact que `timestamps.ts`
+ *     documente, appliqué à la seule colonne du schéma qui n'est pas au format DB.
+ *     La borne est convertie en ISO pour comparer deux valeurs de MÊME forme.
  */
 async function loadReviewStats(
 	db: AppDb,
 	sinceDb: string
 ): Promise<Map<string, { unanswered: number; received: number; negative: number }>> {
+	// `create_time` reste tel que Google l'envoie (colonne historique, jamais réécrite) :
+	// c'est donc la BORNE qui doit rejoindre sa forme, pas l'inverse.
+	const sinceIso = new Date(`${sinceDb.replace(' ', 'T')}Z`).toISOString();
 	const rows = await db
 		.select({
 			projectId: gmbReviews.projectId,
-			unanswered: sql<number>`count(*) filter (where ${isNull(gmbReviews.repliedAt)})::int`,
-			received: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceDb)})::int`,
-			negative: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceDb)} and ${lte(gmbReviews.rating, 2)})::int`
+			unanswered: sql<number>`count(*) filter (where ${pendingReviewFilter()})::int`,
+			received: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceIso)})::int`,
+			negative: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceIso)} and ${lte(gmbReviews.rating, 2)})::int`
 		})
 		.from(gmbReviews)
 		.groupBy(gmbReviews.projectId);

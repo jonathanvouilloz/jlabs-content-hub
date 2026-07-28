@@ -436,8 +436,18 @@ export interface CatalogEntry {
  * compilation).
  */
 export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
-	// Rien d'horaire tant que la synchronisation des avis (SPEC §8.1) n'est pas
-	// portée par un handler.
+	// La synchronisation des avis a désormais un handler (`collect:gmb_reviews`, GMB-002),
+	// mais elle est au catalogue QUOTIDIEN, pas ici — et c'est une décision, pas un oubli.
+	//
+	// SPEC §8.1 prescrit « toutes les heures » et §17.3 pose le SLO « nouvel avis synchronisé
+	// en moins de 2 heures ». La cadence quotidienne CASSE ce SLO par construction (jusqu'à
+	// 24 h d'attente). Le choix est assumé et tracé dans `docs/DECISIONS.md` : le parc mesuré
+	// (4 projets avec fiche, 382 avis, ~1 nouvel avis par jour) ne justifie pas 24 réveils
+	// quotidiens sur un compte Google unique, et le geste de répondre reste humain.
+	//
+	// ⚠️ Repasser en horaire est donc un geste DÉLIBÉRÉ — pas une correction évidente à faire
+	// en lisant la SPEC. Il faudra alors déplacer l'entrée ici ET son détecteur, sans quoi le
+	// détecteur jugerait 24 fois par jour un état qui ne bouge qu'une fois.
 	hourly: [],
 	// Les veilles doivent expirer même une semaine sans détection (FIND-003).
 	//
@@ -454,6 +464,18 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// L'arête vers le détecteur est OBLIGATOIRE, comme en hebdo : détecter sur une inspection
 	// périmée est exactement le bug que GSC-002 a fermé côté Search Analytics. Un « toujours
 	// pas indexé à J+3 » devient donc un finding le jour même, au lieu d'attendre le run hebdo.
+	//
+	// GMB-002 — la synchronisation des avis rejoint la cadence quotidienne, et cesse d'être
+	// un cron autonome. Ce qu'elle y gagne : les pauses (`automation_pauses`), les plafonds et
+	// le refroidissement provider (JOB-006, cohorte `gmb`), le retry classé (JOB-003), un
+	// `monitoring_runs` qui la compte, et une console (`/jobs`) qui la montre. Ce que la
+	// bascule ÉVITE : deux chemins de collecte sur un compte Google unique, dont
+	// `refreshAccountToken` réécrit les jetons sans verrou — le précédent `gsc-snapshot`
+	// interdit déjà ce doublon pour le quota, ici s'y ajoute une course en écriture.
+	//
+	// ⚠️ AUCUN prérequis : les avis ne dépendent d'aucune autre collecte, et lier ce job à
+	// l'inspection d'URLs le ferait sauter sur un quota Search Console qui n'a rien à voir
+	// avec l'API Business Profile.
 	daily: [
 		{ jobType: 'findings:lifecycle', priority: 5 },
 		{
@@ -461,6 +483,7 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			priority: 9,
 			payload: { mode: 'policy', scope: 'due' }
 		},
+		{ jobType: 'collect:gmb_reviews', priority: 9 },
 		{
 			jobType: 'detect:index_transition',
 			priority: 8,

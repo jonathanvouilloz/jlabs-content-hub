@@ -125,7 +125,7 @@ describe('resolveLimits — tolérance', () => {
 	it('ne mute jamais les défauts (les maps sont recopiées)', () => {
 		resolveLimits({ perProviderConcurrency: { gsc: 42 }, reservedTypes: ['x'] });
 		expect(LIMIT_DEFAULTS.perProviderConcurrency.gsc).toBe(2);
-		expect(LIMIT_DEFAULTS.reservedTypes).toContain('reviews:sync');
+		expect(LIMIT_DEFAULTS.reservedTypes).toContain('collect:gmb_reviews');
 	});
 });
 

@@ -18,7 +18,7 @@
  * Clés scalaires : globalConcurrency · perProjectConcurrency · perProjectPerLap ·
  *                  reservedSlots · providerWindowMs · cooldownMs
  * Clés par provider : perProviderConcurrency.gsc=4 · providerWindowBudget.gsc=500
- * Liste : reservedTypes=reviews:sync,alerts:notify
+ * Liste : reservedTypes=collect:gmb_reviews,alerts:notify
  *
  * Rappel : **`0` vaut « pas de limite »**, jamais « zéro job autorisé ». Une valeur
  * illisible ou hors bornes est IGNORÉE par `resolveLimits`, qui retombe sur le défaut

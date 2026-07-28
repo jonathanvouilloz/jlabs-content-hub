@@ -10,6 +10,7 @@ import {
 } from './db/schema.js';
 import { and, eq } from 'drizzle-orm';
 import { createId } from './utils.js';
+import { toDbTimestamp } from './timestamps.js';
 
 interface Tokens {
 	access_token: string;
@@ -317,6 +318,16 @@ export async function publishToLocations(
 
 // ── Reviews ───────────────────────────────────────────────────────
 
+/**
+ * ⚠️ L'adaptateur d'authentification du collecteur d'avis N'EST PAS ICI : il vit dans
+ * `gmb-auth.ts`, qui lit `process.env` au lieu de `$env/dynamic/private`.
+ *
+ * La raison a été apprise en production simulée : un handler de job qui importait ce
+ * module-ci mourait en dead-letter dès qu'on le drainait depuis `scripts/worker.ts`
+ * (« Cannot find package '$env' »). Il aurait fonctionné sur Vercel — donc un type de job
+ * exécutable seulement en production, et impossible à prouver. Même motif que `gsc-auth.ts`.
+ */
+
 export interface GmbReview {
 	reviewId: string;
 	locationId: string;
@@ -472,10 +483,24 @@ export async function syncProjectReviews(projectId: string): Promise<number> {
 	return synced;
 }
 
-export async function markReviewAsReplied(reviewId: string): Promise<void> {
-	await db.update(gmbReviews)
-		.set({ repliedAt: new Date().toISOString() })
-		.where(eq(gmbReviews.reviewId, reviewId));
+/**
+ * Marque un avis comme répondu PAR LE HUB.
+ *
+ * Deux corrections GMB-002, toutes deux silencieuses jusqu'ici :
+ *
+ *  1. **Format DB, pas ISO.** `new Date().toISOString()` mélangeait deux formats dans une
+ *     colonne `text` dont le DEFAULT SQL est au format DB, ce qui casse toute comparaison
+ *     lexicale : `'T'` (0x54) > `' '` (0x20), donc un `replied_at` ISO se trie après
+ *     n'importe quelle heure du même jour au format DB (cf. `timestamps.ts`).
+ *  2. **Le filtre `project_id` manquait.** `WHERE review_id = ?` seul est une écriture
+ *     CROSS-PROJET : l'unique sur `review_id` est global, donc un identifiant fourni par un
+ *     appelant pouvait marquer l'avis d'un autre client. `projectId` est désormais exigé.
+ */
+export async function markReviewAsReplied(projectId: string, reviewId: string): Promise<void> {
+	await db
+		.update(gmbReviews)
+		.set({ repliedAt: toDbTimestamp() })
+		.where(and(eq(gmbReviews.projectId, projectId), eq(gmbReviews.reviewId, reviewId)));
 }
 
 /** Parse gmbPostId field — handles legacy string and new JSON map */

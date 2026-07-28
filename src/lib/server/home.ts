@@ -60,6 +60,7 @@ import {
 	type ProjectCard
 } from './home-state.js';
 import { loadPauseStates } from './pauses.js';
+import { pendingReviewFilter } from './reviews/pending-filter.js';
 import {
 	SCHEDULE_CADENCES,
 	catalogFor,
@@ -173,12 +174,18 @@ async function loadProposalsPending(db: AppDb): Promise<Map<string, number>> {
 	return new Map(rows.map((r) => [r.projectId, r.n]));
 }
 
-/** Avis Google sans réponse, par projet (`replied_at IS NULL`). */
+/**
+ * Avis Google sans réponse, par projet.
+ *
+ * GMB-002 — le prédicat vient de `pendingReviewFilter()` et de nulle part ailleurs : il
+ * interroge le marqueur local ET la réponse distante. Compter sur `replied_at` seul faisait
+ * remonter ici des avis déjà répondus dans l'application Google.
+ */
 async function loadReviewsUnanswered(db: AppDb): Promise<Map<string, number>> {
 	const rows = await db
 		.select({ projectId: gmbReviews.projectId, n: sql<number>`count(*)::int` })
 		.from(gmbReviews)
-		.where(isNull(gmbReviews.repliedAt))
+		.where(pendingReviewFilter())
 		.groupBy(gmbReviews.projectId);
 	return new Map(rows.map((r) => [r.projectId, r.n]));
 }

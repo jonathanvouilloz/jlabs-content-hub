@@ -1,13 +1,41 @@
-# HANDOFF — 2026-07-27
+# HANDOFF — 2026-07-28
 
 ## Features actives
 | Feature | Fichier | Statut |
 |---------|---------|--------|
+| **Avis GMB (E08) — GMB-002 synchro** | [features/gmb-002-reviews.md](features/gmb-002-reviews.md) | **LOT 1 LIVRÉ · lot 2 (findings) À FAIRE** |
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
 | Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 5/5** |
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 ## Reprendre ici
+
+🆕 **2026-07-28 — E08 lot 1 (GMB-002) est LIVRÉ.** La synchro des avis est entrée dans la file
+(`collect:gmb_reviews`, catalogue **quotidien**, provider `gmb`), elle réconcilie l'état
+distant et chaque fiche porte sa santé. Chiffres après la première collecte réelle :
+**382 → 3 189 avis**, **502 en attente (vrai)** contre 11 (faux), **9 fiches** avec un
+`last_sync_status`. Le fantôme `physiopommier` du 15/03 est tranché : **réellement oublié**
+(brouillon de mars jamais envoyé). Le **2★ de Sion du 18/07** est confirmé sans réponse.
+Détail, pièges et mesures → `docs/features/gmb-002-reviews.md`.
+
+**Prochaine étape E08 : le lot 2** — `detect:review_pending` produisant `review_pending_sla`
+et `negative_review`. Sans lui, le 2★ reste un fait interrogeable mais n'entre ni dans
+`/inbox` ni au rapport hebdo. ⚠️ Dimensionner sur **502**, pas 11 : `slaLookbackDays: 180`
+est ce qui empêche 499 findings sur `barberconcept` (332 des avis en attente datent d'avant
+2025). Les deux types sont **déjà** dans `FINDING_TYPES`, `'review'` dans
+`FINDING_ENTITY_TYPES` : aucun DDL de vocabulaire.
+
+⚠️ **`/projects/barberconcept/reviews` affiche maintenant ~499 avis en attente.** C'est la
+vérité (le filtre de 30 jours mentait par omission), mais c'est brutal, et
+`/api/reviews/pending` en renvoie autant au skill `gmb-review-responder`. À arbitrer.
+⚠️ **Une preuve ne doit JAMAIS poser sa sentinelle sous un projet qui a de vraies fiches** :
+le collecteur parcourt tous les établissements de son projet. Appris en polluant six fiches
+`barberconcept` (restaurées). La preuve le vérifie désormais elle-même.
+⚠️ **L'auth provider ne doit pas passer par `$env`** : un handler qui importe `gmb.ts` marche
+sur Vercel et meurt en dead-letter dès qu'un worker local le réclame. Utiliser `gmb-auth.ts`.
+
+---
+
 ✅ **LE COCKPIT EST EN PRODUCTION** depuis le 2026-07-27 ~19:40 UTC. `main` = `7a8e04b`
 (fast-forward de `feat/cockpit`, **113 commits**), `/api/whoami` répond
 `{"env":"production","version":"7a8e04b","project_count":9}`. Étapes 1 à 4 faites : les
@@ -43,8 +71,8 @@ projets repartent ensemble — d'où la reprise un par un.
 la **double navigation** (sidebar 12 entrées vs barre d'onglets 8, libellés divergents « Avis » /
 « Avis Google », « Présence locale » / « Fiche Google », pas d'Indexation côté sidebar) et la
 **page de login qui annonce encore « Content Hub / Jon Labs »**.
-⚠️ **E08 (avis GMB) = 8 tickets, 0 livré.** Le cron rétablit la *synchro* ; il n'existe toujours
-aucun job `collect:gmb_reviews` ni finding « avis sans réponse ». 3 avis en attente.
+⚠️ **E08 (avis GMB) = 8 tickets, 1 livré (GMB-002).** `collect:gmb_reviews` existe et tourne ;
+il n'existe **toujours aucun finding « avis sans réponse »** — c'est le lot 2.
 ⚠️ **Approuver n'exécute rien** (`proposal_approvals` = 0) et **rien n'est notifié** (TEL-001/002
 BLOCKED) : le rapport est publié, son annonce journalisée, jamais envoyée.
 ⚠️ **`npm run db:push` n'est plus le piège qu'il était** : `main` déclare enfin les 61 tables de

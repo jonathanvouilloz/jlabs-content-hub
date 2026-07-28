@@ -85,6 +85,13 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// d'inspection met aussi la collecte GSC au repos, ce qui est exactement voulu sur un compte
 	// que les 6 projets partagent.
 	'collect:url_inspection': 'gsc',
+	// GMB-002 — cohorte SÉPARÉE de `gsc`, et c'est le point : le hub n'a qu'un compte Google
+	// Business Profile (`gmb_settings.account_tokens`), distinct du service account Search
+	// Console. Un 429 sur les avis ne doit pas endormir la collecte GSC, ni l'inverse — ce
+	// sont deux pools de quota qui n'ont rien à voir. `perProviderConcurrency.gmb` et
+	// `providerWindowBudget.gmb` étaient déjà déclarés par JOB-006 : ce type est le premier
+	// à les faire mordre.
+	'collect:gmb_reviews': 'gmb',
 	'detect:keyword_opportunity': 'none',
 	// FIND-005 — le détecteur de baisses relit `gsc_query_page_observations`, déjà payées
 	// par la collecte. Le classer `gsc` le mettrait au repos avec la cohorte au premier
@@ -180,9 +187,13 @@ export const LIMIT_DEFAULTS: JobLimits = {
 	// puisse jamais enchaîner tout un tick.
 	perProjectPerLap: 5,
 	reservedSlots: 1,
-	// SPEC §8.1 — synchronisation des avis et notification d'alerte. Aucun des deux
-	// n'a de handler aujourd'hui (E03/E06) : la réserve est armée, pas encore mordante.
-	reservedTypes: ['reviews:sync', 'alerts:notify'],
+	// SPEC §8.1 — synchronisation des avis et notification d'alerte.
+	//
+	// ⚠️ `reviews:sync` était un type FANTÔME : il n'a jamais existé dans aucun registre de
+	// handlers, donc la réserve armée par JOB-006 ne pouvait mordre sur rien. GMB-002 lui
+	// donne son vrai nom (`collect:gmb_reviews`) — c'est bien pour lui qu'elle avait été
+	// posée. `alerts:notify` reste sans handler (E06/TEL-002 BLOCKED) : armé, pas mordant.
+	reservedTypes: ['collect:gmb_reviews', 'alerts:notify'],
 	providerWindowMs: 60 * 60 * 1000,
 	providerWindowBudget: { gsc: 200, dataforseo: 100, gmb: 200, llm: 100, none: 0 },
 	cooldownMs: 15 * 60 * 1000

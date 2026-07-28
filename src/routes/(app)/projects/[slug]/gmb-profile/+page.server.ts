@@ -8,7 +8,11 @@ import {
 	gmbInsightsDaily,
 	gmbReviews
 } from '$lib/server/db/schema.js';
-import { and, eq, gte, lte, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, gte, lte } from 'drizzle-orm';
+import {
+	answeredReviewFilter,
+	pendingReviewFilter
+} from '$lib/server/reviews/pending-filter.js';
 
 const IMPRESSION_METRICS = [
 	'BUSINESS_IMPRESSIONS_DESKTOP_MAPS',
@@ -86,7 +90,7 @@ export const load: PageServerLoad = async ({ params }) => {
 					and(
 						eq(gmbReviews.projectId, project.id),
 						eq(gmbReviews.locationId, loc.gmbLocationId),
-						isNotNull(gmbReviews.repliedAt)
+						answeredReviewFilter()
 					)
 				)
 				;
@@ -97,7 +101,7 @@ export const load: PageServerLoad = async ({ params }) => {
 					and(
 						eq(gmbReviews.projectId, project.id),
 						eq(gmbReviews.locationId, loc.gmbLocationId),
-						isNull(gmbReviews.repliedAt)
+						pendingReviewFilter()
 					)
 				)
 				;

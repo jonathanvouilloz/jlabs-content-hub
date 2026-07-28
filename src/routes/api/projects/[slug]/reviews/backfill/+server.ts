@@ -10,13 +10,17 @@ import { eq, and, gte, lt, isNull } from 'drizzle-orm';
 import { fetchProjectReviews, refreshAccountToken } from '$lib/server/gmb.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import { createId } from '$lib/server/utils.js';
+import { toDbTimestamp } from '$lib/server/timestamps.js';
+import { normalizeReviewKey } from '$lib/server/collectors/gmb-reviews-state.js';
 import { runMentionsExtractionJob } from '$lib/server/reviews/mentions-runner.js';
 import type { ProjectContext } from '$lib/types/project-context.js';
 import type { RequestHandler } from './$types';
 
 /**
  * Re-import all reviews (including already replied) for a given month from
- * Google. Stores the Google reply in draftReply and sets repliedAt. After
+ * Google. Stores the Google reply in remoteReplyText/remoteReplyAt (GMB-002 —
+ * it used to write draftReply/repliedAt, which are LOCAL columns, making the
+ * hub↔Google divergence undetectable). After
  * inserts, kicks off a background mentions extraction job for any reviews
  * of the month that still have mentioned_employees IS NULL (the backfill
  * itself does not extract — and the ai-replies pipeline filters out replied
@@ -64,6 +68,15 @@ export const GET: RequestHandler = async (event) => {
 			// Only reviews with a comment AND a reply
 			if (!r.comment || !r.reply) continue;
 
+			// GMB-002 — cette route écrivait la réponse de GOOGLE dans `draft_reply` (notre
+			// proposition) et son `replyTime` dans `replied_at` (notre marqueur d'envoi). Les
+			// deux colonnes locales portaient donc des faits distants, ce qui rendait la
+			// divergence GMB-007 indétectable : on ne peut pas comparer le hub à Google si le
+			// hub recopie Google. Désormais chaque fait va dans sa colonne.
+			//
+			// ⚠️ Les lignes écrites AVANT ce lot restent contaminées et ne sont PAS réparées
+			// ici : deviner rétroactivement « qui a répondu à ce client » serait exactement le
+			// genre de supposition que ce canon refuse. On corrige l'écrivain, pas l'histoire.
 			const result = await db
 				.insert(gmbReviews)
 				.values({
@@ -71,13 +84,14 @@ export const GET: RequestHandler = async (event) => {
 					projectId: project.id,
 					locationId: r.locationId,
 					locationLabel: loc.label,
-					reviewId: r.reviewId,
+					reviewId: normalizeReviewKey(r.reviewId),
 					authorName: r.authorName,
 					rating: r.rating,
 					comment: r.comment,
 					createTime: r.createTime,
-					draftReply: r.reply,
-					repliedAt: r.replyTime || new Date().toISOString()
+					remoteReplyText: r.reply,
+					remoteReplyAt: r.replyTime ? toDbTimestamp(r.replyTime) : null,
+					lastSeenAt: toDbTimestamp()
 				})
 				.onConflictDoNothing();
 

@@ -2,7 +2,8 @@ import { json } from '@sveltejs/kit';
 import { waitUntil } from '@vercel/functions';
 import { db } from '$lib/server/db/index.js';
 import { projects, gmbReviews, projectGmbLocations, projectContexts } from '$lib/server/db/schema.js';
-import { eq, isNull, and } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { pendingReviewFilter } from '$lib/server/reviews/pending-filter.js';
 import { streamAiReplies, type PerReviewError } from '$lib/server/ai/review-replies.js';
 import { createJob, updateJob } from '$lib/server/ai/jobs.js';
 import { persistMentionsForReview } from '$lib/server/reviews/mentions.js';
@@ -40,7 +41,7 @@ export const POST: RequestHandler = async (event) => {
 	const allPending = await db
 		.select()
 		.from(gmbReviews)
-		.where(and(eq(gmbReviews.projectId, project.id), isNull(gmbReviews.repliedAt)));
+		.where(and(eq(gmbReviews.projectId, project.id), pendingReviewFilter()));
 
 	const toGenerate = force
 		? allPending

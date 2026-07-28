@@ -8,7 +8,11 @@ import {
 	gmbReviews
 } from '$lib/server/db/schema.js';
 import { syncLocationProfile } from '$lib/server/gmb.js';
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import {
+	answeredReviewFilter,
+	pendingReviewFilter
+} from '$lib/server/reviews/pending-filter.js';
 
 const STALE_AFTER_MS = 60 * 60 * 1000;
 
@@ -72,7 +76,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 			and(
 				eq(gmbReviews.projectId, project.id),
 				eq(gmbReviews.locationId, fullLocId),
-				isNotNull(gmbReviews.repliedAt)
+				answeredReviewFilter()
 			)
 		)
 		;
@@ -83,7 +87,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 			and(
 				eq(gmbReviews.projectId, project.id),
 				eq(gmbReviews.locationId, fullLocId),
-				isNull(gmbReviews.repliedAt)
+				pendingReviewFilter()
 			)
 		)
 		;
