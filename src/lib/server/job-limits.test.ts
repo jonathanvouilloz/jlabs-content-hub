@@ -48,6 +48,13 @@ describe('providerForJobType', () => {
 		expect(providerForJobType('detect:index_transition')).toBe('none');
 	});
 
+	it('GMB-002 lot 2 — le détecteur d’avis relit `gmb_reviews`, donc `none` et non `gmb`', () => {
+		// Le classer `gmb` le mettrait au repos au premier 429 de l'API Business Profile, alors
+		// qu'il n'appelle personne : ce qu'il lit est déjà en base.
+		expect(providerForJobType('detect:review_pending')).toBe('none');
+		expect(jobTypesForProvider('gmb')).toEqual(['collect:gmb_reviews']);
+	});
+
 	it('`post_publish:check` est déjà déclaré GSC (E03 n’aura qu’un handler à poser)', () => {
 		expect(providerForJobType('post_publish:check')).toBe('gsc');
 	});

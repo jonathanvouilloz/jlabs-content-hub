@@ -476,6 +476,18 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// ⚠️ AUCUN prérequis : les avis ne dépendent d'aucune autre collecte, et lier ce job à
 	// l'inspection d'URLs le ferait sauter sur un quota Search Console qui n'a rien à voir
 	// avec l'API Business Profile.
+	//
+	// GMB-002 lot 2 — le détecteur d'avis rejoint la collecte qu'il relit, ici et pas en hebdo :
+	// un avis négatif découvert six jours après coup est le défaut que ce lot ferme (le 2★ de
+	// Sion, dix jours de silence). L'arête est OBLIGATOIRE — si la collecte meurt avant d'écrire,
+	// `last_sync_at` reste à hier, donc encore frais à 48 h, et le détecteur se croirait
+	// autoritaire sur un état périmé.
+	//
+	// Coût mesuré : le cadran passe de 4 à 5 entrées, soit 36 → 45 jobs/jour pour
+	// `MAX_JOBS_PER_TICK = 25`. L'occurrence se drainait déjà en 2 ticks, elle continue (45 ≤ 50)
+	// — le coût marginal en ticks est NUL. Les 9 nouveaux jobs sont `provider: 'none'` : ils ne
+	// retardent aucune collecte payante. ⚠️ Le PROCHAIN ajout au cadran quotidien fera basculer à
+	// 3 ticks.
 	daily: [
 		{ jobType: 'findings:lifecycle', priority: 5 },
 		{
@@ -488,6 +500,11 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			jobType: 'detect:index_transition',
 			priority: 8,
 			dependsOn: [{ jobType: 'collect:url_inspection' }]
+		},
+		{
+			jobType: 'detect:review_pending',
+			priority: 8,
+			dependsOn: [{ jobType: 'collect:gmb_reviews' }]
 		}
 	],
 	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de

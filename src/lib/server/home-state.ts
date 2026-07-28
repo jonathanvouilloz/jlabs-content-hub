@@ -427,7 +427,8 @@ const DETECTOR_LABELS: Record<string, string> = {
 	'detect:keyword_decline': 'baisses de mots-clés',
 	'detect:query_turnover': 'requêtes nouvelles et perdues',
 	'detect:cannibalization': 'conflits de cannibalisation',
-	'detect:index_transition': 'transitions d’indexation'
+	'detect:index_transition': 'transitions d’indexation',
+	'detect:review_pending': 'avis sans réponse'
 };
 
 export function detectorLabel(detector: string): string {

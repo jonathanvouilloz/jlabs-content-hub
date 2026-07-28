@@ -82,6 +82,7 @@ import { runKeywordDeclineDetector } from './detectors/keyword-decline.js';
 import { runQueryTurnoverDetector } from './detectors/query-turnover.js';
 import { runCannibalizationDetector } from './detectors/cannibalization.js';
 import { runIndexTransitionDetector } from './detectors/index-transition.js';
+import { runReviewPendingDetector } from './detectors/review-pending.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
@@ -216,6 +217,27 @@ export const JOB_TYPE_DETECT_CANNIBALIZATION = 'detect:cannibalization';
  * périmé ».
  */
 export const JOB_TYPE_DETECT_INDEX_TRANSITION = 'detect:index_transition';
+
+/**
+ * GMB-002 lot 2 — détecteur des avis sans réponse (`review_pending_sla` + `negative_review`).
+ *
+ * Au catalogue **quotidien**, avec la collecte qu'il relit, en arête **obligatoire**
+ * `collect:gmb_reviews → detect:review_pending`. Le mode de défaillance est asymétrique : si la
+ * collecte meurt AVANT d'écrire (`invalid_grant`, 429 au premier appel), `last_sync_at` reste à
+ * hier — donc encore frais à 48 h. Le détecteur se croirait autoritaire et tournerait sur l'état
+ * d'hier, sans voir l'avis négatif arrivé aujourd'hui. C'est exactement le défaut mesuré au lot 1
+ * (le 2★ de Sion, dix jours de silence), rejoué une journée à la fois. L'arête rend le trou
+ * VISIBLE : détection `skipped`, run `partial`, `/jobs` le dit.
+ *
+ * ⚠️ Comme pour IDX-005, l'arête garantit l'ORDRE, pas la FRAÎCHEUR : une collecte qui rend
+ * `no_gmb_location` RÉUSSIT, donc l'arête est satisfaite et le détecteur tourne — pour rendre à son
+ * tour `no_gmb_location`. C'est cohérent, et c'est le cas de 5 projets sur 9.
+ *
+ * ⚠️ Aucune arête vers `propose:actions` : répondre à un avis est un geste L3/L4 (GMB-006), et
+ * l'action prescrite pour un avis négatif est une escalade HUMAINE (§10.4). Même position que
+ * FIND-005/006/008.
+ */
+export const JOB_TYPE_DETECT_REVIEW_PENDING = 'detect:review_pending';
 
 /**
  * FIND-003 — expiration des veilles. Job À PART du détecteur : une veille doit
@@ -579,6 +601,42 @@ export function defaultHandlers(): Map<string, JobHandler> {
 						// Sans IDX-004, ce compteur vaut à peu près tout le stock. Le taire ferait lire un
 						// run qui n'a rien pu juger comme un run qui n'a rien trouvé.
 						outOfScope: res.lifecycle.outOfScope,
+						skippedReason: res.skippedReason
+					});
+				}
+			],
+			[
+				JOB_TYPE_DETECT_REVIEW_PENDING,
+				async ({ db, job }) => {
+					const payload = parsePayload(job.payloadJson);
+					const res = await runReviewPendingDetector({
+						db,
+						projectId: (payload.projectId as string) ?? job.projectId,
+						runId: job.runId
+					});
+					logger.info('détection des avis sans réponse terminée', {
+						jobId: job.id,
+						projectId: job.projectId,
+						detector: res.detectorVersion,
+						created: res.counts.created,
+						refreshed: res.counts.refreshed,
+						slaFindings: res.totalMatchedSla,
+						negativeFindings: res.totalMatchedNegative,
+						// §14.3 : le SIGNAL est écrit, le canal reste TEL-002 (BLOCKED).
+						notifiable: res.notifiable,
+						truncated: res.truncated,
+						// Hors portée = laissés INTACTS. Deux causes attendues et distinctes : une
+						// fiche dont la synchro est cassée, et un avis sorti de la fenêtre. Les taire
+						// ferait lire un run qui n'a rien pu juger comme un run qui n'a rien trouvé.
+						outOfScope: res.lifecycle.outOfScope,
+						// Une fiche en panne ne se lit jamais comme une fiche sans arriéré.
+						locationsStale: res.locationsStale,
+						// GMB-007 : le hub croit avoir répondu, Google ne le confirme pas. Compté,
+						// jamais transformé en finding — rouvrir la file produirait une SECONDE
+						// réponse au même client.
+						divergent: res.excluded.divergent,
+						// Les lignes héritées du backfill, dont l'état distant n'a jamais été lu.
+						neverSeen: res.excluded.neverSeen,
 						skippedReason: res.skippedReason
 					});
 				}

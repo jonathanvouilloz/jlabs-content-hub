@@ -3,44 +3,44 @@
 ## Features actives
 | Feature | Fichier | Statut |
 |---------|---------|--------|
-| **Avis GMB (E08) — GMB-002 synchro** | [features/gmb-002-reviews.md](features/gmb-002-reviews.md) | **LOT 1 LIVRÉ · lot 2 (findings) À FAIRE** |
+| **Avis GMB (E08) — GMB-002** | [features/gmb-002-reviews.md](features/gmb-002-reviews.md) | **CLOS — lots 1 et 2 LIVRÉS** |
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
 | Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 5/5** |
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 ## Reprendre ici
 
-🆕 **2026-07-28 — E08 lot 1 (GMB-002) est LIVRÉ.** La synchro des avis est entrée dans la file
-(`collect:gmb_reviews`, catalogue **quotidien**, provider `gmb`), elle réconcilie l'état
-distant et chaque fiche porte sa santé. Chiffres après la première collecte réelle :
-**382 → 3 189 avis**, **502 en attente (vrai)** contre 11 (faux), **9 fiches** avec un
-`last_sync_status`. Le fantôme `physiopommier` du 15/03 est tranché : **réellement oublié**
-(brouillon de mars jamais envoyé). Le **2★ de Sion du 18/07** est confirmé sans réponse.
-Détail, pièges et mesures → `docs/features/gmb-002-reviews.md`.
+🆕 **2026-07-28 — E08 lot 2 (GMB-002) est LIVRÉ, et GMB-002 est CLOS.** `detect:review_pending`
+produit `review_pending_sla` et `negative_review` : un avis sans réponse cesse d'être un fait
+interrogeable et devient un **finding décidable**. **Zéro DDL** (types et `entity_type` déjà au
+vocabulaire). Au catalogue **quotidien**, arête **obligatoire** depuis `collect:gmb_reviews`,
+provider `none`. Détail, pièges et mesures → `docs/features/gmb-002-reviews.md`.
 
-✅ **Le chiffre de 502 a été VÉRIFIÉ contre l'API Google**, pas contre notre base : sur trois
-fiches rappelées à l'état brut, Google et la base donnent le même nombre de réponses au
-chiffre près (301/301, 320/320, 351/351). Aucun bug de réconciliation, aucun champ de réponse
-manqué. **L'arriéré est réel et à deux vitesses** : Lausanne 1 non répondu sur 302, mais
-**Eaux Vives 190/541 et Jonction 179/499** — et le trou est RÉCENT (Eaux Vives : 98 avis non
-répondus sur la seule année 2025). Deux fiches sur six portent 74 % de l'arriéré.
+✅ **Premier run réel sur `barberconcept` : 17 findings** (13 SLA + 4 négatifs, dont **3
+notifiables** §14.3), tous `open`. Répartition : Eaux Vives 6 · Jonction 5 · Cornavin 4 · Sion 2
+· **Lausanne 0**. **Lausanne à 0 est la contre-épreuve** — la fiche qui répond (301/302) ne
+produit rien, celles qui ont décroché produisent tout. Le **2★ de Sion du 18/07** est `critical`,
+notifiable, en tête de liste. `physiopommier` : **1 SLA** (l'avis du 15/03, « réellement
+oublié »). `jonlabs` et `bisrepetita` : **0**, tous leurs avis sont répondus. Second run à
+l'identique : **0 créé, 17 rafraîchis**, 17 événements `created` seulement.
 
-**Prochaine étape E08 : le lot 2** — `detect:review_pending` produisant `review_pending_sla`
-et `negative_review`. Sans lui, le 2★ de Sion reste un fait interrogeable mais n'entre ni dans
-`/inbox` ni au rapport hebdo. Les deux types sont **déjà** dans `FINDING_TYPES`, `'review'`
-dans `FINDING_ENTITY_TYPES` : aucun DDL de vocabulaire.
-⚠️ Dimensionner sur **502**, pas 11 : `slaLookbackDays: 180` cadre les findings sur ~40 avis
-récents actionnables et laisse les 332 d'avant 2025 en stock visible.
-⚠️ **Le signal doit être lisible PAR FICHE.** Un finding agrégé au projet dirait
-« barberconcept a 499 avis en retard » et noierait le fait utile — deux établissements
-concentrent l'arriéré pendant qu'un troisième tient 301/302.
+**Prochaine étape : la mise en prod (étape 5/5) et la reprise des cadences hebdo** — observer un
+tick, puis reprendre `lecureux` en canary. Ensuite au choix : le **portage de `/positions` sur le
+canon** (débloque FIND-007) ou **AGT-001** (approuver n'exécute toujours rien).
 
-**Aussi en attente (décidé avec Jonathan, session suivante)** : sortir la liste exportable des
+**Reste ouvert sur E08 (décidé avec Jonathan, session suivante)** : sortir la liste exportable des
 non-répondus 2025-2026 par fiche pour que Barber Concept rattrape · arbitrer une fenêtre
-d'affichage sur `/projects/[slug]/reviews` et `/api/reviews/pending` (499 entrées aujourd'hui).
-⚠️ **Une preuve ne doit JAMAIS poser sa sentinelle sous un projet qui a de vraies fiches** :
-le collecteur parcourt tous les établissements de son projet. Appris en polluant six fiches
-`barberconcept` (restaurées). La preuve le vérifie désormais elle-même.
+d'affichage sur `/projects/[slug]/reviews` et `/api/reviews/pending` (499 entrées).
+⚠️ **Ne PAS confondre cette fenêtre d'affichage avec `slaLookbackDays`** : borner l'écran cache un
+fait vérifié contre l'API Google, borner le détecteur choisit ce qu'on **alerte**.
+⚠️ **La borne de lecture est le MAX des deux fenêtres (365 j), donc `outOfWindow` vaut
+structurellement 0** : ~1 700 avis de `barberconcept` ne sont pas « lus puis écartés », ils ne
+sont **pas lus**. Le CLI dit depuis quelle date il lit.
+⚠️ **Une preuve doit tourner sur un projet vierge sur TROIS points** (aucune fiche réelle, aucun
+finding d'avis, aucun finding en veille) : `reconcileDetectionRun` et `expireSnoozes` travaillent
+à l'échelle du **projet**. La preuve le vérifie elle-même et refuse de démarrer sinon.
+⚠️ **`DETECTOR_JOB_TYPES` est dérivé du catalogue** : les 9 projets passent de `full` à `partial`
+sur l'accueil tant que le nouveau job n'a pas tourné. Attendu, pas une régression.
 ⚠️ **L'auth provider ne doit pas passer par `$env`** : un handler qui importe `gmb.ts` marche
 sur Vercel et meurt en dead-letter dès qu'un worker local le réclame. Utiliser `gmb-auth.ts`.
 
@@ -50,9 +50,10 @@ sur Vercel et meurt en dead-letter dès qu'un worker local le réclame. Utiliser
 (fast-forward de `feat/cockpit`, **113 commits**), `/api/whoami` répond
 `{"env":"production","version":"7a8e04b","project_count":9}`. Étapes 1 à 4 faites : les
 **9 cadences hebdo sont en pause en base** (`scripts/pauses.ts`, raison « reprise projet par
-projet »), `vercel.json` déclare les **5 crons** (`tick` horaire, `gmb-publish`,
-`linkedin-publish`, `gmb-weekly-digest`, **`gmb-reviews` 5h** — le trou des avis Google est
-bouché), le preview Vercel a été vérifié vert avant le merge, revue visuelle RAS.
+projet »), `vercel.json` déclare **4 crons** (`tick` horaire, `gmb-publish`,
+`linkedin-publish`, `gmb-weekly-digest` — **`gmb-reviews` en a été RETIRÉ par GMB-002**, les
+avis passent désormais par la file), le preview Vercel a été vérifié vert avant le merge, revue
+visuelle RAS.
 
 **Étape 5 — observer le premier tick.** Avec les 9 cadences en pause il doit : ne planifier
 **aucun** run hebdo, drainer le job `queued` résiduel, et **publier le rapport de la semaine**.
@@ -73,7 +74,9 @@ empêche `planDueJobs` d'ouvrir le run, pas le drain ni REP-003. Premier rapport
 d'absence (`partial`, 9 projets `missing`), jamais réécrit, mais **révisable**
 (`rep-003-publish.ts --revise <slot> --reason "…"`).
 ⚠️ **Au premier tick d'un projet repris** : le catalogue hebdo porte 4 détecteurs, plafond 50
-**par détecteur** — `barberconcept`, jamais diagnostiqué, peut écrire jusqu'à 150 findings.
+**par détecteur** — `barberconcept`, jamais diagnostiqué, peut écrire jusqu'à 150 findings. S'y
+ajoute le quotidien, mais il ne surprendra plus : `detect:review_pending` a déjà écrit ses 17
+findings à la main sur `barberconcept` et n'a plus qu'à les rafraîchir.
 ⚠️ **`MAX_JOBS_PER_TICK = 25` est une constante de la route**, pas un réglage `system_settings` :
 la changer demande un redéploiement (contrairement aux limites JOB-006). 63 jobs hebdo si les 9
 projets repartent ensemble — d'où la reprise un par un.
@@ -81,8 +84,9 @@ projets repartent ensemble — d'où la reprise un par un.
 la **double navigation** (sidebar 12 entrées vs barre d'onglets 8, libellés divergents « Avis » /
 « Avis Google », « Présence locale » / « Fiche Google », pas d'Indexation côté sidebar) et la
 **page de login qui annonce encore « Content Hub / Jon Labs »**.
-⚠️ **E08 (avis GMB) = 8 tickets, 1 livré (GMB-002).** `collect:gmb_reviews` existe et tourne ;
-il n'existe **toujours aucun finding « avis sans réponse »** — c'est le lot 2.
+⚠️ **E08 (avis GMB) = 8 tickets, 1 livré (GMB-002, lots 1 ET 2).** La collecte tourne et le
+détecteur écrit ses findings ; ce qui manque encore, c'est tout le reste de l'epic — projection
+de contexte, brouillons, quality gate, policy d'envoi (GMB-003 à GMB-008).
 ⚠️ **Approuver n'exécute rien** (`proposal_approvals` = 0) et **rien n'est notifié** (TEL-001/002
 BLOCKED) : le rapport est publié, son annonce journalisée, jamais envoyée.
 ⚠️ **`npm run db:push` n'est plus le piège qu'il était** : `main` déclare enfin les 61 tables de

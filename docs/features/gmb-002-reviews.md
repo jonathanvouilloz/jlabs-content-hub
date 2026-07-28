@@ -1,7 +1,139 @@
-# Feature — GMB-002 : synchronisation des avis, fiable et observable (E08 lot 1)
+# Feature — GMB-002 : les avis, de la synchro fiable au signal décidable (E08)
 
-> Epic E08 (Google Business Profile et avis) · SPEC §9.6, §17.3 · BACKLOG GMB-002.
-> Premier ticket livré d'un epic qui en compte 8 et en affichait 0.
+> Epic E08 (Google Business Profile et avis) · SPEC §9.6, §10.4, §14.3, §17.3 · BACKLOG GMB-002.
+> Premier ticket livré d'un epic qui en compte 8 et en affichait 0. **Lot 1 + lot 2 livrés.**
+
+## Etat session 2026-07-28 (lot 2 — LIVRÉ, GMB-002 est CLOS)
+
+**Fait :** `detect:review_pending` produit `review_pending_sla` et `negative_review`. Un avis
+sans réponse cesse d'être un fait interrogeable et devient un **finding décidable**, présent dans
+`/inbox` et comptable au rapport hebdo. **Zéro DDL** — les deux types étaient déjà dans
+`FINDING_TYPES`, `'review'` déjà dans `FINDING_ENTITY_TYPES`, les libellés UI déjà dans
+`proposal-format.ts`.
+
+### Ce qui a motivé le lot
+
+Le lot 1 avait rendu la synchro fiable (382 → 3 189 avis, 502 en attente vérifiés contre l'API
+Google) — mais **rien ne transformait ces faits en signal**. Le 2★ de Sion du 18/07 était
+interrogeable en base et invisible partout ailleurs. E08 comptait 8 tickets, 1 livré.
+
+### Décisions prises avec Jonathan
+
+- **SLA à 3 jours** (et non 7) : un avis Google reste visible en permanence, trois jours de
+  silence sont déjà lisibles par le prochain visiteur.
+- **Deux findings** sur un avis négatif en retard, jamais un seul.
+- **Plafond 30 par type et par projet.**
+
+### Livré
+
+- **⭐ Les deux types COEXISTENT.** §10.4 leur donne deux gestes : le SLA route vers
+  `gmb-review-responder`, l'avis négatif vers une **escalade humaine** et aucun skill
+  (`NEGATIVE_REVIEW_SKILL` est une constante explicitement nulle). L'absorption serait aussi
+  asymétrique dans le temps : à J+2 le 2★ ne produirait qu'un `negative_review`, à J+4 le SLA
+  serait masqué — « avis négatif EN RETARD » deviendrait indiscernable de « avis négatif frais ».
+  Corollaire porteur : `negative_review` vise un avis 1–3★ **non traité**, pas un avis 1–3★ ;
+  sans ce prédicat, le détecteur écrirait des centaines de findings que rien ne résoudrait jamais.
+- **⭐ Le glissement de fenêtre ne peut PAS auto-résoudre.** La borne des 180 jours vit dans la
+  closure **et** dans le scope. Sans cette symétrie, un avis franchissant J+180 sortirait de la
+  closure en restant dans la portée, et serait auto-résolu au bout de deux runs — soit
+  « auto-résolu : le signal ne franchit plus les seuils » écrit sur **332 avis toujours sans
+  réponse**. Prouvé sur Neon (P5).
+- **⭐ Le plafond se répartit par FICHE — une première dans le parc.** L'arriéré est concentré
+  (Eaux Vives 190/541 et Jonction 179/499 portent 74 % du retard, Lausanne tient 301/302) : un
+  plafond global aurait donné les 30 places aux deux plus grosses fiches et **tronqué le 2★ de
+  Sion**, c'est-à-dire précisément le fait que le lot 1 a mis quatre mois à découvrir. Ordre total
+  (priorité desc, puis `reviewId`), fiches ordonnées par **identifiant** et non par arriéré
+  (classer par volume redonnerait au plus gros l'avantage que le tour existe pour retirer). La
+  closure reste intégrale : le tour décide qui est **écrit**, il ne ferme rien.
+- **⭐ Le scope vient de la santé de synchro, statut ET fraîcheur.** Indissociables : le
+  collecteur écrit `last_sync_at` **aussi en cas d'échec** (c'est ce qui rend la panne observable),
+  donc la date seule dirait « synchronisée » d'une fiche en panne depuis avril. S'y ajoutent deux
+  gardes par ligne : `last_seen_at IS NULL` (les 88 lignes du backfill) et
+  `last_seen_at < last_sync_at` (disparu chez Google, sans jamais un DELETE).
+- **La garde du format mixte.** `create_time` est en ISO quand tout le reste est au format DB. Le
+  SQL ne pré-filtre que sur une **date nue** (seul préfixe commun aux deux formes) et tout le
+  jugement d'âge passe par `parseReviewCreateTime`. C'est le bug `weekly-report.ts:148` du lot 1,
+  interdit par construction cette fois.
+- **Aucune PII dans les preuves** : ni `author_name`, ni `comment`, ni `draft_reply`.
+  `finding_events.payload_json` est **append-only** — ce qu'on y écrit ne s'efface plus.
+- **Catalogue quotidien**, arête **obligatoire** `collect:gmb_reviews → detect:review_pending`,
+  provider `none`. Cadran : 36 → 45 jobs/jour, toujours **2 ticks** (coût marginal nul).
+
+### Résultat du premier run réel (`barberconcept`, 2026-07-28)
+
+| | Valeur |
+|---|---|
+| Avis lus (fenêtre 365 j) | 1 094 |
+| Franchissent les seuils | **13 SLA + 4 négatifs** |
+| Findings écrits | **17**, tous `open` |
+| Notifiables §14.3 | **3** |
+
+| Fiche | Findings |
+|---|---|
+| Barber Concept - Eaux Vives | 6 |
+| Barber Concept Jonction Genève | 5 |
+| Barber Concept Cornavin | 4 |
+| Barber Concept - Sion | 2 |
+| **Barber Concept Lausanne** | **0** |
+
+**Lausanne à 0 est la contre-épreuve** : la fiche qui répond (301/302) ne produit rien, celles qui
+ont décroché produisent tout. Le **2★ de Sion du 18/07** est `critical`, notifiable, en tête de
+liste. `physiopommier` produit **1 SLA** — l'avis du 15/03 que le lot 1 avait tranché « réellement
+oublié ». `jonlabs` et `bisrepetita` : **0**, tous leurs avis sont répondus.
+
+Second run à l'identique : **0 créé, 17 rafraîchis**, `occurrence_count = 2` partout et toujours
+**17 événements `created`** — l'idempotence tient sur données réelles.
+
+### Vérification
+
+- `review-pending-state.test.ts` — **57 tests**, dont la régression `weekly-report.ts:148` (deux
+  avis du même jour, ISO et format DB, un seuil entre les deux) et l'invariant `closure ⊆ scope`
+  sur 200 lignes générées.
+- `scripts/gmb-002-lot2-detect-proof.ts` — **13 preuves sur Neon** (P1 à P13), **aucune requête
+  réseau** : idempotence, coexistence sans collision d'unicité, **le scope protège**
+  (`consecutive_misses` inchangé sur une fiche en erreur), auto-résolution puis réouverture,
+  **le glissement hors fenêtre ne résout pas**, backfill hors portée, **format mixte**, projet
+  sans fiche, **la troncature n'auto-résout pas**, **tour d'équité**, absence de PII, dry-run,
+  divergence GMB-007. Base rendue à l'identique (3 189 / 13 / 17 / 9).
+- Suite complète : **1 519 tests / 44 fichiers**. `npm run check` : **0 erreur / 42 warnings**
+  (baseline exacte).
+
+### Pièges
+
+- ⚠️ **La preuve doit tourner sur un projet vierge sur TROIS points**, et elle le vérifie avant
+  d'écrire : aucune fiche GMB réelle (leçon du lot 1), **aucun finding d'avis** (car
+  `reconcileDetectionRun` travaille à l'échelle du PROJET et auto-résoudrait un finding de
+  production), **aucun finding en veille** (car `expireSnoozes({ projectId })` réveille tous les
+  types).
+- ⚠️ **`outOfWindow` vaut structurellement 0** : la borne SQL est le maximum des deux fenêtres,
+  donc un avis hors des deux n'est pas « lu puis écarté », il n'est **pas lu**. Le CLI dit
+  explicitement depuis quelle date il lit — sur `barberconcept`, ~1 700 avis restent hors lecture,
+  visibles à l'écran et jamais une alerte.
+- ⚠️ **La sévérité SLA est uniformément `high` sur l'arriéré actuel** (`overdueBy >= slaDays × 4`
+  = 12 jours, or tout l'arriéré a des mois). C'est honnête — ils **sont** tous très en retard — et
+  c'est le `priorityScore` qui discrimine (70 / 59 / 58 / 53). En régime permanent, une fois
+  l'arriéré résorbé, les trois paliers `low`/`medium`/`high` reprendront du sens.
+- ⚠️ **`res.reviews` est trié par priorité, tous types confondus.** Concaténer « les SLA puis les
+  négatifs » faisait passer le 2★ de Sion derrière douze 5★ oubliés : le lecteur voyait d'abord le
+  lot le plus nombreux, jamais le plus grave.
+- ⚠️ **Le premier tick d'un projet repris écrit désormais un détecteur de plus.** Le repère du
+  HANDOFF (4 détecteurs hebdo × 50) s'augmente du quotidien : `barberconcept` a déjà ses 17.
+- ⚠️ **`DETECTOR_JOB_TYPES` est dérivé du catalogue** (`home.ts`) : les 9 projets voient leur
+  `expectedCount` monter d'une unité et leur couverture passer de `full` à `partial` tant que le
+  job n'a pas tourné. **Attendu**, pas une régression.
+
+### Reste à faire (hors périmètre de ce lot)
+
+1. **Le rattrapage Barber Concept** — liste exportable des non-répondus 2025-2026 par fiche
+   (Eaux Vives et Jonction d'abord). Décidé avec Jonathan : session suivante.
+2. **Arbitrer la fenêtre d'affichage** de `/projects/[slug]/reviews` et `/api/reviews/pending`
+   (499 entrées). ⚠️ À ne pas confondre avec `slaLookbackDays` : borner l'écran cache un fait
+   vérifié contre l'API Google, borner le détecteur choisit ce qu'on **alerte**.
+3. **TEL-002** — `notifyImmediately` est écrit et interrogeable ; **aucun canal n'est câblé**.
+4. **GMB-003 à GMB-008** — projection de contexte, brouillons, quality gate, policy d'envoi,
+   divergence hub↔Google (comptée ici, jamais un finding).
+
+---
 
 ## Etat session 2026-07-28 (lot 1 — LIVRÉ)
 

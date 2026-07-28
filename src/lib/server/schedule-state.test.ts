@@ -371,12 +371,33 @@ describe('SCHEDULE_CATALOG', () => {
 		]);
 		// IDX-004 lot 2 — la passe quotidienne des échéances rejoint le quotidien.
 		// GMB-002 — la synchronisation des avis aussi, et cesse d'être un cron autonome.
+		// GMB-002 lot 2 — son détecteur la suit, en quotidien lui aussi : un avis négatif
+		// découvert six jours après coup est le défaut que ce lot ferme.
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual([
 			'findings:lifecycle',
 			'collect:url_inspection',
 			'collect:gmb_reviews',
-			'detect:index_transition'
+			'detect:index_transition',
+			'detect:review_pending'
 		]);
+	});
+
+	it('GMB-002 lot 2 — la détection d’avis dépend OBLIGATOIREMENT de sa collecte', () => {
+		const collect = catalogFor('daily').find((e) => e.jobType === 'collect:gmb_reviews')!;
+		const detector = catalogFor('daily').find((e) => e.jobType === 'detect:review_pending')!;
+
+		// `required` absent ⇒ true. Le mode de défaillance est asymétrique : une collecte qui
+		// meurt AVANT d'écrire laisse `last_sync_at` à hier, donc encore frais à 48 h — le
+		// détecteur se croirait autoritaire et ne verrait pas l'avis arrivé aujourd'hui.
+		expect(detector.dependsOn).toEqual([{ jobType: 'collect:gmb_reviews' }]);
+		expect(detector.dependsOn?.[0].required).toBeUndefined();
+		// L'ordre de service accompagne l'ordre de dépendance.
+		expect(detector.priority).toBeLessThan(collect.priority);
+		// Et le prérequis est déclaré STRICTEMENT avant (exigence de `validateCatalogGraph`).
+		const types = catalogFor('daily').map((e) => e.jobType);
+		expect(types.indexOf('collect:gmb_reviews')).toBeLessThan(
+			types.indexOf('detect:review_pending')
+		);
 	});
 
 	it('GMB-002 — la synchro des avis est QUOTIDIENNE, sans prérequis, et l’horaire reste vide', () => {

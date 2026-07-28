@@ -109,6 +109,12 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// avec la cohorte au premier 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est
 	// déjà acquis.
 	'detect:index_transition': 'none',
+	// GMB-002 lot 2 — le détecteur d'avis relit `gmb_reviews` et `project_gmb_locations`, déjà
+	// payées par `collect:gmb_reviews`. Le classer `gmb` le mettrait au repos avec la cohorte au
+	// premier 429 de l'API Business Profile, alors qu'il n'appelle personne. Il n'entre pas non
+	// plus dans `reservedTypes` : la réserve protège la COLLECTE qui coûte du quota, pas la
+	// relecture de ce qu'elle a écrit.
+	'detect:review_pending': 'none',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',
 	noop: 'none',

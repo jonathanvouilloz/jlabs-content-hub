@@ -1300,9 +1300,9 @@ Acceptation :
 - un compte lecture seule reste utilisable pour le monitoring ;
 - les erreurs auth sont isolées.
 
-## GMB-002 — Synchronisation horaire idempotente
+## GMB-002 — Synchronisation ~~horaire~~ quotidienne idempotente
 
-**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** GMB-001, JOB-005
+**Priorité :** P0 · **Taille :** L · **État :** DONE (lot 1 le 2026-07-28, `cd19511` · lot 2 le 2026-07-28, cf. `docs/features/gmb-002-reviews.md`) · **Dépendances :** GMB-001, JOB-005
 
 Travail :
 
@@ -1316,6 +1316,19 @@ Acceptation :
 - deux syncs ne créent pas deux avis ;
 - une réponse faite manuellement chez Google est importée ;
 - un avis modifié invalide le brouillon associé.
+
+> **Cadence : quotidienne, pas horaire.** Décision assumée et tracée dans `DECISIONS.md` — le
+> parc mesuré (~1 nouvel avis/jour) ne justifie pas 24 réveils sur un compte Google unique. Elle
+> CASSE le SLO §17.3 (2 h) par construction : y revenir demande de déplacer l'entrée de catalogue
+> **et son détecteur**, sans quoi celui-ci jugerait 24 fois par jour un état qui bouge une fois.
+
+> **Lot 2 — `detect:review_pending`** (au-delà de l'acceptation ci-dessus). La collecte ne
+> produisait aucun **finding** : un 2★ sans réponse restait un fait interrogeable, invisible de
+> `/inbox` et du rapport hebdo. Le détecteur produit `review_pending_sla` et `negative_review`
+> (§10.4), tous deux déjà au vocabulaire ⇒ **zéro DDL**. Mesure au premier run réel sur
+> `barberconcept` : **17 findings** (13 SLA + 4 négatifs, dont 3 notifiables §14.3), répartis
+> Eaux Vives 6 · Jonction 5 · Cornavin 4 · Sion 2 · **Lausanne 0** — la contre-épreuve d'une fiche
+> tenue. Le 2★ de Sion du 18/07 est `critical` et notifiable.
 
 ## GMB-003 — Projection de contexte pour réponses
 
