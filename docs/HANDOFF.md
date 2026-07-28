@@ -3,10 +3,12 @@
 ## Features actives
 | Feature | Fichier | Statut |
 |---------|---------|--------|
-| **Avis GMB (E08) — GMB-002** | [features/gmb-002-reviews.md](features/gmb-002-reviews.md) | **CLOS — lots 1 et 2 LIVRÉS** |
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
 | Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 5/5** |
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
+
+> Clôturé le 2026-07-28 : **Avis GMB (E08/GMB-002)**, lots 1 et 2 — recap dans
+> [features/gmb-002-reviews.md](features/gmb-002-reviews.md). **E08 reste à 1 ticket sur 8.**
 
 ## Reprendre ici
 

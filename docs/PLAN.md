@@ -459,6 +459,45 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   l'observation du premier tick. ⚠️ Le DDL est **déjà en base** (61 tables) — le merge ne touche
   pas au schéma, il **supprime** le risque `db:push`.
   Détail → [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md).
+- **GMB-002 — les avis, de la synchro fiable au signal décidable** (2026-07-28) · **DONE**, ticket
+  **CLÔTURÉ** (3 acceptations sur 3), deux lots `cd19511` et `40936f0` (+ `b8b78fd`, la
+  vérification du chiffre). **Premier ticket livré d'E08, qui en compte 8 et en affichait 0.**
+  ⭐ **Lot 1 : `replied_at` (local) et `remote_reply_at` (distant) ne fusionnent jamais.** Une
+  colonne unique répond « répondu » aux deux questions, donc ne peut **jamais se contredire**,
+  donc ne peut jamais révéler une divergence — et c'est exactement ce qu'il fallait voir : le
+  filtre `!reply && <30 j` annonçait **11** avis en attente là où il y en a **502**.
+  `pendingReviewFilter()` devient LA définition, là où **onze** endroits l'écrivaient à la main.
+  La réconciliation ne coûte **aucun appel Google de plus** (la pagination était déjà totale) : le
+  vrai verrou était `onConflictDoNothing`. **382 → 3 189 avis**, 9 fiches avec une santé de
+  synchro. Le chiffre de 502 est ensuite **vérifié contre l'API Google**, fiche par fiche
+  (301/301, 320/320, 351/351) — aucun écart. L'arriéré est réel et **à deux vitesses** : Lausanne
+  1 non répondu sur 302, mais Eaux Vives 190/541 et Jonction 179/499.
+  ⭐ **Lot 2 : les deux types de findings COEXISTENT sur un même avis.** §10.4 leur donne deux
+  gestes — SLA → skill `gmb-review-responder`, négatif → escalade **humaine** et aucun skill —
+  et l'absorption serait asymétrique dans le temps : « avis négatif EN RETARD » deviendrait
+  indiscernable de « avis négatif frais ». Corollaire porteur : `negative_review` vise un avis
+  1–3★ **non traité**, sinon rien ne pourrait jamais le résoudre. **Zéro DDL** (les deux types
+  étaient déjà au vocabulaire).
+  ⭐ **Le glissement de fenêtre ne peut PAS auto-résoudre** : la borne des 180 j vit dans la
+  closure **et** dans le scope. Sans cette symétrie, « auto-résolu : le signal ne franchit plus
+  les seuils » s'écrirait sur **332 avis toujours sans réponse**.
+  ⭐ **Le plafond d'écriture se répartit par FICHE** (tour d'équité) — une première dans le parc.
+  L'arriéré est concentré : un plafond global aurait donné les 30 places aux deux plus grosses
+  fiches et **tronqué le 2★ de Sion**, c'est-à-dire précisément le fait que le lot 1 a mis quatre
+  mois à découvrir. La closure reste intégrale — le tour décide qui est **écrit**, il ne ferme rien.
+  ⭐ **Le scope exige le statut ET la fraîcheur** de synchro, indissociables : le collecteur écrit
+  `last_sync_at` **aussi en cas d'échec** (c'est ce qui rend la panne observable), donc la date
+  seule dirait « synchronisée » d'une fiche en panne depuis avril.
+  Premier run réel : **17 findings sur `barberconcept`** (13 SLA + 4 négatifs, 3 notifiables
+  §14.3) — Eaux Vives 6 · Jonction 5 · Cornavin 4 · Sion 2 · **Lausanne 0**, la contre-épreuve.
+  ⚠️ **L'auth provider ne doit pas passer par `$env`** : un handler qui importe `gmb.ts` marche
+  sur Vercel et **meurt en dead-letter** sous un worker local.
+  ⚠️ **La cadence quotidienne casse le SLO §17.3 (2 h)**, délibérément. Y revenir demande de
+  déplacer l'entrée de catalogue **et son détecteur**.
+  ⚠️ **Une preuve doit tourner sur un projet vierge sur TROIS points** — appris en polluant six
+  fiches de production au lot 1 (restaurées).
+  ⚠️ **E08 reste à 1 ticket sur 8** : GMB-003 à GMB-008 sont intouchés.
+  Détail → [features/gmb-002-reviews.md](features/gmb-002-reviews.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
 

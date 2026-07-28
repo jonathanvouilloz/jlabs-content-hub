@@ -3,6 +3,137 @@
 > Epic E08 (Google Business Profile et avis) · SPEC §9.6, §10.4, §14.3, §17.3 · BACKLOG GMB-002.
 > Premier ticket livré d'un epic qui en compte 8 et en affichait 0. **Lot 1 + lot 2 livrés.**
 
+## Recap epic — GMB-002 : les avis, de la synchro fiable au signal décidable (2026-07-28) · CLÔTURÉ
+
+**Objectif** — Faire descendre les avis Google de façon fiable et observable, puis transformer
+« cet avis n'a pas de réponse » en un **fait décidable** dans l'inbox du cockpit. E08 comptait
+8 tickets et en affichait **0** livré ; GMB-002 était le seul dont les acceptations étaient
+atteignables sans les autres.
+
+**Livré**
+
+- **Lot 1 — la collecte** (`cd19511`) : `collect:gmb_reviews` entre dans la file (catalogue
+  quotidien, provider `gmb`), réconcilie l'état distant, et chaque fiche porte sa santé de
+  synchro. `/api/cron/gmb-reviews` retiré de `vercel.json`, conservé pour rattrapage manuel.
+- **Vérification du chiffre** (`b8b78fd`) : les 502 avis en attente sont contrôlés **contre l'API
+  Google**, fiche par fiche (301/301, 320/320, 351/351) — aucun écart, aucun champ de réponse
+  manqué.
+- **Lot 2 — la détection** (`40936f0`) : `detect:review_pending` produit `review_pending_sla` et
+  `negative_review`, au catalogue quotidien avec une arête obligatoire depuis la collecte.
+- **Un seul DDL sur tout l'epic** (`drizzle/manual-gmb-002.sql`, lot 1) : les colonnes distantes
+  de `gmb_reviews` et la santé de `project_gmb_locations`. Le lot 2 n'en a demandé **aucun**.
+
+**Décisions techniques** (reportées dans `docs/DECISIONS.md`)
+
+- **`replied_at` (local) et `remote_reply_at` (distant) ne fusionnent jamais** : une colonne
+  unique répond « répondu » aux deux questions, donc ne peut jamais se contredire, donc ne peut
+  jamais révéler une divergence. `pendingReviewFilter()` devient LA définition de « en attente »
+  — 11 copies manuscrites avant. Alternative écartée : une colonne unique enrichie d'un
+  `reply_source` (ne révèle toujours pas le désaccord).
+- **La collecte est quotidienne, pas horaire** : casse le SLO §17.3 (2 h) par construction, et
+  c'est assumé — ~1 nouvel avis/jour ne justifie pas 24 réveils sur un compte Google unique.
+  Alternative écartée : horaire conforme à la SPEC (24× le quota pour la même donnée).
+- **Les deux types de findings COEXISTENT sur un même avis** : §10.4 leur donne deux gestes (SLA
+  → skill `gmb-review-responder` ; négatif → escalade **humaine**, aucun skill). Alternative
+  écartée : absorption du SLA par le négatif (rendrait « avis négatif en retard » indiscernable
+  de « avis négatif frais »).
+- **La fenêtre des 180 jours vit dans la closure ET dans le scope** : sans cette symétrie, un
+  avis franchissant J+180 sortirait de la closure en restant dans la portée, et serait
+  auto-résolu au bout de deux runs — sur 332 avis toujours sans réponse. Alternative écartée :
+  fenêtre dans la closure seule (le cas nominal marche, le cas limite ment).
+- **Le plafond d'écriture se répartit par fiche (tour d'équité)** — une première dans le parc.
+  Alternative écartée : plafond global (les 30 places seraient parties à Eaux Vives et Jonction,
+  tronquant le 2★ de Sion).
+- **Le scope exige `last_sync_status = 'success'` ET la fraîcheur** : le collecteur écrit
+  `last_sync_at` **aussi en cas d'échec** (c'est ce qui rend la panne observable), donc la date
+  seule dirait « synchronisée » d'une fiche en panne depuis avril.
+- **L'auth provider vit dans `gmb-auth.ts` (`process.env`), jamais derrière `$env`** : un handler
+  qui importe `gmb.ts` marche sur Vercel et **meurt en dead-letter** sous un worker local.
+
+**Problèmes rencontrés**
+
+- **Le filtre `!reply && <30 j` mentait par omission** : 11 avis « en attente » annoncés contre
+  **502** réels. La réconciliation ne coûte aucun appel Google de plus (la pagination était déjà
+  totale) — le vrai verrou était `onConflictDoNothing`, passé en `onConflictDoUpdate` sur une
+  **liste de colonnes écrite en dur** (les colonnes locales ne sont jamais touchées).
+- **`review_id` arrivait en chemin complet** : sans normalisation, la première collecte
+  réconciliante aurait inséré **382 doublons**. Vérifié avant écriture : 382 lignes → 382 clés
+  distinctes, 0 collision.
+- **`weekly-report.ts:148` comparait un ISO à une borne au format DB** : à l'index 10, `'T'`
+  (0x54) > `' '` (0x20), donc tout avis du même jour comptait comme « reçu ». Corrigé au lot 1,
+  puis rendu **impossible par construction** au lot 2 (pré-filtre SQL sur date nue,
+  `parseReviewCreateTime` pour tout le reste).
+- **`markReviewAsReplied` et `/reviews/drafts` écrivaient sans filtre `project_id`** — l'unique
+  sur `review_id` étant global, un identifiant fourni par l'appelant pouvait toucher l'avis d'un
+  autre client.
+- **La preuve du lot 1 a pollué six fiches de production** (`last_sync_at` de 2018 sur
+  `barberconcept`, la colonne même qui sert de `scope` au lot 2). Restaurées ; les deux preuves
+  vérifient désormais elles-mêmes que le projet porteur est vierge — sur **trois** points au
+  lot 2, parce que `reconcileDetectionRun` et `expireSnoozes` travaillent à l'échelle du projet.
+
+**Fichiers**
+
+### Créés
+- `src/lib/server/collectors/gmb-reviews-state.ts` — jugement pur de la collecte (`GmbApiError`,
+  normalisation, diff)
+- `src/lib/server/collectors/gmb-reviews.ts` — le collecteur (seul à toucher la base)
+- `src/lib/server/gmb-auth.ts` — jetons Google via `process.env`, source unique des 3 appelants
+- `src/lib/server/reviews/pending-filter.ts` — LA définition de « en attente », et la seule
+- `src/lib/server/detectors/review-pending-state.ts` — jugement pur du détecteur
+- `src/lib/server/detectors/review-pending.ts` — le détecteur (seul à toucher la base)
+- `drizzle/manual-gmb-002.sql` + `scripts/apply-gmb-002.ts` — le DDL de l'epic, idempotent
+- `scripts/collect-reviews.ts` · `scripts/detect-reviews.ts` — runners CLI
+- `scripts/gmb-002-reviews-proof.ts` (31 vérifs) · `scripts/gmb-002-lot2-detect-proof.ts` (13)
+- Tests : `gmb-reviews-state.test.ts` (40) · `review-pending-state.test.ts` (57)
+
+### Modifiés
+- `src/lib/server/db/schema.ts` — colonnes distantes de `gmb_reviews`, santé de
+  `project_gmb_locations`
+- `src/lib/server/job-runner.ts` · `job-limits.ts` · `schedule-state.ts` · `home-state.ts` —
+  câblage des deux jobs (catalogue quotidien, arête obligatoire, provider)
+- `src/lib/server/weekly-report.ts` · `home.ts` · 9 routes API/pages — passage à
+  `pendingReviewFilter()`
+- `vercel.json` — `gmb-reviews` retiré des crons (5 → 4)
+- `src/routes/api/cron/gmb-reviews/+server.ts` — conservé, plus planifié
+
+**Vérifications**
+
+| Test | Résultat |
+|---|---|
+| `gmb-reviews-state.test.ts` (lot 1) | **40 passés** |
+| `review-pending-state.test.ts` (lot 2) | **57 passés** |
+| `scripts/gmb-002-reviews-proof.ts` (Neon, sans réseau) | **31 vérifs passées**, base rendue à l'identique |
+| `scripts/gmb-002-lot2-detect-proof.ts` (Neon, P1→P13) | **toutes passées**, base rendue à l'identique (3 189 / 13 / 17 / 9) |
+| Suite complète `npm test` | **1 519 passés / 44 fichiers** |
+| `npm run check` | **0 erreur / 42 warnings** (baseline exacte) |
+| Collecte réelle | 382 → **3 189 avis**, 3 100 écrits en 41 s, idempotence rejouée sur `physiopommier` (14 vus, 14 inchangés) |
+| Détection réelle (`barberconcept`) | **17 findings** (13 SLA + 4 négatifs, 3 notifiables) ; second run **0 créé / 17 rafraîchis** |
+
+Aucune vérification en échec.
+
+**Dettes assumées**
+
+- **Le SLO §17.3 (2 h) est cassé par construction** par la cadence quotidienne. À revisiter si le
+  volume d'avis augmente — il faudra alors déplacer l'entrée de catalogue **et son détecteur**.
+- **Les lignes antérieures à GMB-002 ne sont pas réécrites** : `/reviews/backfill` avait écrit la
+  réponse de Google dans `draft_reply` et son `replyTime` dans `replied_at`. Deviner « qui a
+  répondu à ce client » serait exactement la supposition que ce canon refuse. Conséquence : la
+  divergence GMB-007 n'est fiable que pour les lignes écrites après le lot.
+- **~1 700 avis de `barberconcept` ne sont pas lus** (borne des 365 j) et **`outOfWindow` vaut
+  donc structurellement 0**. C'est voulu — ils restent visibles à l'écran, jamais une alerte —
+  mais le compteur ne doit pas se lire « rien n'est hors fenêtre ».
+- **La sévérité SLA est uniformément `high`** tant que l'arriéré est ancien (`overdueBy >=
+  slaDays × 4` = 12 j). Honnête aujourd'hui ; les trois paliers reprendront du sens une fois
+  l'arriéré résorbé.
+- **`notifyImmediately` est écrit et interrogeable, aucun canal n'est câblé** (TEL-002 BLOCKED).
+- **E08 reste à 1 ticket sur 8** : GMB-003 à GMB-008 (projection de contexte, brouillons, quality
+  gate, policy d'envoi, divergence) sont intouchés.
+- **La fenêtre d'affichage de `/projects/[slug]/reviews` (499 entrées) n'est pas arbitrée**, et le
+  rattrapage exportable de Barber Concept reste à sortir — décidé avec Jonathan : session
+  suivante.
+
+---
+
 ## Etat session 2026-07-28 (lot 2 — LIVRÉ, GMB-002 est CLOS)
 
 **Fait :** `detect:review_pending` produit `review_pending_sla` et `negative_review`. Un avis
