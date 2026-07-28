@@ -18,16 +18,26 @@ distant et chaque fiche porte sa santé. Chiffres après la première collecte r
 (brouillon de mars jamais envoyé). Le **2★ de Sion du 18/07** est confirmé sans réponse.
 Détail, pièges et mesures → `docs/features/gmb-002-reviews.md`.
 
-**Prochaine étape E08 : le lot 2** — `detect:review_pending` produisant `review_pending_sla`
-et `negative_review`. Sans lui, le 2★ reste un fait interrogeable mais n'entre ni dans
-`/inbox` ni au rapport hebdo. ⚠️ Dimensionner sur **502**, pas 11 : `slaLookbackDays: 180`
-est ce qui empêche 499 findings sur `barberconcept` (332 des avis en attente datent d'avant
-2025). Les deux types sont **déjà** dans `FINDING_TYPES`, `'review'` dans
-`FINDING_ENTITY_TYPES` : aucun DDL de vocabulaire.
+✅ **Le chiffre de 502 a été VÉRIFIÉ contre l'API Google**, pas contre notre base : sur trois
+fiches rappelées à l'état brut, Google et la base donnent le même nombre de réponses au
+chiffre près (301/301, 320/320, 351/351). Aucun bug de réconciliation, aucun champ de réponse
+manqué. **L'arriéré est réel et à deux vitesses** : Lausanne 1 non répondu sur 302, mais
+**Eaux Vives 190/541 et Jonction 179/499** — et le trou est RÉCENT (Eaux Vives : 98 avis non
+répondus sur la seule année 2025). Deux fiches sur six portent 74 % de l'arriéré.
 
-⚠️ **`/projects/barberconcept/reviews` affiche maintenant ~499 avis en attente.** C'est la
-vérité (le filtre de 30 jours mentait par omission), mais c'est brutal, et
-`/api/reviews/pending` en renvoie autant au skill `gmb-review-responder`. À arbitrer.
+**Prochaine étape E08 : le lot 2** — `detect:review_pending` produisant `review_pending_sla`
+et `negative_review`. Sans lui, le 2★ de Sion reste un fait interrogeable mais n'entre ni dans
+`/inbox` ni au rapport hebdo. Les deux types sont **déjà** dans `FINDING_TYPES`, `'review'`
+dans `FINDING_ENTITY_TYPES` : aucun DDL de vocabulaire.
+⚠️ Dimensionner sur **502**, pas 11 : `slaLookbackDays: 180` cadre les findings sur ~40 avis
+récents actionnables et laisse les 332 d'avant 2025 en stock visible.
+⚠️ **Le signal doit être lisible PAR FICHE.** Un finding agrégé au projet dirait
+« barberconcept a 499 avis en retard » et noierait le fait utile — deux établissements
+concentrent l'arriéré pendant qu'un troisième tient 301/302.
+
+**Aussi en attente (décidé avec Jonathan, session suivante)** : sortir la liste exportable des
+non-répondus 2025-2026 par fiche pour que Barber Concept rattrape · arbitrer une fenêtre
+d'affichage sur `/projects/[slug]/reviews` et `/api/reviews/pending` (499 entrées aujourd'hui).
 ⚠️ **Une preuve ne doit JAMAIS poser sa sentinelle sous un projet qui a de vraies fiches** :
 le collecteur parcourt tous les établissements de son projet. Appris en polluant six fiches
 `barberconcept` (restaurées). La preuve le vérifie désormais elle-même.

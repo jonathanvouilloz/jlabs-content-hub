@@ -61,6 +61,41 @@ l'état distant. Le lot 2 (findings `review_pending_sla` / `negative_review`) re
   plus, ce sont des lignes héritées du `backfill`, pas des divergences hub↔Google. La garde
   « jamais vu ⇒ hors scope » du lot 2 est donc validée empiriquement.
 
+### Vérification du chiffre de 502 — contre l'API Google, pas contre la base
+
+Le passage de 11 à 502 avis « en attente » était assez brutal pour qu'on se demande si la
+réconciliation ne fabriquait pas l'arriéré (l'intuition de Jonathan : « Barber Concept a
+toujours tout répondu »). Contrôlé en rappelant `reviews.list` **à l'état brut**, sans passer
+par le collecteur, sur trois fiches :
+
+| Fiche | Avis (Google) | Avec `reviewReply` | Base : `remote_reply_at` | Accord |
+|---|---|---|---|---|
+| Lausanne | 302 | 301 | 301 | ✅ |
+| Jonction Genève | 499 | 320 | 320 | ✅ |
+| Eaux Vives | 541 | 351 | 351 | ✅ |
+
+**Aucun écart.** Vérifié aussi qu'aucun champ de réponse n'échappait à la normalisation : les
+six formes de clés rencontrées montrent que Google envoie `reviewReplyUrl` sur **tous** les
+avis (c'est le lien pour répondre, pas une réponse) et `reviewReply` uniquement quand une
+réponse existe. Aucune variante cachée.
+
+**L'arriéré est donc réel, et il est à deux vitesses** — ce n'est pas de la longue traîne
+de 2017 :
+
+| Fiche | Total | Sans réponse |
+|---|---|---|
+| Lausanne | 302 | **1** |
+| Sion | 633 | 28 |
+| Rive | 604 | 38 |
+| Cornavin | 518 | 63 |
+| Jonction Genève | 499 | **179** |
+| Eaux Vives | 541 | **190** |
+
+Non répondus **récents** (le trou n'est pas historique) : Eaux Vives 33 en 2024, **98 en
+2025**, 5 en 2026 · Jonction 9 / 14 / 8. Lausanne à 1/338 est la contre-épreuve : quand une
+fiche est tenue, ça se voit. Échantillons réels non répondus à Eaux Vives, dont un 3★ :
+« Je suis arrivé avec 10 minutes de retard à cause des bus après l'école… ».
+
 ### Défauts trouvés au passage, corrigés
 
 1. **`weekly-report.ts:148`** comparait `create_time` (ISO, `…T10:52:48Z`) à une borne au
@@ -99,8 +134,9 @@ l'état distant. Le lot 2 (findings `review_pending_sla` / `negative_review`) re
   remises à NULL, et le nettoyage vérifie maintenant qu'aucune fiche ne porte de date
   sentinelle.
 - ⚠️ **`/projects/barberconcept/reviews` affiche désormais ~499 avis en attente**, dont 332
-  d'avant 2025. C'est la vérité (le filtre de 30 jours mentait par omission), mais c'est
-  brutal à l'écran, et `/api/reviews/pending` renvoie autant au skill `gmb-review-responder`.
+  d'avant 2025. C'est la vérité — **vérifiée contre l'API Google, chiffre pour chiffre** (voir
+  section ci-dessus) — mais c'est brutal à l'écran, et `/api/reviews/pending` renvoie autant
+  au skill `gmb-review-responder`. Une fenêtre d'affichage reste à arbitrer.
 - ⚠️ **`daily` passe de 27 à 36 jobs/jour** (4 entrées × 9 projets) pour
   `MAX_JOBS_PER_TICK = 25` : l'occurrence ne se draine plus en un tick. Acceptable (tour
   d'équité + `available_at`), mais **5 projets sur 9 n'ont aucune fiche** et leur job réussit
@@ -121,4 +157,23 @@ sont **déjà** dans `FINDING_TYPES`, et `'review'` dans `FINDING_ENTITY_TYPES`)
 `barberconcept` — répartition mesurée : 332 avant 2025, 140 en 2025, 20 en 2026 avant juillet,
 10 en juillet.
 
-**Commit :** voir `git log --grep GMB-002`
+⚠️ **Le lot 2 doit produire un signal PAR FICHE, pas seulement par projet.** C'est le
+constat le plus actionnable de la vérification : un `review_pending_sla` agrégé au projet
+dirait « barberconcept a 499 avis en retard » et noierait le fait utile — **deux
+établissements sur six portent 74 % de l'arriéré**, et l'un d'eux (Eaux Vives) a laissé
+passer 98 avis sur la seule année 2025 pendant que Lausanne tenait 301/302. `entity_type`
+vaut `review` (donc le finding est déjà par avis), mais le regroupement de lecture et le
+titre doivent nommer l'établissement.
+
+### Reste à faire (session suivante)
+
+1. **Lot 2** — `detect:review_pending` (`review_pending_sla` + `negative_review`), cadré sur
+   `slaLookbackDays: 180` : ~40 avis récents actionnables, les 332 d'avant 2025 restant un
+   stock visible non transformé en alertes.
+2. **Le rattrapage Barber Concept** — sortir la liste exportable des non-répondus 2025-2026
+   par fiche (Eaux Vives et Jonction d'abord), pour que le client rattrape. Décidé avec
+   Jonathan : traité à la session suivante, pas dans ce lot.
+3. **Arbitrer la fenêtre d'affichage** de `/projects/[slug]/reviews` et de
+   `/api/reviews/pending` (499 entrées aujourd'hui).
+
+**Commit :** `cd19511` (lot 1) · vérification et cadrage : commit suivant
