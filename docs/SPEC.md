@@ -4,7 +4,7 @@
 > **Date :** 2026-07-21  
 > **Statut :** base de refactor validée, prête à être découpée en epics  
 > **Produit cible :** `seo-stats`  
-> **Repo canonique :** `C:\Users\jojo-\Desktop\noyau\seo-stats`  
+> **Repo canonique :** `C:\Users\jojo-\noyau\seo-stats`  
 > **Backlog d'exécution :** `docs/BACKLOG.md`  
 > **Remplace fonctionnellement :** le pivot jokiSEO incomplet du Content Hub  
 > **Objectif final :** déléguer 90 % des opérations récurrentes à des agents IA, avec validation humaine des décisions sensibles.
@@ -1535,7 +1535,7 @@ Une release monitoring ne passe que si :
 
 ## 21. Décisions validées
 
-1. `seo-stats` est le nom du produit et `C:\Users\jojo-\Desktop\noyau\seo-stats` est le repo canonique.
+1. `seo-stats` est le nom du produit et `C:\Users\jojo-\noyau\seo-stats` est le repo canonique.
 2. PostgreSQL est la base opérationnelle portable.
 3. Neon est stabilisé et peut rester la base managée lorsque l'application passe sur le VPS ; aucune dépendance Neon propriétaire n'est admise.
 4. Le moteur de jobs est durable et séparé des requêtes web.

@@ -4,7 +4,7 @@
 > **Date :** 2026-07-21  
 > **Statut :** backlog de référence prêt à exécuter  
 > **SPEC source :** `docs/SPEC.md` v0.2  
-> **Produit et repo canonique :** `C:\Users\jojo-\Desktop\noyau\seo-stats`  
+> **Produit et repo canonique :** `C:\Users\jojo-\noyau\seo-stats`  
 > **Capacité cible :** 5 projets au lancement, 10 à 15 projets sans refonte  
 > **Objectif :** déléguer 90 % du monitoring récurrent à des agents, avec validation humaine des actions sensibles.
 
@@ -144,7 +144,7 @@ E04 Indexation, E08 Avis, E09 Telegram et E10 Plausible avancent en parallèle d
 
 Travail :
 
-- déclarer `C:\Users\jojo-\Desktop\noyau\seo-stats` comme seul repo applicatif actif ;
+- déclarer `C:\Users\jojo-\noyau\seo-stats` comme seul repo applicatif actif ;
 - marquer `jlabs-content-hub` comme legacy en lecture seule ;
 - documenter les branches, remotes et la stratégie de migration des changements locaux ;
 - ajouter un avertissement dans la documentation legacy.
