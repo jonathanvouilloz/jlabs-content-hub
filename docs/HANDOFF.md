@@ -1,4 +1,4 @@
-# HANDOFF — 2026-07-28
+# HANDOFF — 2026-07-30
 
 ## Features actives
 | Feature | Fichier | Statut |
@@ -11,6 +11,38 @@
 > [features/gmb-002-reviews.md](features/gmb-002-reviews.md). **E08 reste à 1 ticket sur 8.**
 
 ## Reprendre ici
+
+🆕 **2026-07-30 — la dérive de publication est arrêtée à la source, et `main` est en prod.**
+`origin/main` = **`d222c39`** (8 commits poussés), `/api/whoami` répond
+`{"env":"production","version":"d222c39","project_count":9}`. Le déploiement retire
+**`/api/cron/gmb-reviews`** de `vercel.json` (**4 crons** désormais : `tick`, `gmb-publish`,
+`linkedin-publish`, `gmb-weekly-digest`) — l'ancien collecteur qui réinsérait des lignes en
+ancien format ne tourne plus, et le ciblage GMB par établissement (`ffba18e`) est actif.
+
+✅ **`gmb_reviews` est dédupliquée et normalisée** (`scripts/dedupe-gmb-reviews.ts`, dry-run par
+défaut). 28 lignes en ancien format sur `barberconcept` : **9 supprimées** (jumelles dominées sur
+les 13 colonnes de contenu), **19 normalisées** (§4 de `manual-gmb-002.sql`, mot pour mot, même
+transaction). Reste **3 208 avis, 0 en ancien format** ; second run : 0 à faire. Le compte d'avis
+en attente passe de 527 à **518** — 527 comptait 9 doublons deux fois. `physiopommier` : 3.
+⚠️ **La règle de suppression est la DOMINATION, pas l'ancienneté** : une ligne en ancien format
+n'est supprimée que si sa jumelle porte la même valeur ou davantage sur chaque colonne de contenu.
+Une ligne qui porte quoi que ce soit d'unique (`draft_reply` rédigé, `mentioned_employees`,
+réponse distante lue) est **retenue** et le script **refuse d'écrire** tant qu'il en reste une.
+⚠️ **`last_seen_at` est hors comparaison** : elle dit quand la ligne a été vue, pas ce qu'elle
+porte, et vaut NULL sur toutes les lignes de l'ancien collecteur par construction.
+⚠️ **Vérifié avant suppression : 0 finding ne pointait une ligne en ancien format** — les 17
+findings d'avis portent déjà la clé normalisée (`findings.entity_key`, pas `entity_id`).
+⚠️ **88 « divergents » subsistent** (`replied_at NOT NULL AND remote_reply_at IS NULL`) : c'est
+la contamination connue de `reviews/backfill`, pas une régression — elle n'est pas réparée
+rétroactivement, à dessein.
+
+**Prochaine étape inchangée : observer le premier tick en prod** (étape 5/5), puis reprendre
+`lecureux` en canary. À surveiller en plus au lendemain : `collect:gmb_reviews` passe désormais
+**uniquement** par la file (catalogue quotidien, 07:00 `Europe/Zurich`) — `max(created_at)` de
+`gmb_reviews` doit bouger pour `physiopommier` et `bisrepetita`, et **aucune** nouvelle ligne ne
+doit réapparaître avec un `review_id` contenant un `/`.
+
+---
 
 🆕 **2026-07-28 — E08 lot 2 (GMB-002) est LIVRÉ, et GMB-002 est CLOS.** `detect:review_pending`
 produit `review_pending_sla` et `negative_review` : un avis sans réponse cesse d'être un fait
@@ -111,4 +143,4 @@ rapport interne cross-projet.
 ⚠️ **Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé au lot REP-004 lot 2
 (wrapper `weekly-report`, défaut de vault corrigé) — non commité ici.
 
-Commit : `7a8e04b` (= `main` = prod) · précédent `803256d` (garde-fou de mise en prod)
+Commit : `d222c39` (= `main` = `origin/main` = prod) · précédent `ffba18e` (ciblage GMB)
