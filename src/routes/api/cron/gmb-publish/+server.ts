@@ -4,6 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory, publishLogs } from '$lib/server/db/schema.js';
 import { eq, and, lte, gte } from 'drizzle-orm';
 import { resolveTargetLocations, publishToLocations, buildGmbPostIdMap } from '$lib/server/gmb.js';
+import { describeUnresolvedTarget } from '$lib/server/gmb/location-targets.js';
 import { recordPublishLog, consecutiveFailuresForLocation } from '$lib/server/publish-logs.js';
 import { sendAdminDailyDigest, sendCriticalError, buildAdminDigestData } from '$lib/server/notifications.js';
 import { createId } from '$lib/server/utils.js';
@@ -68,9 +69,25 @@ export const GET: RequestHandler = async ({ request }) => {
 		}
 
 		const meta = content.meta ? JSON.parse(content.meta) : null;
-		const locations = await resolveTargetLocations(project.id, meta);
+		const resolution = await resolveTargetLocations(project.id, meta);
 
-		if (locations.length === 0) {
+		// Un ciblage illisible ne publie RIEN. Publier partout « pour ne pas bloquer » est ce qui
+		// a envoyé des posts de Cornavin à Sion pendant des mois, sans une ligne d'erreur.
+		if (resolution.kind === 'unresolved') {
+			await recordPublishLog({
+				contentId: content.id,
+				projectId: project.id,
+				locationId: null,
+				locationLabel: null,
+				success: false,
+				errorMessage: describeUnresolvedTarget(resolution.target, resolution.known),
+				source: 'cron'
+			});
+			errors++;
+			continue;
+		}
+
+		if (resolution.kind === 'no_locations') {
 			await recordPublishLog({
 				contentId: content.id,
 				projectId: project.id,
@@ -83,6 +100,8 @@ export const GET: RequestHandler = async ({ request }) => {
 			errors++;
 			continue;
 		}
+
+		const locations = resolution.locations;
 
 		const post = {
 			id: content.id,

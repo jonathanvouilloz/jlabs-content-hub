@@ -165,6 +165,10 @@ export const POST: RequestHandler = async (event) => {
 					null;
 
 				const postBody = JSON.stringify(post);
+				// ⚠️ Liste blanche : un champ absent d'ici est PERDU à l'insertion, alors que le
+				// producteur croit l'avoir transmis. `target_location` a été dans ce cas — le skill
+				// l'écrivait, la publication ne le voyait pas, et faute de cible chaque post partait
+				// sur toutes les fiches du projet. Avant d'ajouter un champ au draft GMB, l'ajouter ici.
 				const postMeta = JSON.stringify({
 					image_template: post.image_template ?? null,
 					image_style: post.image_style ?? null,
@@ -172,6 +176,7 @@ export const POST: RequestHandler = async (event) => {
 					image_prompt: post.image_prompt ?? null,
 					image_url: post.image_url ?? null,
 					source_article_slug: post.source_article_slug ?? null,
+					target_location: post.target_location ?? null,
 					position: i + 1
 				});
 

@@ -11,6 +11,10 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { createId } from './utils.js';
 import { toDbTimestamp } from './timestamps.js';
+import {
+	resolveLocationTargets,
+	type LocationTargetResolution
+} from './gmb/location-targets.js';
 
 interface Tokens {
 	access_token: string;
@@ -276,18 +280,21 @@ export async function getProjectLocations(projectId: string) {
 		.where(eq(projectGmbLocations.projectId, projectId));
 }
 
+/**
+ * Le SEUL point d'entrée du ciblage par établissement. Toute la décision vit dans le module pur
+ * `gmb/location-targets.ts` : ici on lit les fiches du projet, on applique la fonction pure.
+ *
+ * ⚠️ Rend une union discriminée, PAS un tableau. Un tableau ne pouvait pas distinguer « aucune
+ * cible, donc toutes les fiches » de « cible illisible » — et l'ancien code résolvait cette
+ * ambiguïté du côté le plus dangereux, en publiant partout. L'appelant doit maintenant traiter
+ * `unresolved` explicitement.
+ */
 export async function resolveTargetLocations(
 	projectId: string,
-	meta: { target_locations?: string[] } | null
-): Promise<typeof projectGmbLocations.$inferSelect[]> {
+	meta: unknown
+): Promise<LocationTargetResolution<typeof projectGmbLocations.$inferSelect>> {
 	const allLocations = await getProjectLocations(projectId);
-
-	if (meta?.target_locations?.length) {
-		const targetSet = new Set(meta.target_locations);
-		return allLocations.filter((loc) => targetSet.has(loc.gmbLocationId));
-	}
-
-	return allLocations;
+	return resolveLocationTargets(allLocations, meta);
 }
 
 export async function publishToLocations(

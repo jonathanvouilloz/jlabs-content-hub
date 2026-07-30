@@ -3,6 +3,7 @@ import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { resolveTargetLocations, publishToLocations, buildGmbPostIdMap } from '$lib/server/gmb.js';
+import { describeUnresolvedTarget } from '$lib/server/gmb/location-targets.js';
 import { recordPublishLog } from '$lib/server/publish-logs.js';
 import { createId } from '$lib/server/utils.js';
 import type { RequestHandler } from './$types';
@@ -49,11 +50,21 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	}
 
 	const meta = content.meta ? JSON.parse(content.meta) : null;
-	const locations = await resolveTargetLocations(project.id, meta);
+	const resolution = await resolveTargetLocations(project.id, meta);
 
-	if (locations.length === 0) {
+	// Même règle que le cron : une cible illisible refuse, elle ne se replie pas sur « toutes ».
+	if (resolution.kind === 'unresolved') {
+		return json(
+			{ error: describeUnresolvedTarget(resolution.target, resolution.known) },
+			{ status: 400 }
+		);
+	}
+
+	if (resolution.kind === 'no_locations') {
 		return json({ error: 'No GMB locations assigned to this project' }, { status: 400 });
 	}
+
+	const locations = resolution.locations;
 
 	const post = {
 		id: content.id,
