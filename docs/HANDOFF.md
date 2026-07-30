@@ -160,4 +160,4 @@ rapport interne cross-projet.
 ⚠️ **Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé au lot REP-004 lot 2
 (wrapper `weekly-report`, défaut de vault corrigé) — non commité ici.
 
-Commit : `d222c39` (= `main` = `origin/main` = prod) · précédent `ffba18e` (ciblage GMB)
+Commit : `a5a04c3` (= `main` = `origin/main`) · `d222c39` = déploiement de prod observé
