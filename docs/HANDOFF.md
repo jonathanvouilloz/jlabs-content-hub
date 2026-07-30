@@ -32,9 +32,26 @@ réponse distante lue) est **retenue** et le script **refuse d'écrire** tant qu
 porte, et vaut NULL sur toutes les lignes de l'ancien collecteur par construction.
 ⚠️ **Vérifié avant suppression : 0 finding ne pointait une ligne en ancien format** — les 17
 findings d'avis portent déjà la clé normalisée (`findings.entity_key`, pas `entity_id`).
-⚠️ **88 « divergents » subsistent** (`replied_at NOT NULL AND remote_reply_at IS NULL`) : c'est
-la contamination connue de `reviews/backfill`, pas une régression — elle n'est pas réparée
-rétroactivement, à dessein.
+✅ **Les « 88 divergents » n'existent pas : il y en a ZÉRO.** Vérifié contre l'API Google, fiche
+par fiche — **88 sur 88 sont absents de Google aujourd'hui** (Lausanne 36 · Rive 25 · Eaux Vives
+23 · Jonction 3 · Cornavin 1, et 0 encore présent). Ce ne sont pas des désaccords hub↔Google :
+ce sont des avis **répondus puis disparus** de Google. Leur `replied_at` est en ISO avec
+millisecondes — la signature de `reviews/backfill`, qui y écrivait le `replyTime` **de Google** ;
+ces avis avaient donc bien une réponse **chez Google** avant de disparaître.
+⚠️ **Le chiffre de 88 venait du prédicat NU** (`replied_at NOT NULL AND remote_reply_at IS NULL`)
+appliqué à des lignes dont `last_seen_at IS NULL` : « je n'ai pas regardé » se lisait « Google dit
+non ». Même classe d'erreur qu'« absent ≠ zéro », sur une colonne au lieu d'une section.
+✅ **Le détecteur ne s'y est jamais laissé prendre** : `review-pending-state.ts` fait
+`!row.lastSeenAt ⇒ neverSeen, continue` **avant** le compteur `divergent`. Rien à corriger dans
+le code de production.
+🆕 **`scripts/reviews-divergence.ts`** (lecture seule, sans `--execute`) rend cette partition
+interrogeable pour qu'un audit ne retape plus le prédicat nu : `RÉELLE` / `DISPARUE` / `NON LUE` /
+`HORS`, plus `--probe` qui tranche les indécidables en interrogeant Google sans rien écrire.
+⚠️ **Aujourd'hui les 6 fiches sont `HORS`** (dernière synchro le 2026-07-28 08:30, seuil de
+fraîcheur 48 h) : `collect:gmb_reviews` n'a pas encore tourné en tant que job. C'est le premier
+tick quotidien qui les rafraîchira.
+⚠️ **14 avis existent chez Google et pas en base** (Eaux Vives 8 · Rive 3 · Lausanne 2 · Sion 1) —
+arrivés depuis le 2026-07-29 21:45. Attendu : la collecte n'a pas tourné depuis.
 
 **Prochaine étape inchangée : observer le premier tick en prod** (étape 5/5), puis reprendre
 `lecureux` en canary. À surveiller en plus au lendemain : `collect:gmb_reviews` passe désormais
