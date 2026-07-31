@@ -1,16 +1,75 @@
-# HANDOFF — 2026-07-30
+# HANDOFF — 2026-07-31
 
 ## Features actives
 | Feature | Fichier | Statut |
 |---------|---------|--------|
 | Reconstruction agentique — E00 fondations | [features/e00-fondations-cockpit.md](features/e00-fondations-cockpit.md) | **EN COURS** |
-| Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | **EN COURS — étape 5/5** |
+| Mise en prod du cockpit (`feat/cockpit` → `main`) | plan : `~/.claude/plans/ok-go-pour-que-reflective-pinwheel.md` | ✅ **TERMINÉE — 5/5** |
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 > Clôturé le 2026-07-28 : **Avis GMB (E08/GMB-002)**, lots 1 et 2 — recap dans
 > [features/gmb-002-reviews.md](features/gmb-002-reviews.md). **E08 reste à 1 ticket sur 8.**
 
 ## Reprendre ici
+
+🆕 **2026-07-31 — LA MACHINE EST RELANCÉE : les 9 cadences hebdo sont reprises et le run hebdo
+a réellement tourné sur les 9 projets.** `origin/main` = prod = **`6cc2a22`**
+(`/api/whoami` → `version: 6cc2a22`). Le canary (étape 5/5) est **clos**.
+
+**Ce qui a été fait, dans l'ordre — et l'ordre compte :**
+1. **Trou GSC comblé** avant toute reprise : la semaine 13→19/07 manquait à 5 projets, au milieu
+   de la fenêtre 4 semaines que lisent FIND-005/006/008 (`collect-gsc.ts --week=2026-07-13`).
+   9/9 projets l'ont désormais. La semaine 20→26/07 a suivi par la file.
+2. **`report.publish_deadline_minutes = 300`** (`system_settings`, échéance 14:00 locales).
+3. **Reprise + run FORCÉ le soir même** au lieu d'attendre le lundi : `lecureux` en canary, puis
+   les 7 petits, puis `barberconcept` seul. ⚠️ `schedule.ts --now=2026-07-27T07:05:00Z
+   **--lookback-hours=1**` — la fenêtre resserrée est ce qui évite de replanifier au passage le
+   run QUOTIDIEN du même créneau (14 jobs au lieu de 9 par projet).
+
+⚠️ **Deux estimations du HANDOFF précédent étaient FAUSSES, mesures à l'appui :** le catalogue
+hebdo porte **5 détecteurs / 9 entrées** (pas 4/7) depuis FIND-008, donc **81 jobs** pour 9 projets
+et non 63 ; et un run se draine en **UN tick** (~7 min), pas trois — le worker enchaîne les tours
+dans la même invocation, donc la profondeur 3 ne coûte plus un tick par niveau. C'est
+`MAX_JOBS_PER_TICK = 25` qui commande, pas le graphe.
+
+✅ **Résultat : 8 runs hebdo `success`, 9 jobs sur 9 chacun, zéro job non conclu.** Le parc passe
+de 36 à **171 findings ouverts** (jonlabs 79 · barberconcept 22 · lecureux 17 · barbermedia 16 ·
+physiopommier 11 · wildcat 9 · bisrepetita 7 · cardrank 5 · spinlink 5) et de 4 à **18 propositions**.
+L'indexation quitte le zéro : **11 sitemaps · 491 URLs · 150 sélections · 145 inspections**.
+⚠️ **Le run de `barberconcept` était encore `queued` à l'heure d'écrire** (posé à 22:15 UTC, tick de
+23:00) — c'est le seul projet jamais diagnostiqué, jusqu'à ~175 findings d'un coup.
+
+🆕 **Deux défauts trouvés par ce premier run réel, corrigés et déployés** (`499d338`, `6cc2a22`) :
+⭐ **`gsc-auth.ts` appelait `fetch` sans plafond de temps.** Les boucles testent le signal du job
+**entre** deux appels : un appel mort ne repasse par aucun test, la fonction Vercel est tuée à
+300 s, et un `SIGKILL` ne repasse par aucun `finally` — la ligne reste `running` jusqu'au reaper,
+qui la rend à la file pour que la tentative suivante meure pareil. Mesuré sur `cardrank` :
+`collect:url_inspection` abandonné deux fois **à l'heure près** (19:04→20:01, 20:05→21:00), la 3ᵉ
+tentative passant en 107 s — donc un appel MORT, pas un problème de volume. Le plafond (30 s) vit
+dans `resolveFetch`, il couvre les **4** appels du module ; le dépassement devient un
+`GscApiError` **504** et jamais un `AbortError` nu (c'est ce qui le fait classer `retryable` au
+lieu de dead-letter) ; le signal de l'appelant est **combiné**, pas remplacé.
+⭐ **Un run se disait `success` sur un sous-ensemble de ses jobs.** Un step n'est écrit qu'à
+l'issue **terminale** de son job : un job encore en file n'en a aucun, et son absence était
+indiscernable de son inexistence — le run hebdo de `cardrank` était `success` avec **7 steps sur
+9**. ⚠️ Pas cosmétique : `classifyProjectReadiness` mappe `success` → `ready`, donc le rapport
+pouvait s'annoncer **`complete` alors qu'une détection n'avait pas tourné**. C'est « absent ≠
+zéro » transposé aux steps. `recomputeRunStatus` compte désormais les jobs `queued`/`running`.
+
+**Prochaine étape : vérifier `PUBLIC_APP_URL` côté Vercel.** ⚠️ **`hub.jonlabs.ch` ne résout plus
+(NXDOMAIN)** et c'est le fallback en dur de `notifications.ts` et de `/api/cron/gmb-weekly-digest`,
+qui part **lundi 06:00 UTC** vers `contact@barberconcept.ch` (seul projet opt-in) avec des liens
+dedans. Non lisible sans la CLI Vercel (non installée).
+
+⚠️ **À savoir pour lire le rapport du lundi 03/08** : comme la semaine a été collectée le 31/07, le
+run du 03/08 collectera **la même** (20→26/07 reste la dernière complète avec la latence de 3 j).
+Il va donc **rafraîchir** au lieu de découvrir — un rapport pauvre en nouveautés sera correct.
+⚠️ **Rien n'envoie ce rapport** (TEL-002 `BLOCKED` sur TEL-001) : il faut aller sur `/reports`.
+⚠️ **Approuver n'exécute toujours rien** (AGT-001) : 18 propositions, **0 approbation**.
+⚠️ **Le rapport du 2026-07-27 (`partial`, 9 projets `missing`) mérite une révision** maintenant que
+les runs de ce créneau existent et ont réussi : `rep-003-publish.ts --revise <slot> --reason "…"`.
+
+---
 
 🆕 **2026-07-30 — la dérive de publication est arrêtée à la source, et `main` est en prod.**
 `origin/main` = **`d222c39`** (8 commits poussés), `/api/whoami` répond
@@ -160,4 +219,4 @@ rapport interne cross-projet.
 ⚠️ **Hors repo (couche skills)** : `~/.claude/skills/seo-archive/` a changé au lot REP-004 lot 2
 (wrapper `weekly-report`, défaut de vault corrigé) — non commité ici.
 
-Commit : `a5a04c3` (= `main` = `origin/main`) · `d222c39` = déploiement de prod observé
+Commit : `6cc2a22` (= `main` = `origin/main` = déploiement de prod observé, `/api/whoami`)
