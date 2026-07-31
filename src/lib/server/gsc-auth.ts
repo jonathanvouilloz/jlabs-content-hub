@@ -78,6 +78,8 @@ export interface GscAuthDeps {
 	/** Clé de chiffrement ; à défaut `process.env.ENCRYPTION_KEY` (runners `scripts/`). */
 	encryptionKey?: string;
 	fetchImpl?: typeof fetch;
+	/** Plafond de temps d'un appel (ms) ; défaut `REQUEST_TIMEOUT_MS`. Une preuve le raccourcit. */
+	requestTimeoutMs?: number;
 	now?: () => number;
 }
 
@@ -139,8 +141,56 @@ function resolveKey(deps: GscAuthDeps): string {
 	return key;
 }
 
+/**
+ * Plafond de temps d'UN appel Google (ms).
+ *
+ * ⭐ **Un `fetch` sans plafond ne peut être interrompu par personne.** Les boucles de
+ * collecte testent bien le signal du job (bail perdu, budget de durée dépassé), mais
+ * seulement ENTRE deux appels : un appel qui ne rend jamais la main ne repasse par
+ * aucun de ces tests. La fonction Vercel est alors tuée à son plafond (300 s) — un
+ * `SIGKILL` ne repasse par aucun `finally`, donc la ligne reste `running` jusqu'au
+ * reaper, qui la rend à la file… pour que la tentative suivante meure pareil.
+ * Mesuré le 2026-07-31 sur `cardrank` : 2 tentatives de `collect:url_inspection`
+ * abandonnées à l'heure près (19:04→20:01, 20:05→21:00), 3 restantes avant
+ * dead-letter, et son détecteur bloqué derrière l'arête obligatoire.
+ *
+ * 30 s tient large : la semaine la plus lourde du parc (`barberconcept`, 13 590 lignes)
+ * revient en 9,3 s, une inspection d'URL en 1 à 2 s. Ce plafond ne coupe donc pas un
+ * appel lent, il coupe un appel MORT.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * `fetch` injecté (ou celui de la plateforme), sous plafond de temps.
+ *
+ * ⚠️ Le dépassement est converti en `GscApiError({ status: 504 })` et **jamais laissé
+ * remonter en `AbortError` nu** : c'est ce qui le fait classer `retryable` par
+ * `classifyExecutionError` (un 504 y est un timeout provider), donc rejouer avec
+ * backoff au lieu de partir en dead-letter permanent. Le signal de l'appelant, s'il y
+ * en a un, est COMBINÉ au nôtre — le remplacer ferait perdre l'abandon sur bail perdu.
+ */
+export function withRequestTimeout(impl: typeof fetch, timeoutMs = REQUEST_TIMEOUT_MS): typeof fetch {
+	return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+		const timeout = AbortSignal.timeout(timeoutMs);
+		const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+		try {
+			return await impl(input, { ...init, signal });
+		} catch (err) {
+			// L'ordre du test compte : un abandon demandé par l'APPELANT (bail perdu) doit
+			// remonter tel quel, sinon la file lirait « Google n'a pas répondu » là où c'est
+			// nous qui avons raccroché.
+			if (!timeout.aborted) throw err;
+			throw new GscApiError({
+				status: 504,
+				reason: 'request_timeout',
+				message: `Appel Google sans réponse après ${timeoutMs} ms.`
+			});
+		}
+	}) as typeof fetch;
+}
+
 function resolveFetch(deps: GscAuthDeps): typeof fetch {
-	return deps.fetchImpl ?? fetch;
+	return withRequestTimeout(deps.fetchImpl ?? fetch, deps.requestTimeoutMs);
 }
 
 // ── Jeton d'accès ───────────────────────────────────────────────────
