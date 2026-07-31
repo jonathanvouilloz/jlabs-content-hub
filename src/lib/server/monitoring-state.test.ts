@@ -57,6 +57,24 @@ describe('classifyRunOutcome', () => {
 		expect(classifyRunOutcome(['skipped', 'provider_unavailable'])).toBe('partial');
 		expect(classifyRunOutcome(['success', 'skipped', 'failed', 'provider_unavailable'])).toBe('partial');
 	});
+
+	// Le cas `cardrank` du 2026-07-31 : 7 steps réussis, 2 jobs encore en file.
+	it('des jobs encore en file → running, même si TOUS les steps écrits sont réussis', () => {
+		expect(classifyRunOutcome(['success', 'success', 'success'], 2)).toBe('running');
+	});
+	it('un job en file ne peut pas non plus faire passer un run pour partial ou failed', () => {
+		expect(classifyRunOutcome(['success', 'failed'], 1)).toBe('running');
+		expect(classifyRunOutcome(['failed'], 1)).toBe('running');
+	});
+	it('plus aucun job en file → le verdict revient aux steps', () => {
+		expect(classifyRunOutcome(['success', 'success'], 0)).toBe('success');
+	});
+	it('aucun step et des jobs en file → queued (rien n’a encore commencé)', () => {
+		expect(classifyRunOutcome([], 9)).toBe('queued');
+	});
+	it('le paramètre est optionnel : les appelants sans file gardent leur comportement', () => {
+		expect(classifyRunOutcome(['success', 'skipped'])).toBe('success');
+	});
 });
 
 describe('computeBackoff', () => {

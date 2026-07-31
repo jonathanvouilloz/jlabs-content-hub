@@ -7,7 +7,7 @@
  * Invariant clé : deux créations concurrentes avec la même `idempotency_key` ne
  * produisent qu'un seul run/job logique (unique index + onConflictDoNothing).
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { jobs, monitoringRuns, monitoringSteps } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { createId } from './utils.js';
@@ -16,6 +16,7 @@ import { assertNoInlineSecret } from './projection-state.js';
 import {
 	classifyRunOutcome,
 	latestAttemptPerStep,
+	RUN_PENDING_JOB_STATUSES,
 	type RunType,
 	type StepStatus,
 	type TriggerSource
@@ -98,6 +99,12 @@ export async function createRun(input: CreateRunInput, client?: AppDb): Promise<
  * JOB-004 — les tentatives sont RÉDUITES au dernier verdict par `step_type` avant
  * classification : un step qui a échoué puis, après reprise, réussi ne doit pas
  * laisser son run en `partial` pour toujours (cf. `latestAttemptPerStep`).
+ *
+ * ⭐ Les steps ne disent que ce qui s'est CONCLU. On compte donc aussi les jobs du run
+ * encore en file : sans eux, un run se classait `success` sur le sous-ensemble déjà
+ * écrit, et REP-003 en tirait un projet `ready`. Le compte se fait dans la même
+ * fonction que la classification — le mettre chez l'appelant reviendrait à laisser
+ * chaque chemin d'écriture décider s'il regarde ou non la file.
  */
 export async function recomputeRunStatus(runId: string, client?: AppDb): Promise<void> {
 	const db = await resolveDb(client);
@@ -105,7 +112,11 @@ export async function recomputeRunStatus(runId: string, client?: AppDb): Promise
 		where: eq(monitoringSteps.runId, runId),
 		columns: { stepType: true, attempt: true, status: true, finishedAt: true }
 	});
-	const status = classifyRunOutcome(latestAttemptPerStep(steps));
+	const pending = await db
+		.select({ id: jobs.id })
+		.from(jobs)
+		.where(and(eq(jobs.runId, runId), inArray(jobs.status, [...RUN_PENDING_JOB_STATUSES])));
+	const status = classifyRunOutcome(latestAttemptPerStep(steps), pending.length);
 	await db
 		.update(monitoringRuns)
 		.set({ status, updatedAt: toDbTimestamp() })

@@ -70,17 +70,39 @@ const STEP_TERMINAL_OK = new Set<StepStatus>(['success', 'skipped']);
 const STEP_TERMINAL_KO = new Set<StepStatus>(['failed', 'provider_unavailable']);
 
 /**
+ * Statuts de job qui ne disent RIEN encore : ni réussi, ni échoué, ni sauté.
+ *
+ * Distinct de `DEPENDENCY_PENDING` (job-graph.ts), qui décide si un dépendant peut
+ * partir. Ici la question est autre : le run a-t-il fini son histoire ?
+ */
+export const RUN_PENDING_JOB_STATUSES: readonly JobStatus[] = ['queued', 'running'];
+
+/**
  * Dérive le statut d'un run de l'ensemble des statuts de ses steps. Règles :
  *   - aucun step → `queued` ;
+ *   - au moins un JOB du run encore en file (`pendingJobs > 0`) → `running` ;
  *   - au moins un step encore `queued`/`running` → `running` (pas terminal) ;
  *   - tous terminaux OK (`success`/`skipped`) → `success` ;
  *   - tous terminaux KO (`failed`/`provider_unavailable`) → `failed` ;
  *   - mélange OK + KO → `partial` (un run partiel distingue bien succès, skip,
  *     échec et provider indisponible).
  * `cancelled` n'est jamais dérivé ici : c'est une décision externe portée sur le run.
+ *
+ * ⭐ **`pendingJobs` est ce qui empêche un run de se dire fini sur un sous-ensemble.**
+ * Un step n'est écrit qu'à l'issue TERMINALE de son job (`concludeJobStep`) : un job
+ * encore en file n'en a donc aucun, et l'absence était jusqu'ici indiscernable de
+ * l'inexistence. Un run de 9 jobs dont 2 attendaient encore se classait `success` sur
+ * les 7 écrits — mesuré le 2026-07-31 sur `cardrank`, dont l'inspection d'URLs bouclait.
+ * La conséquence n'est pas cosmétique : `classifyProjectReadiness` (REP-003) mappe
+ * `success` → `ready`, donc le rapport hebdo pouvait s'annoncer `complete` alors qu'une
+ * détection n'avait pas tourné. C'est « absent ≠ zéro », transposé aux steps.
+ *
+ * ⚠️ Le paramètre est **optionnel et vaut 0** : les appelants qui n'ont pas de jobs à
+ * compter (runs manuels, preuves) gardent exactement le comportement d'avant.
  */
-export function classifyRunOutcome(stepStatuses: StepStatus[]): RunStatus {
+export function classifyRunOutcome(stepStatuses: StepStatus[], pendingJobs = 0): RunStatus {
 	if (stepStatuses.length === 0) return 'queued';
+	if (pendingJobs > 0) return 'running';
 	if (stepStatuses.some((s) => s === 'queued' || s === 'running')) return 'running';
 
 	const anyOk = stepStatuses.some((s) => STEP_TERMINAL_OK.has(s));
