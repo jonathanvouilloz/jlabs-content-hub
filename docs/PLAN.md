@@ -61,6 +61,11 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   validation humaine des actions sensibles.
 - **Vision complète** : [SPEC.md](SPEC.md) (23 sections, décisions validées).
 - **Exécution** : [BACKLOG.md](BACKLOG.md) — 14 epics `E00→E13`, jalons `M0→M6`, premier lot exécutable (§9).
+- **Statut (2026-07-31)** : **E00 EN COURS**, mais **le cockpit est en PROD et le parc tourne** —
+  `main` = `origin/main` = prod = `6cc2a22`, les 9 cadences hebdo reprises (le canary de mise en prod
+  est clos), le run hebdo passé sur les 9 projets, 171 findings ouverts et 18 propositions.
+  Ce qui reste bloque la BOUCLE, pas la collecte : **AGT-001** (approuver n'exécute rien) et
+  **TEL-002** (rien n'envoie le rapport). Historique du lot ci-dessous.
 - **Statut (2026-07-25)** : **E00 EN COURS** sur `feat/cockpit` — fondations (GOV-003/005 + OPS-001) +
   **IDX-008** + **DATA-001→008** livrés (cartographie, intégrations/projections, orchestration+queue,
   10 observations + backfill exécuté, findings, proposals/approvals/agent_runs, policies d'automatisation,

@@ -4,6 +4,69 @@
 > SPEC source : `docs/SPEC.md` v0.2 · Backlog : `docs/BACKLOG.md` E00.
 > Branche : `feat/cockpit` (depuis `feat/neon`).
 
+## Etat session 2026-07-31 (étape 5/5 — la machine est relancée, et le premier run réel a mordu)
+
+**Fait :** le canary est clos. Les 9 cadences hebdo sont reprises et le run hebdo a **réellement
+tourné** sur les 9 projets — pas attendu le lundi, forcé le soir même. Deux défauts sont sortis de
+ce premier contact avec le réel, tous deux corrigés et déployés.
+
+- **⭐ L'ordre des gestes EST la garantie, et deux d'entre eux devaient précéder la reprise.**
+  (1) Le **trou GSC** : la semaine 13→19/07 manquait à 5 projets — au milieu de la fenêtre 4
+  semaines que lisent FIND-005/006/008. Un détecteur n'aurait pas vu « une semaine non
+  collectée », il aurait vu une chute. Comblé avant tout (`collect-gsc.ts --week=2026-07-13`,
+  1 page d'API par projet). (2) **`report.publish_deadline_minutes = 300`** : le défaut de 60 min
+  place l'échéance à 10:00, or 81 jobs à 25 par tick concluent vers 12:00 — le rapport aurait été
+  publié avec un contenu construit **avant** que les détecteurs tournent. Ce n'est pas une
+  étiquette `partial` de plus, c'est un rapport vide de sa semaine.
+- **⭐ Le run a été FORCÉ au lieu d'être attendu.** `schedule.ts --now=2026-07-27T07:05:00Z
+  --project=<slug> --execute` rejoue le créneau du lundi passé, donc la chaîne complète est
+  observable le soir même. ⚠️ **`--lookback-hours=1` est load-bearing** : la fenêtre par défaut
+  (6 h) embarque aussi le run **quotidien** de 07:00, soit 14 jobs au lieu de 9 par projet.
+- **⚠️ Deux estimations du HANDOFF étaient fausses.** Le catalogue hebdo porte **5 détecteurs /
+  9 entrées** depuis FIND-008 (pas 4/7) → **81 jobs** pour 9 projets, pas 63. Et un run se draine
+  en **UN tick** (~7 min), pas trois : le worker enchaîne les tours dans la même invocation, donc
+  la profondeur 3 du graphe ne coûte plus un tick par niveau. Ce qui commande est
+  `MAX_JOBS_PER_TICK = 25`, pas le graphe.
+- **⭐ Défaut 1 — un `fetch` sans plafond ne peut être interrompu par personne** (`499d338`).
+  Les boucles testent le signal du job **entre** deux appels ; un appel mort ne repasse par aucun
+  test, la fonction Vercel est tuée à 300 s, et un `SIGKILL` ne repasse par aucun `finally` — la
+  ligne reste `running` jusqu'au reaper, qui la rend à la file pour que la tentative suivante
+  meure pareil. Mesuré sur `cardrank` : `collect:url_inspection` abandonné **deux fois à l'heure
+  près** (19:04→20:01, 20:05→21:00), la 3ᵉ passant en 107 s — un appel MORT, pas un volume. Le
+  plafond (30 s) vit dans `resolveFetch`, donc couvre les **4** appels du module ; le dépassement
+  devient `GscApiError` **504** et jamais un `AbortError` nu (c'est ce qui le classe `retryable`
+  au lieu de dead-letter) ; le signal de l'appelant est **combiné**, pas remplacé.
+- **⭐ Défaut 2 — un run se disait `success` sur un sous-ensemble de ses jobs** (`6cc2a22`).
+  Un step n'est écrit qu'à l'issue **terminale** de son job : un job encore en file n'en a aucun,
+  et son absence était indiscernable de son inexistence — run hebdo de `cardrank` `success` avec
+  **7 steps sur 9**. ⚠️ Pas cosmétique : `classifyProjectReadiness` mappe `success` → `ready`,
+  donc le rapport pouvait s'annoncer **`complete` alors qu'une détection n'avait pas tourné**.
+  « Absent ≠ zéro », transposé des sections du rapport aux steps d'un run.
+- **Mesures** : 8 runs hebdo `success` (9 jobs sur 9 chacun), 0 job non conclu, **171 findings
+  ouverts** contre 36 (jonlabs 79 · barberconcept 22 · lecureux 17), **18 propositions** contre 4,
+  et l'indexation qui quitte le zéro (**11 sitemaps · 491 URLs · 150 sélections · 145
+  inspections**). `vitest` **1543 passés / 46 fichiers**, `npm run check` **0 erreur / 42
+  warnings** — nouvelles baselines.
+
+**Prochain :** vérifier **`PUBLIC_APP_URL` côté Vercel** — `hub.jonlabs.ch` ne résout plus
+(NXDOMAIN) et c'est le fallback en dur de `src/lib/server/notifications.ts` et de
+`/api/cron/gmb-weekly-digest`, qui part **lundi 06:00 UTC** vers `contact@barberconcept.ch` avec
+des liens dedans. Non lisible sans la CLI Vercel (non installée) → tâche Jonathan. Ensuite
+**AGT-001** (18 propositions, 0 approbation, approuver n'exécute rien).
+
+**Pièges :** ⚠️ **Le run de `barberconcept` était encore `queued` à l'écriture** (posé 22:15 UTC
+pour le tick de 23:00) — seul projet jamais diagnostiqué, jusqu'à ~175 findings d'un coup
+(plafonds 50+50+50+25 par détecteur). ⚠️ **Le rapport du 03/08 va RAFRAÎCHIR, pas découvrir** : la
+semaine ayant été collectée le 31/07, la dernière complète reste 20→26/07 (latence 3 j) — un
+rapport pauvre en nouveautés sera correct. ⚠️ **Rien n'envoie ce rapport** (TEL-002 `BLOCKED`).
+⚠️ **Le rapport du 2026-07-27 (`partial`, 9 `missing`) mérite une révision** maintenant que les
+runs de ce créneau existent (`rep-003-publish.ts --revise`). ⚠️ **`npm run build` échoue localement
+au `symlink` EPERM de l'adaptateur Vercel** — limitation Windows, la compilation passe.
+
+**Commit :** `6338d93` [hub] docs: la machine est relancee — les 9 cadences hebdo ont tourne
+
+---
+
 ## Etat session 2026-07-27 (mise en prod du cockpit — étapes 1 à 3 sur 5)
 
 **Fait :** l'audit de l'écart prod ↔ `feat/cockpit`, puis les deux gestes qui doivent précéder
@@ -4033,12 +4096,14 @@ expand/migrate/contract, fixture DB anonymisée. Contrats skills GSC-003/IDX-003
 ---
 
 ## Carte du code
-> Mise à jour : 2026-07-27 (mise en prod — le garde-fou du premier tick)
+> Mise à jour : 2026-07-31 (relance du parc — les deux défauts du premier run réel)
 >
 > Ordre : lot le plus récent d'abord.
 
 | Fichier | Rôle |
 |---------|------|
+| **`src/lib/server/gsc-auth.ts` → `withRequestTimeout` / `resolveFetch`** (+ `gsc-timeout.test.ts`) *(relance)* | **Le plafond de temps des appels Google.** ⭐ Il vit dans `resolveFetch` et **pas au point d'appel** : les 4 appels du module (jeton, sites, Search Analytics, inspection) sont couverts d'un coup, là où corriger `urlInspection` seul aurait laissé les trois autres exposés au même mode de panne. ⚠️ Le dépassement devient un **`GscApiError` 504**, jamais un `AbortError` nu — c'est ce qui le fait classer `retryable` par `classifyExecutionError` (un 504 y est un timeout provider) donc **rejouer avec backoff** au lieu de partir en dead-letter permanent. ⚠️ Le signal de l'appelant est **combiné** (`AbortSignal.any`), pas remplacé : un abandon sur bail perdu doit remonter tel quel, sinon la file lirait « Google n'a pas répondu » là où c'est nous qui avons raccroché — et l'ordre du test (`if (!timeout.aborted) throw err`) est ce qui le garantit. `withRequestTimeout` est **exporté** et le délai injectable (`deps.requestTimeoutMs`) pour que ces propriétés soient prouvées plutôt que décrites. 30 s : la semaine la plus lourde du parc revient en 9,3 s — ce plafond coupe un appel **mort**, pas un appel lent. **5 tests.** |
+| **`src/lib/server/monitoring-state.ts` → `classifyRunOutcome`** · **`monitoring.ts` → `recomputeRunStatus`** *(relance)* | **Un run ne peut plus se dire terminé sur un sous-ensemble de ses jobs.** ⭐ Les steps ne disent que ce qui s'est **conclu** (`concludeJobStep` n'écrit qu'aux issues terminales) : un job encore en file n'a **aucun** step, et son absence était indiscernable de son inexistence. ⚠️ **Pas cosmétique** : `classifyProjectReadiness` (REP-003) mappe `success` → `ready`, donc le rapport hebdo pouvait s'annoncer **`complete` alors qu'une détection n'avait pas tourné** — « absent ≠ zéro » transposé des sections du rapport aux steps d'un run. Le compte des `queued`/`running` se fait **dans `recomputeRunStatus`**, la fonction qui classe déjà : le mettre chez l'appelant laisserait chaque chemin d'écriture décider s'il regarde la file. Le paramètre est **optionnel et vaut 0** — la non-régression des appelants sans file (runs manuels, preuves) tient au **défaut**, pas à une condition. `RUN_PENDING_JOB_STATUSES` est distinct de `DEPENDENCY_PENDING` (job-graph) à dessein : l'un dit si un dépendant peut partir, l'autre si le run a fini son histoire. **5 tests.** |
 | **`scripts/pauses.ts`** *(mise en prod)* | **La porte hors-écran des pauses d'automatisation.** ⭐ Elle existe parce que la décision la plus lourde — désarmer le premier tick — se prend **avant** que `/automations` soit déployé, et que l'endpoint `POST /api/ops/automations/pause` exige une session. **Aucune règle ici** : `recordPauseDecision` reste seule juge, donc l'idempotence (relecture de l'état dérivé **dans** la transaction) et l'append-only ne sont pas rejoués. Dry-run par défaut (`limits.ts`, `schedule.ts`), `--reason` obligatoire **dans les deux sens** — reprise comprise. ⚠️ La cadence par défaut est **`weekly` seule** : `daily` fait expirer les veilles et honore les échéances d'inspection, deux gestes qu'on veut voir tourner pendant une reprise progressive. ⚠️ L'état affiché montre **aussi** les pauses de scope `project`, sinon un projet entièrement gelé se lirait « actif » sur sa ligne de cadence. |
 | **`vercel.json`** *(mise en prod)* | Le cron `tick` (horaire, JOB-005) que la branche apporte, **et** `/api/cron/gmb-reviews` à 05:00 UTC — une route qui existait dans le code sans être planifiée nulle part, ni sur `main` ni ici. `gsc-snapshot` en sort (GSC-002 : la collecte passe par la file, un second chemin consommerait deux fois le même quota). |
 | **`src/lib/server/report-retention-state.ts`** (+ `.test.ts`) *(REP-004 lot 2)* | **Le modèle PUR de la rétention.** ⭐ `not_archived` retient une ligne **quel que soit son âge** : un rapport ne se régénère pas (REP-003 l'a construit sur le parc de son créneau), donc l'âge seul n'autorise rien — l'archive autorise. `DetailState` est une **union** (`stored`/`archived`/`purged`), pas trois booléens : un jeu de drapeaux permettrait « purgé mais pas archivé » dans le code alors que la base le refuse. ⚠️ L'âge se compte sur **`slot_at`** (la semaine couverte vieillit), jamais sur `published_at` — sinon réviser un vieux créneau lui rendrait N semaines. ⚠️ `resolveDetailRetentionWeeks` retombe sur **`null` = conserver** pour toute valeur illisible (une valeur corrompue qui vaudrait 4 semaines purgerait sur un malentendu), et remonte au **plancher de 4 semaines**. Le total d'octets libérables est une **borne inférieure** (`bytesKnown`, doctrine IDX-004). **17 tests.** |
