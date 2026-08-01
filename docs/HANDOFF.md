@@ -10,6 +10,14 @@
 > Clôturé le 2026-07-28 : **Avis GMB (E08/GMB-002)**, lots 1 et 2 — recap dans
 > [features/gmb-002-reviews.md](features/gmb-002-reviews.md). **E08 reste à 1 ticket sur 8.**
 
+🆕 **2026-08-01 — E08 a une carte : [`gmb-avis-pipeline.md`](gmb-avis-pipeline.md).** État réel,
+cible validée, reste à faire côté hub et côté skills. À lire avant de toucher aux avis GMB.
+**Deux choses à savoir tout de suite :** ⭐ **rien ne répond automatiquement** — `replyToReview` a
+un seul appelant, la route API qui exige une session admin ; le hub collecte et détecte, il
+n'exécute pas. ⭐ **GMB-003 n'était pas bloqué** : son état disait `BLOCKED · DATA-002` alors que
+DATA-002 est DONE depuis le 21.07. Corrigé en `READY`. C'est la clé de voûte — il débloque
+GMB-004→007 **et** le nouveau **GMB-009** (mentions employés dérivées).
+
 ## Reprendre ici
 
 🆕 **2026-07-31 — LA MACHINE EST RELANCÉE : les 9 cadences hebdo sont reprises et le run hebdo

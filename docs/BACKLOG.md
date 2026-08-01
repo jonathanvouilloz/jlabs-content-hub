@@ -1332,7 +1332,16 @@ Acceptation :
 
 ## GMB-003 — Projection de contexte pour réponses
 
-**Priorité :** P0 · **Taille :** M · **État :** BLOCKED · **Dépendances :** DATA-002, GMB-001
+**Priorité :** P0 · **Taille :** M · **État :** READY (débloqué le 2026-08-01 — l'état `BLOCKED` était périmé : DATA-002 est DONE depuis le 2026-07-21 et GMB-001 est livré) · **Dépendances :** DATA-002 ✅, GMB-001 ✅
+
+> **Clé de voûte d'E08.** Il débloque à lui seul GMB-004→007 (toute la chaîne de réponse) **et**
+> l'attribution des mentions employés (GMB-009). Voir [`gmb-avis-pipeline.md`](gmb-avis-pipeline.md).
+>
+> ⚠️ La clause « signaler projection stale ou incomplète » n'est pas cosmétique. Le roster de
+> `barberconcept` est reconstruit depuis les mentions passées et dit lui-même qu'« un prénom absent
+> ne prouve pas qu'il ne travaille pas ici » : en juillet 2026 il manquait **Issam** (4 mentions) et
+> **Santos** (4 mentions). Une IA qui répond avec ce roster écrit « on transmet à ton barbier » à un
+> client qui a nommé quelqu'un.
 
 Travail :
 
@@ -1433,6 +1442,44 @@ Acceptation :
 - le taux sans retouche substantielle atteint le seuil de policy, initialement 95 % ;
 - la promotion nécessite une approbation humaine explicite ;
 - un rollback en `draft_only` est immédiat.
+
+## GMB-009 — Mentions employés dérivées et automatiques
+
+**Priorité :** P0 · **Taille :** M · **État :** READY (créé le 2026-08-01) · **Dépendances :** GMB-002 ✅, GMB-003
+
+**Pourquoi.** Barber Concept verse des primes sur les mentions nominatives. En juillet 2026 le
+compteur du hub annonçait **17 mentions pour 9 employés** ; la relecture des 123 avis en donne
+**110 pour 24**. Deux causes indépendantes, et une seule concerne l'IA.
+
+*Personne ne possède le déclencheur* : rien dans le hub n'appelle `persistMentionsForReview`, elle
+ne s'exécute que quand `/gmb-review-responder` POST depuis la machine de Jonathan. La couverture
+d'un mois vaut « est-ce que le skill a été lancé ».
+
+*Le nombre est stocké au lieu d'être dérivé* : `employee_mentions` est un compteur incrémenté avis
+par avis, alors que la vérité par avis existe déjà dans `gmb_reviews.mentioned_employees`. Deux
+copies de la même information peuvent diverger, et celle-ci ne peut être que poussée, jamais
+recalculée — d'où `decrementMonthlyAggregate`, qui n'existe que pour compenser après coup.
+
+Travail :
+
+- dériver `employee_mentions` par `GROUP BY` sur `gmb_reviews.mentioned_employees` et retirer les
+  chemins d'incrément/décrément ;
+- ajouter `detect:employee_mentions` au catalogue quotidien, arête **obligatoire** depuis
+  `collect:gmb_reviews` ;
+- attribuer contre la projection d'équipe de GMB-003, pas contre un markdown d'un autre repo ;
+- rendre l'attribution **rejouable** : la garde `if (mentionedEmployees && !force) return 'skipped'`
+  doit sauter, sinon un roster corrigé ne corrige rien du passé ;
+- produire un **finding** quand un prénom cité n'est attribuable à personne ;
+- retirer l'étape 6b de `/gmb-review-responder` le jour de la livraison (deux écrivains pour une
+  même colonne sinon).
+
+Acceptation :
+
+- ajouter un nom au roster réattribue rétroactivement ses mentions passées, sans geste par avis ;
+- l'agrégat d'un mois est reproductible depuis les seuls avis, à l'octet ;
+- un prénom hors roster apparaît dans `/inbox` sous 24 h au lieu d'être découvert au récap mensuel ;
+- le coût IA reste marginal : le matching sur roster est déterministe et le sentiment se déduit de
+  la note quand un seul nom est cité (102 mentions sur 110 en juillet 2026).
 
 ---
 
