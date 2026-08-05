@@ -84,7 +84,7 @@
 		const isoDate = editingDateValue ? new Date(editingDateValue).toISOString() : null;
 		await fetch(`/api/content/${id}`, {
 			method: 'PUT',
-			headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ plannedDate: isoDate })
 		});
 		editingDateId = null;

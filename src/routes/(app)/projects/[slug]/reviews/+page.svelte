@@ -406,7 +406,7 @@
 						{sync.syncing ? 'Sync...' : 'Mettre a jour'}
 					</button>
 					<a
-						href="/report/{data.project.slug}/{new Date().getFullYear()}-{String(new Date().getMonth() + 1).padStart(2, '0')}?token={data.project.accessToken}"
+						href="/report/{data.project.slug}/{new Date().getFullYear()}-{String(new Date().getMonth() + 1).padStart(2, '0')}"
 						target="_blank"
 						class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-2.5 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
 					>

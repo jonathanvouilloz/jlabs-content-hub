@@ -15,9 +15,7 @@
 	async function loadPublished() {
 		loadingPublished = true;
 		try {
-			const res = await fetch(`/api/content?project=${data.project.slug}&type=article&status=published`, {
-				headers: { Authorization: 'Bearer dev-api-key' }
-			});
+			const res = await fetch(`/api/content?project=${data.project.slug}&type=article&status=published`);
 			const json = await res.json();
 			publishedContents = json.data ?? [];
 		} catch {

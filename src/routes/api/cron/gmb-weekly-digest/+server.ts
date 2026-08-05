@@ -7,8 +7,6 @@ import { sendClientWeeklyDigest } from '$lib/server/notifications.js';
 import { getWatchlistWithSeries } from '$lib/server/gsc-analytics.js';
 import type { RequestHandler } from './$types';
 
-const APP_URL = env.PUBLIC_APP_URL ?? 'https://hub.jonlabs.ch';
-
 export const GET: RequestHandler = async ({ request }) => {
 	const authHeader = request.headers.get('authorization');
 	if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
@@ -21,7 +19,10 @@ export const GET: RequestHandler = async ({ request }) => {
 	const periodEnd = new Date().toISOString();
 
 	const enabledProjects = await db
-		.select()
+		.select({
+			id: projects.id, name: projects.name, slug: projects.slug, color: projects.color,
+			clientEmail: projects.clientEmail, weeklyDigestEnabled: projects.weeklyDigestEnabled
+		})
 		.from(projects)
 		.where(and(eq(projects.weeklyDigestEnabled, true), eq(projects.archived, false)));
 
@@ -79,8 +80,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			periodStart,
 			periodEnd,
 			posts,
-			positions,
-			positionsUrl: `${APP_URL}/positions/${project.slug}?token=${project.accessToken}`
+			positions
 		});
 
 		results.push({ project: project.slug, sent: result.sent, reason: result.reason, postsCount: posts.length });

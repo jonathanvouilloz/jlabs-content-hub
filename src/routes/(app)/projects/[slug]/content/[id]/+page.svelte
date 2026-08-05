@@ -34,7 +34,7 @@
 	async function changeStatus(newStatus: string) {
 		await fetch(`/api/content/${data.content.id}/status`, {
 			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ status: newStatus })
 		});
 		invalidateAll();
@@ -42,8 +42,7 @@
 
 	async function deleteComment(commentId: string) {
 		await fetch(`/api/comments/${commentId}`, {
-			method: 'DELETE',
-			headers: { Authorization: 'Bearer dev-api-key' }
+			method: 'DELETE'
 		});
 		invalidateAll();
 	}
@@ -220,12 +219,12 @@
 			const finalBody = editedLinkedinBody || getLinkedinPreview();
 			await fetch(`/api/content/${data.content.id}`, {
 				method: 'PUT',
-				headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ body: finalBody, meta: null })
 			});
 			await fetch(`/api/content/${data.content.id}/status`, {
 				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ status: 'approved' })
 			});
 			invalidateAll();
@@ -255,7 +254,7 @@
 		const isoDate = newPlannedDate ? new Date(newPlannedDate).toISOString() : null;
 		await fetch(`/api/content/${data.content.id}`, {
 			method: 'PUT',
-			headers: { 'Content-Type': 'application/json', Authorization: 'Bearer dev-api-key' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ plannedDate: isoDate })
 		});
 		editingDate = false;

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { FileText, MapPin, Copy, Check, Link } from 'lucide-svelte';
+	import { FileText, MapPin } from 'lucide-svelte';
 	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
 	import ContentTable from '$lib/components/ContentTable.svelte';
 	import ContentPreview from '$lib/components/ContentPreview.svelte';
@@ -18,9 +18,7 @@
 	async function loadPublished() {
 		loadingPublished = true;
 		try {
-			const res = await fetch(`/api/content?project=${data.project.slug}&status=published`, {
-				headers: { Authorization: 'Bearer dev-api-key' }
-			});
+			const res = await fetch(`/api/content?project=${data.project.slug}&status=published`);
 			const json = await res.json();
 			publishedContents = json.data ?? [];
 		} catch {
@@ -43,20 +41,6 @@
 		goto(`?${params.toString()}`, { replaceState: true });
 	}
 
-	let copied = $state(false);
-	function copyToken() {
-		navigator.clipboard.writeText(data.project.accessToken);
-		copied = true;
-		setTimeout(() => (copied = false), 2000);
-	}
-
-	let copiedLink = $state(false);
-	function copyClientLink() {
-		const link = `${window.location.origin}/view/${data.project.slug}?token=${data.project.accessToken}`;
-		navigator.clipboard.writeText(link);
-		copiedLink = true;
-		setTimeout(() => (copiedLink = false), 2000);
-	}
 </script>
 
 <div class="flex flex-col h-[calc(100vh-73px)] -mx-6 -my-6 lg:-mx-8">
@@ -68,22 +52,6 @@
 				{#if data.project.description}
 					<p class="mt-0.5 text-sm text-surface-400">{data.project.description}</p>
 				{/if}
-			</div>
-			<div class="flex gap-2">
-				<button
-					onclick={copyClientLink}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-				>
-					{#if copiedLink}<Check size={12} />{:else}<Link size={12} />{/if}
-					{copiedLink ? 'Copie !' : 'Lien client'}
-				</button>
-				<button
-					onclick={copyToken}
-					class="inline-flex items-center gap-1.5 rounded-md border border-surface-200 bg-white px-3 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:bg-surface-50"
-				>
-					{#if copied}<Check size={12} />{:else}<Copy size={12} />{/if}
-					{copied ? 'Copie !' : 'Token'}
-				</button>
 			</div>
 		</div>
 

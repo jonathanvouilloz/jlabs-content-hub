@@ -6,6 +6,11 @@ import { eq } from 'drizzle-orm';
 
 export const load: LayoutServerLoad = async ({ params }) => {
 	const project = await db.query.projects.findFirst({
+		columns: {
+			id: true, name: true, slug: true, entityId: true, description: true,
+			color: true, image: true, archived: true, gmbLocationId: true,
+			clientEmail: true, weeklyDigestEnabled: true, createdAt: true, updatedAt: true
+		},
 		where: eq(projects.slug, params.slug)
 	});
 
@@ -39,7 +44,7 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.then((r) => r[0]);
 
 	return {
-		project,
+		project: { ...project },
 		connections: {
 			cms: !!cmsConnection,
 			cmsType: cmsConnection?.cmsType ?? null,

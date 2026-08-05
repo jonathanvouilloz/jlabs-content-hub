@@ -14,14 +14,7 @@ const config = {
 		}
 	},
 	kit: {
-		adapter: adapter(),
-		csrf: {
-			// Disabled: every /api/* route enforces its own auth (Bearer API key via validateApiKey,
-			// or Better Auth session via locals.user). Better Auth handles CSRF for /api/auth/*.
-			// Required so server-to-server multipart POSTs (e.g. /publish-hub uploading to /api/blob/upload)
-			// are not rejected by SvelteKit's default same-origin form check.
-			checkOrigin: false
-		}
+		adapter: adapter()
 	}
 };
 
