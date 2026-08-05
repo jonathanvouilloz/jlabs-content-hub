@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { contents, projects, statusHistory } from '$lib/server/db/schema.js';
 import { createId } from '$lib/server/utils.js';
-import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
+import { authorizeMachine, machineAuthError, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { slugify } from '$lib/utils/slugify.js';
 import { parseFrontmatter } from '$lib/utils/content.js';
 import { isBatchFormat, parseLinkedInBatch } from '$lib/utils/linkedin.js';
@@ -11,9 +11,8 @@ import { suggestDates } from '$lib/utils/linkedin-schedule.js';
 import { eq, and, like } from 'drizzle-orm';
 
 export const POST: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
-		return errorResponse('Unauthorized', 401);
-	}
+	const auth = authorizeMachine(event, 'content:write');
+	if (!auth.ok) return machineAuthError(auth);
 
 	const body = await event.request.json();
 	const { project_slug, type, title, slug: bodySlug, body: content, planned_date, tags, meta } = body;
@@ -55,14 +54,20 @@ export const POST: RequestHandler = async (event) => {
 		await db.update(contents).set({
 			title,
 			body: content,
+			status: 'draft',
 			plannedDate: planned_date ?? null,
 			tags: tags ? JSON.stringify(tags) : null,
 			meta: meta ? JSON.stringify(meta) : null,
 			updatedAt: new Date().toISOString()
 		}).where(eq(contents.id, id));
+		if (existing.status !== 'draft') {
+			await db.insert(statusHistory).values({
+				id: createId(), contentId: id, fromStatus: existing.status, toStatus: 'draft', changedBy: 'api'
+			});
+		}
 	} else {
-		const initialStatus = type === 'gmb' ? 'approved' : 'draft';
-		const initialChangedBy = type === 'gmb' ? 'api-auto-approve' : 'api';
+		const initialStatus = 'draft';
+		const initialChangedBy = 'api';
 
 		await db.insert(contents).values({
 			id,
@@ -192,10 +197,16 @@ export const POST: RequestHandler = async (event) => {
 					await db.update(contents).set({
 						title: rawTitle,
 						body: postBody,
+						status: 'draft',
 						plannedDate: postPlannedDate,
 						meta: postMeta,
 						updatedAt: new Date().toISOString()
 					}).where(eq(contents.id, existingPost.id));
+					if (existingPost.status !== 'draft') {
+						await db.insert(statusHistory).values({
+							id: createId(), contentId: existingPost.id, fromStatus: existingPost.status, toStatus: 'draft', changedBy: 'api'
+						});
+					}
 					updatedIds.push(existingPost.id);
 				} else {
 					const postId = createId();
@@ -206,7 +217,7 @@ export const POST: RequestHandler = async (event) => {
 						title: rawTitle,
 						slug: postSlug,
 						body: postBody,
-						status: 'approved',
+						status: 'draft',
 						plannedDate: postPlannedDate,
 						meta: postMeta
 					});
@@ -214,8 +225,8 @@ export const POST: RequestHandler = async (event) => {
 						id: createId(),
 						contentId: postId,
 						fromStatus: null,
-						toStatus: 'approved',
-						changedBy: 'api-auto-approve'
+						toStatus: 'draft',
+						changedBy: 'api-batch-import'
 					});
 					createdIds.push(postId);
 				}
@@ -239,9 +250,8 @@ export const POST: RequestHandler = async (event) => {
 };
 
 export const GET: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
-		return errorResponse('Unauthorized', 401);
-	}
+	const machineAuth = event.locals.user ? null : authorizeMachine(event, 'content:read');
+	if (!event.locals.user && machineAuth && !machineAuth.ok) return machineAuthError(machineAuth);
 
 	const projectSlug = event.url.searchParams.get('project');
 	const type = event.url.searchParams.get('type');
