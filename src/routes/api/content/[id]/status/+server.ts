@@ -2,7 +2,8 @@ import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { contents, indexingCredentials, statusHistory } from '$lib/server/db/schema.js';
 import { createId } from '$lib/server/utils.js';
-import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
+import { authorizeMachine, machineAuthError, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
+import { planContentStatusChange, resolveContentStatusActor } from '$lib/server/content-status.js';
 import { publishUrl } from '$lib/server/indexing.js';
 import { scheduleIndexChecks } from '$lib/server/collectors/index-selection.js';
 import { eq } from 'drizzle-orm';
@@ -23,49 +24,54 @@ const VALID_STATUSES = [
 ];
 
 export const PATCH: RequestHandler = async (event) => {
-	if (!validateApiKey(event) && !event.locals.user) {
-		return errorResponse('Unauthorized', 401);
-	}
+	const machineAuth = event.locals.user ? null : authorizeMachine(event, 'content:status');
+	if (!event.locals.user && machineAuth && !machineAuth.ok) return machineAuthError(machineAuth);
+	const changedBy = resolveContentStatusActor(
+		event.locals.user ? { user: { id: event.locals.user.id, email: event.locals.user.email } } : null,
+		machineAuth?.ok ? machineAuth.credential : null
+	);
+	if (!changedBy) return errorResponse('Unauthorized', 401);
 
 	const body = await event.request.json();
 	const { status } = body;
-	// Trace d'audit : 'admin' via l'UI, 'autopilot' (ou valeur fournie) via l'API.
-	const changedBy = typeof body.changedBy === 'string' && body.changedBy ? body.changedBy : 'admin';
 
 	if (!status || !VALID_STATUSES.includes(status)) {
 		return errorResponse(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`, 400);
 	}
 
-	const content = await db.query.contents.findFirst({
-		where: eq(contents.id, event.params.id)
+	const decision = await db.transaction(async (tx) => {
+		const rows = await tx
+			.select()
+			.from(contents)
+			.where(eq(contents.id, event.params.id))
+			.limit(1)
+			.for('update');
+		const content = rows[0];
+		if (!content) return null;
+
+		const plan = planContentStatusChange(content.status, status);
+		if (!plan.changed) return { content, publishedAt: content.publishedAt, idempotent: true };
+
+		const now = new Date().toISOString();
+		const updates: Record<string, unknown> = { status, updatedAt: now };
+		if (status === 'published' && !content.publishedAt) updates.publishedAt = now;
+		const publishedAt = (updates.publishedAt as string | undefined) ?? content.publishedAt;
+		if (status === 'published' && !content.plannedDate) updates.plannedDate = now.slice(0, 10);
+
+		await tx.update(contents).set(updates).where(eq(contents.id, event.params.id));
+		await tx.insert(statusHistory).values({
+			id: createId(),
+			contentId: event.params.id,
+			fromStatus: content.status,
+			toStatus: status,
+			changedBy
+		});
+		return { content, publishedAt, idempotent: false };
 	});
-	if (!content) return errorResponse('Content not found', 404);
 
-	const updates: Record<string, unknown> = {
-		status,
-		updatedAt: new Date().toISOString()
-	};
-
-	if (status === 'published' && !content.publishedAt) {
-		updates.publishedAt = new Date().toISOString();
-	}
-	// IDX-004 lot 2 — la MÊME valeur sert à écrire la ligne et à dater les échéances J+3/7/28.
-	// Un second `new Date()` plus bas les ferait diverger d'un jour à la frontière d'UTC, et la
-	// jointure « honorée » (observed_date >= due_date) deviendrait fausse pour toujours.
-	const publishedAt = (updates.publishedAt as string | undefined) ?? content.publishedAt;
-	if (status === 'published' && !content.plannedDate) {
-		updates.plannedDate = new Date().toISOString().slice(0, 10);
-	}
-
-	await db.update(contents).set(updates).where(eq(contents.id, event.params.id));
-
-	await db.insert(statusHistory).values({
-		id: createId(),
-		contentId: event.params.id,
-		fromStatus: content.status,
-		toStatus: status,
-		changedBy
-	});
+	if (!decision) return errorResponse('Content not found', 404);
+	const { content, publishedAt, idempotent } = decision;
+	if (idempotent) return jsonResponse({ id: event.params.id, status, idempotent: true });
 
 	// Auto-submit a la Google Indexing API si configure pour ce projet.
 	// IDX-008 : passe désormais par la garde d'éligibilité. Un contenu ordinaire n'a
