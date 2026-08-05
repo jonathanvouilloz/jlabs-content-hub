@@ -217,12 +217,13 @@ build peut casser sans qu'aucun commit n'ait bougé.
 ### Phase 6 — Nettoyage — ⏳ deux gestes d'INFRA, DÉBLOQUÉS depuis le cutover
 - [x] `.env` **local** repointé Turso → Neon (2026-07-21). Le code (`neon()`) ne parle plus que Postgres.
 - [x] `@libsql/client` retiré des dépendances, `DATABASE_AUTH_TOKEN` retiré de `.env` / `.env.example`.
-- [ ] **Roter le mot de passe Neon** (`npg_k4teo0HIxPKF...`) — exposé en clair en chat les 2026-07-20/21,
-      **et de nouveau le 2026-07-26** au moment du cutover. **Volontairement pas encore roté** (décision
-      Jonathan 2026-07-21), mais l'enjeu a changé de nature : ce mot de passe ouvre maintenant **la base
-      de production**, plus une copie de travail. ⚠️ `neondb` est **partagée avec `noyau/invoices`** : la
-      rotation casse les deux apps si elle n'est pas propagée en une passe — Vercel Production de
-      `jlabs-content-hub` **et** de l'app invoices, plus les deux `.env` locaux.
+- [x] **Roter le mot de passe Neon** — exposé en clair en chat les 2026-07-20/21,
+      **et de nouveau le 2026-07-26** au moment du cutover. **✅ ROTÉ le 2026-08-05** (décision
+      Jonathan 2026-07-21, exécutée en session P0) : les 3 branches (production, staging, test-branch)
+      portent un password neuf, propagé en une passe — Vercel Production/Preview de
+      `jlabs-content-hub`, les deux `.env` locaux (seo-stats, invoices) — et vérifié
+      (round-trip, prod vivante, MCP OK). L'ancien password est mort. Ancienne valeur tronquée
+      retirée de ce document (ne documenter que le nom, jamais la valeur).
 - [ ] Décommissionner Turso après quelques jours de prod Neon verte. ⚠️ Avant de
       supprimer : `05-drift-report.mjs` et `06-backfill-delta.mjs` lisent Turso, et `01-export-turso.mjs`
       ne tourne plus tel quel (`@libsql/client` a été retiré des dépendances). Faire un dernier export
