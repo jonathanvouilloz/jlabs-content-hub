@@ -7,7 +7,7 @@ export default defineConfig({
 	out: './drizzle',
 	// Base Neon partagée avec invoices. On ne migre QUE `seostats` ; `core` est
 	// possédé par invoices et déclaré ici en miroir lecture-seule (pour la FK cross-schéma).
-	schemaFilter: ['core', 'seostats'],
+	schemaFilter: ['seostats'],
 	dbCredentials: {
 		url: process.env.DATABASE_URL!
 	}

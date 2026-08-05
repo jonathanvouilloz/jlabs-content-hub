@@ -7,7 +7,8 @@ import {
 	timestamp,
 	uniqueIndex,
 	index,
-	foreignKey
+	foreignKey,
+	uuid
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -20,6 +21,7 @@ export const seostats = pgSchema('seostats');
 // NE JAMAIS modifier cette définition depuis seo-stats (sinon db:push diverge d'invoices).
 export const core = pgSchema('core');
 export const entities = core.table('entities', {
+	id: uuid('id').notNull().unique(),
 	slug: text('slug').primaryKey(),
 	display_name: text('display_name'),
 	created_at: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow()
@@ -91,6 +93,7 @@ export const projects = seostats.table(
 		id: text('id').primaryKey(),
 		name: text('name').notNull(),
 		slug: text('slug').notNull().unique(), // ⟵ POINTEUR NOYAU → FK core.entities
+		entityId: uuid('entity_id').references(() => entities.id, { onDelete: 'restrict' }),
 		description: text('description'),
 		color: text('color').notNull().default('#00D9A3'),
 		image: text('image'),
