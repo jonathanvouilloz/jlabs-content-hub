@@ -74,7 +74,7 @@ neondb
   intacte) + dump JSON. Baseline Drizzle versionnée : `invoices/drizzle/0000_baseline.sql` (+ `meta/`
   snapshot) ; le split one-time est archivé en `invoices/drizzle/manual/2026-07-20_schema-split.sql`.
 - **⏳ Reste : P6, deux gestes d'infra** (roter password Neon + supprimer Turso). P3/P4/P5 faits. Voir phases ci-dessous.
-- **⚠️ À faire hors-code** : roter le mot de passe Neon (`npg_k4teo0HIxPKF…`) exposé en clair.
+- **⚠️ À faire hors-code** : roter le mot de passe Neon historique (`[REDACTED]`) qui avait été exposé en clair.
 
 ## Phases
 
@@ -98,7 +98,7 @@ neondb
 - [ ] `schema.ts` : envelopper les tables dans `pgSchema('invoices')`, `clients.slug` → FK `core.entities`.
       (Nouveau `pgSchema('core')` pour `entities`.)
 - [ ] `drizzle.config.ts` : ajouter `schemaFilter: ['invoices', 'core']`.
-- [ ] `db:push` en dry-run, vérifier qu'aucune table seostats/inconnue n'est touchée. Build + smoke test.
+- [ ] Générer, relire et journaliser une migration SQL filtrée ; `db:push` est interdit sur la base partagée. Build + smoke test.
 
 ### Phase 3 — Code seo-stats : refactor Turso → Neon — ✅ FAIT (commit `feat/neon`)
 - [ ] `db/index.ts` : `drizzle-orm/libsql` + `@libsql/client` → `drizzle-orm/neon-http` + `@neondatabase/serverless`.
@@ -112,7 +112,21 @@ neondb
       - `projects.slug` → ajouter FK `→ core.entities.slug` (FK cross-schéma, lecture seule côté seostats).
 - [ ] `.env.example` : `DATABASE_URL` = Neon `postgresql://...` ; retirer `DATABASE_AUTH_TOKEN`.
 - [ ] `npm i @neondatabase/serverless` ; retirer `@libsql/client` des deps.
-- [ ] `db:push` (schemaFilter seostats) → crée les 30 tables dans `seostats`. Build.
+- [ ] Appliquer la migration SQL relue (schemaFilter seostats) → crée les tables dans `seostats`. Build.
+
+## Rôles minimaux et rotation
+
+Le modèle actuel utilise des rôles groupe `NOLOGIN` et des principaux LOGIN Neon gérés hors dépôt :
+
+- `seostats_runtime` : DML uniquement dans `seostats`, lecture de `core.entities` et `core.entity_aliases` ;
+- `seostats_migrator` : migrations SQL relues du seul schéma `seostats` ;
+- `core_registry_writer` : écriture `core` uniquement pendant une réconciliation explicitement approuvée ;
+- aucune credential PostgreSQL pour Hermes ou `agent-ops`.
+
+Le SQL canonique est `../invoices/drizzle/manual/roles-and-grants.sql` et le runbook transverse
+`../onboarding/docs/runbooks/database-roles.md`. La rotation se fait avec deux principaux en chevauchement :
+tester le nouveau rôle en staging, déployer, surveiller, puis révoquer l’ancien. Les tests négatifs doivent
+prouver que `seostats_runtime` ne peut écrire ni dans `core`, ni dans `invoices`, ni dans `onboarding`.
 
 ### Phase 4 — Migration des données Turso → Neon `seostats` — ✅ FAIT + VÉRIFIÉ (2026-07-21)
 - [x] Export des 29 tables depuis Turso (`scripts/migrate/01-export-turso.mjs`, libsql → JSON, ~75k lignes).
@@ -177,6 +191,8 @@ hors lundi matin, comme prévu.
 ⚠️ **`hub.jonlabs.ch` ne résout pas** (NXDOMAIN confirmé sur 8.8.8.8 ; `jonlabs.ch` résout, lui).
 **Sans rapport avec le cutover** — le domaine custom n'est pas/plus branché sur Vercel — mais les docs
 le citent comme URL de prod. L'URL qui répond est `jlabs-content-hub.vercel.app`.
+Le remplacement canonique choisi le 2026-08-03 est **`hubseo.jonlabs.ch`** ; le code et
+`.env.example` sont alignés, tandis que le custom domain, le DNS et les variables Vercel restent à poser.
 
 **Rollback** (toujours ouvert tant que Turso n'est pas décommissionné) : Turso reste intact et **figé
 au 2026-07-26 09:00 UTC** — depuis la bascule il ne reçoit plus rien, donc revenir en arrière

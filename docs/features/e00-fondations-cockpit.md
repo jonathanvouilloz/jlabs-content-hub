@@ -48,10 +48,10 @@ ce premier contact avec le réel, tous deux corrigés et déployés.
   inspections**). `vitest` **1543 passés / 46 fichiers**, `npm run check` **0 erreur / 42
   warnings** — nouvelles baselines.
 
-**Prochain :** vérifier **`PUBLIC_APP_URL` côté Vercel** — `hub.jonlabs.ch` ne résout plus
-(NXDOMAIN) et c'est le fallback en dur de `src/lib/server/notifications.ts` et de
-`/api/cron/gmb-weekly-digest`, qui part **lundi 06:00 UTC** vers `contact@barberconcept.ch` avec
-des liens dedans. Non lisible sans la CLI Vercel (non installée) → tâche Jonathan. Ensuite
+**Prochain :** brancher **`hubseo.jonlabs.ch` côté Vercel/DNS** et aligner `PUBLIC_APP_URL`,
+`BETTER_AUTH_URL` et `BETTER_AUTH_TRUSTED_ORIGINS`. Le nouveau domaine canonique et le fallback de
+`src/lib/server/notifications.ts` sont alignés dans le code depuis le 2026-08-03. Non vérifiable
+sans la CLI Vercel (non installée) → tâche Jonathan. Ensuite
 **AGT-001** (18 propositions, 0 approbation, approuver n'exécute rien).
 
 **Pièges :** ⚠️ **Le run de `barberconcept` était encore `queued` à l'écriture** (posé 22:15 UTC

@@ -13,3 +13,4 @@ package-lock.json
 .seo-data/
 # Locks runtime
 .claude/scheduled_tasks.lock
+.env*

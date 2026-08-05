@@ -1,5 +1,19 @@
 # HANDOFF — 2026-07-31
 
+## Client Ops / Task 17 — état local au 2026-08-01
+
+- Les credentials machine sont hashés SHA-256, scopés, activables, expirables, révocables et compatibles avec une rotation à chevauchement.
+- La création admin passe par une action SvelteKit serveur; aucun bearer `VITE_API_KEY` ne reste dans le navigateur.
+- Les nouvelles projections résolvent `core.entities`, portent `entity_id` et sont idempotentes.
+- Les nouveaux tokens client sont retournés une seule fois puis persistés hashés avec expiration; la rotation remplace le hash et révoque l’ancien token.
+- La protection CSRF globale SvelteKit est réactivée. Les APIs machine JSON conservent leurs contrôles bearer et scopes.
+- Tout contenu reçu par API, y compris calendriers GMB/LinkedIn, reste `draft`; aucune publication externe n’est déclenchée par l’import.
+- L’approbation de proposition est liée au hash exact, transactionnelle, idempotente et auditée; elle ne déclenche actuellement aucune exécution.
+- Vérifié localement : `npm run check` sans erreur et 1 576 tests réussis. Le build client/serveur compile, puis l’adapter Vercel échoue sur le symlink Windows `EPERM`.
+- Le backfill défensif des tokens legacy est disponible via `npm run db:backfill-client-tokens` : dry-run par défaut, `--apply` explicite, transaction et refus des formats inconnus sans afficher les tokens.
+- Non vérifié : exécution du backfill sur staging, rotation réelle des credentials, build Linux/Vercel et parcours machine staging.
+- Le credential Neon historique référencé dans la documentation a été retiré du texte; sa révocation/rotation réelle reste une intervention humaine obligatoire.
+
 ## Features actives
 | Feature | Fichier | Statut |
 |---------|---------|--------|
@@ -64,10 +78,10 @@ indiscernable de son inexistence — le run hebdo de `cardrank` était `success`
 pouvait s'annoncer **`complete` alors qu'une détection n'avait pas tourné**. C'est « absent ≠
 zéro » transposé aux steps. `recomputeRunStatus` compte désormais les jobs `queued`/`running`.
 
-**Prochaine étape : vérifier `PUBLIC_APP_URL` côté Vercel.** ⚠️ **`hub.jonlabs.ch` ne résout plus
-(NXDOMAIN)** et c'est le fallback en dur de `notifications.ts` et de `/api/cron/gmb-weekly-digest`,
-qui part **lundi 06:00 UTC** vers `contact@barberconcept.ch` (seul projet opt-in) avec des liens
-dedans. Non lisible sans la CLI Vercel (non installée).
+**Prochaine étape : brancher `hubseo.jonlabs.ch` côté Vercel/DNS.** Le domaine canonique a été
+choisi le 2026-08-03 et le fallback de `notifications.ts` ainsi que `.env.example` sont alignés.
+Jonathan doit ajouter le custom domain puis régler `PUBLIC_APP_URL`, `BETTER_AUTH_URL` et
+`BETTER_AUTH_TRUSTED_ORIGINS` en production. Non vérifiable sans la CLI Vercel (non installée).
 
 ⚠️ **À savoir pour lire le rapport du lundi 03/08** : comme la semaine a été collectée le 31/07, le
 run du 03/08 collectera **la même** (20→26/07 reste la dernière complète avec la latence de 3 j).

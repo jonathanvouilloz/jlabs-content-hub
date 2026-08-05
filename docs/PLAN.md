@@ -4,6 +4,8 @@
 > **Cap actuel :** refonte **cockpit agentique de monitoring** (SPEC : [SPEC.md](SPEC.md) · execution : [BACKLOG.md](BACKLOG.md)).
 > Ce fichier ne garde que **l'historique du socle livré** (Phases 1-2, epics 1-23). La suite (E00→E13)
 > vit dans **[BACKLOG.md](BACKLOG.md)**, pas ici. Le pivot jokiSEO (2026-06-24) est archivé (`_archive/PRD-jokiseo.md`).
+> La coupe requise pour Hermes/VPS est maintenue dans **[VPS-READINESS.md](VPS-READINESS.md)** ;
+> elle pointe les tickets du backlog sans les remplacer.
 >
 > **Pré-requis transverse en cours :** migration Turso → Neon, **Phase 5A — le cutover**
 > (voir [NEON-MIGRATION.md](NEON-MIGRATION.md)). ⚠️ Constaté le 2026-07-26 : `main` porte encore le

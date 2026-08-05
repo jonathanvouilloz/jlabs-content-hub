@@ -13,7 +13,7 @@ import {
 
 const FROM = env.FROM_EMAIL ?? 'hub@jonlabs.ch';
 const ADMIN = env.ADMIN_EMAIL ?? 'contact@jonlabs.ch';
-const APP_URL = env.PUBLIC_APP_URL ?? 'https://hub.jonlabs.ch';
+const APP_URL = env.PUBLIC_APP_URL ?? 'https://hubseo.jonlabs.ch';
 
 let resendClient: Resend | null = null;
 function getResend(): Resend | null {
