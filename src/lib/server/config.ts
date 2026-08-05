@@ -58,7 +58,9 @@ export const CONFIG_SCHEMA: readonly ConfigVar[] = [
 	{ name: 'BETTER_AUTH_URL', role: 'auth', requirement: 'feature', secret: false, description: 'URL canonique de l’app pour Better Auth.' },
 	{ name: 'BETTER_AUTH_TRUSTED_ORIGINS', role: 'auth', requirement: 'optional', secret: false, description: 'Origines supplémentaires acceptées (CSV).' },
 	{ name: 'ENCRYPTION_KEY', role: 'auth', requirement: 'boot', secret: true, description: 'Clé 32 bytes hex de chiffrement des tokens OAuth stockés.' },
-	{ name: 'API_KEY', role: 'auth', requirement: 'feature', secret: true, description: 'Bearer attendu des skills (Claude Code → hub).' },
+	{ name: 'MACHINE_CREDENTIALS_JSON', role: 'auth', requirement: 'feature', secret: true, description: 'Credentials machine hashés, scopés, expirables et révocables (JSON).' },
+	{ name: 'CORE_RECONCILER_URL', role: 'core', requirement: 'feature', secret: false, description: 'Endpoint contrôlé du reconciler core.entities.' },
+	{ name: 'CORE_RECONCILER_TOKEN', role: 'core', requirement: 'feature', secret: true, description: 'Bearer serveur vers le reconciler core.' },
 	// google
 	{ name: 'GOOGLE_CLIENT_ID', role: 'google', requirement: 'feature', secret: false, description: 'Client OAuth Google (GSC + GMB).' },
 	{ name: 'GOOGLE_CLIENT_SECRET', role: 'google', requirement: 'feature', secret: true, description: 'Secret OAuth Google.' },
