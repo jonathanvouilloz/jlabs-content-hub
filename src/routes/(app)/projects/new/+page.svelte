@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { slugify } from '$lib/utils/slugify.js';
+	import type { ActionData } from './$types.js';
+
+	let { form }: { form: ActionData | null } = $props();
 
 	const COLORS = ['#00D9A3', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
 
@@ -8,8 +10,6 @@
 	let description = $state('');
 	let image = $state('');
 	let color = $state(COLORS[0]);
-	let error = $state('');
-	let loading = $state(false);
 
 	function handleImageUpload(e: Event) {
 		const input = e.target as HTMLInputElement;
@@ -23,42 +23,19 @@
 	}
 
 	let slug = $derived(slugify(name));
-
-	async function handleSubmit(e: Event) {
-		e.preventDefault();
-		if (!name.trim()) return;
-
-		error = '';
-		loading = true;
-
-		const res = await fetch('/api/projects', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${import.meta.env.VITE_API_KEY ?? 'dev-api-key'}`
-			},
-			body: JSON.stringify({ name, slug, description: description || undefined, color, image: image || undefined })
-		});
-
-		const data = await res.json();
-
-		if (!data.ok) {
-			error = data.error ?? 'Erreur lors de la creation';
-			loading = false;
-			return;
-		}
-
-		goto(`/projects/${data.data.slug}`);
-	}
 </script>
 
 <div class="mx-auto max-w-lg">
 	<h1 class="text-2xl font-bold text-surface-900">Nouveau projet</h1>
 
-	<form onsubmit={handleSubmit} class="mt-6 space-y-5">
+	<form method="POST" class="mt-6 space-y-5">
+		<input type="hidden" name="slug" value={slug} />
+		<input type="hidden" name="image" value={image} />
+		<input type="hidden" name="color" value={color} />
 		<label class="block">
 			<span class="text-sm font-medium text-surface-700">Nom du projet</span>
 			<input
+				name="name"
 				type="text"
 				bind:value={name}
 				required
@@ -73,6 +50,7 @@
 		<label class="block">
 			<span class="text-sm font-medium text-surface-700">Description (optionnel)</span>
 			<textarea
+				name="description"
 				bind:value={description}
 				class="input preset-outlined-surface-200 mt-1 w-full"
 				rows="3"
@@ -135,13 +113,13 @@
 			</div>
 		</div>
 
-		{#if error}
-			<p class="text-sm text-red-600">{error}</p>
+		{#if form?.error}
+			<p class="text-sm text-red-600">{form.error}</p>
 		{/if}
 
 		<div class="flex gap-3">
-			<button type="submit" disabled={loading || !name.trim()} class="btn preset-filled-primary-500">
-				{loading ? 'Creation...' : 'Creer le projet'}
+			<button type="submit" disabled={!name.trim()} class="btn preset-filled-primary-500">
+				Créer le projet
 			</button>
 			<a href="/projects" class="btn preset-outlined-surface-200">Annuler</a>
 		</div>

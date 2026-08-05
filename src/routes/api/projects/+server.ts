@@ -1,50 +1,46 @@
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { projects } from '$lib/server/db/schema.js';
-import { createId } from '$lib/server/utils.js';
-import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
+import { authorizeMachine, machineAuthError, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { slugify } from '$lib/utils/slugify.js';
-import { eq } from 'drizzle-orm';
-import { randomBytes } from 'node:crypto';
+import { createProjectProjection } from '$lib/server/project-creation.js';
+import { projectCreationDependencies } from '$lib/server/project-creation-db.js';
 
 export const POST: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
-		return errorResponse('Unauthorized', 401);
-	}
+	const auth = authorizeMachine(event, 'projects:write');
+	if (!auth.ok) return machineAuthError(auth);
 
-	const body = await event.request.json();
-	const { name, slug: bodySlug, description, color, image } = body;
-
+	const body = await event.request.json().catch(() => null) as Record<string, unknown> | null;
+	const name = typeof body?.name === 'string' ? body.name.trim() : '';
 	if (!name) return errorResponse('Missing required field: name', 400);
+	const slug = typeof body?.slug === 'string' && body.slug.trim() ? slugify(body.slug) : slugify(name);
+	if (!slug) return errorResponse('Invalid project slug', 400);
 
-	const slug = bodySlug || slugify(name);
-
-	const existing = await db.query.projects.findFirst({
-		where: eq(projects.slug, slug)
-	});
-	if (existing) return errorResponse(`Project with slug "${slug}" already exists`, 409);
-
-	const id = createId();
-	const accessToken = randomBytes(24).toString('hex');
-
-	await db.insert(projects).values({
-		id,
-		name,
-		slug,
-		description: description ?? null,
-		color: color ?? '#00D9A3',
-		image: image ?? null,
-		accessToken
-	});
-
-	return jsonResponse({ id, slug, access_token: accessToken }, 201);
+	try {
+		const result = await createProjectProjection({
+			name,
+			slug,
+			description: typeof body?.description === 'string' ? body.description : null,
+			color: typeof body?.color === 'string' ? body.color : null,
+			image: typeof body?.image === 'string' ? body.image : null
+		}, projectCreationDependencies);
+		return jsonResponse({
+			id: result.id,
+			slug: result.slug,
+			reused: result.reused,
+			...(result.reused ? {} : {
+				access_token: result.accessToken,
+				access_token_expires_at: result.accessTokenExpiresAt
+			})
+		}, result.reused ? 200 : 201);
+	} catch (error) {
+		return errorResponse(error instanceof Error ? error.message : 'Project creation failed', 503);
+	}
 };
 
 export const GET: RequestHandler = async (event) => {
-	if (!validateApiKey(event)) {
-		return errorResponse('Unauthorized', 401);
-	}
-
+	const auth = authorizeMachine(event, 'projects:read');
+	if (!auth.ok) return machineAuthError(auth);
 	const allProjects = await db.select().from(projects);
-	return jsonResponse(allProjects);
+	return jsonResponse(allProjects.map(({ accessToken: _secret, ...project }) => project));
 };
