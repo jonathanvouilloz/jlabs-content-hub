@@ -1,8 +1,12 @@
 # API agent GMB Barber Concept - v1
 
-> Etat au 24 septembre 2026 : implemente et teste localement sur `feat/s0-stabilisation`.
-> Cette API n'est pas operationnelle sur le VPS tant que les migrations DATA-009/DATA-010,
-> le deploiement Vercel et le credential machine `barberconcept` ne sont pas en place.
+> Etat au 24 septembre 2026 : déployé en production depuis `main` (`4e03fc6`) sur
+> `https://hubseo.jonlabs.ch`. DATA-009/DATA-010 sont déclarées appliquées par l'opérateur et le
+> credential `barberconcept` a été vérifié en production (`200` autorisé, `403` hors projet).
+> Le profil VPS, ses crons, Telegram et sa baseline sont installés. La projection canonique est
+> `current`. DATA-011 est appliquée ; le code `googleReviewUrl` et la policy restent à mettre en
+> production. Runbook :
+> [`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK.md).
 
 ## Frontiere de securite
 
@@ -75,6 +79,7 @@ Chaque avis expose seulement les donnees operationnelles :
 {
   "reviewId": "<stable-id>",
   "snapshot": "<sha256>",
+  "googleReviewUrl": "<URL officielle Google pour ouvrir/repondre a l'avis, ou null>",
   "location": { "id": "<google-location-id>", "label": "Barber Concept Rive" },
   "rating": 5,
   "googleCreatedAt": "<ISO-8601>",
@@ -94,6 +99,10 @@ Chaque avis expose seulement les donnees operationnelles :
   }
 }
 ```
+
+`googleReviewUrl` vient directement du champ output-only `Review.reviewReplyUrl` de Google
+Business Profile. Hermes ne doit jamais reconstruire ce lien. Apres le deploiement DATA-011,
+les lignes historiques restent `null` jusqu'a leur prochain `collect:gmb_reviews`.
 
 Etats de decision :
 
@@ -265,16 +274,20 @@ TELEGRAM_CHAT_ID=<destination-escalades>
 Ne copier sur le VPS ni `DATABASE_URL`, ni `ENCRYPTION_KEY`, ni token Google. Ne creer aucun cron
 de collecte GMB sur le VPS : la collecte canonique reste le job SEO Stats/Vercel existant.
 
+Le credential de production actif au 24 septembre 2026 est
+`hermes-barberconcept-2026-09-r2`. Son bearer brut n'est documenté nulle part et doit vivre dans le
+coffre opérateur et l'environnement sécurisé du VPS.
+
 ## Activation conseillee
 
-1. appliquer DATA-009 puis DATA-010 sur staging et verifier les tables/index ;
-2. compiler/promouvoir une projection Barber Concept `current` avec contexte, voix, interdits et roster ;
-3. creer une policy d'abord `draft_only`, lancer une semaine de dry-run ;
-4. creer le credential borne et verifier 401/403/cross-project ;
-5. deployer le hub, configurer les deux variables non Google sur le VPS ;
-6. verifier l'escalade Telegram des 1-3 etoiles et contenus sensibles ;
+1. ~~appliquer DATA-009 puis DATA-010~~ — déclaré fait par l'opérateur ;
+2. ~~confirmer/promouvoir une projection Barber Concept `current`~~ — fait et vérifié idempotent ;
+3. créer une policy d'abord `draft_only`, lancer une semaine de dry-run ;
+4. ~~créer le credential borné et vérifier 401/403/cross-project~~ — vérifié en production ;
+5. ~~déployer le hub, configurer le VPS et appliquer DATA-011~~ — fait ; redéployer le code ;
+6. ~~vérifier l'escalade Telegram~~ — routage de test validé ;
 7. promouvoir `guarded_auto`, `minRatingForAutoSend=4`, kill switch OFF ;
-8. observer deux semaines de 4-5 etoiles avant de considerer la gate S4 fermee.
+8. observer deux semaines de 4-5 étoiles avant de considérer la gate S4 fermée.
 
 Rollback : activer le kill switch ou repasser la policy en `draft_only`. La synchronisation des
 avis continue ; seules les ecritures sont bloquees.

@@ -179,6 +179,7 @@ async function loadStored(
 		const rows = await db
 			.select({
 				reviewKey: gmbReviews.reviewId,
+				reviewReplyUrl: gmbReviews.reviewReplyUrl,
 				rating: gmbReviews.rating,
 				comment: gmbReviews.comment,
 				authorName: gmbReviews.authorName,
@@ -285,6 +286,7 @@ async function writeReviews(input: {
 					locationId: review.locationId,
 					locationLabel: review.locationLabel,
 					reviewId: review.reviewKey,
+					reviewReplyUrl: review.reviewReplyUrl,
 					authorName: review.authorName,
 					rating: review.rating,
 					comment: review.comment,
@@ -301,6 +303,7 @@ async function writeReviews(input: {
 					// Colonnes DISTANTES uniquement — la liste est exhaustive et volontairement
 					// littérale. Ni `draftReply`, ni `repliedAt`, ni `mentionedEmployees`.
 					rating: sql`excluded.rating`,
+					reviewReplyUrl: sql`excluded.review_reply_url`,
 					comment: sql`excluded.comment`,
 					authorName: sql`excluded.author_name`,
 					locationLabel: sql`excluded.location_label`,

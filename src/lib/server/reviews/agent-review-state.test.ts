@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	applyProjectionGate,
 	classifyAgentReview,
 	decodeReviewCursor,
 	encodeReviewCursor,
@@ -53,6 +54,24 @@ describe('classifyAgentReview', () => {
 			comment: '',
 			locationLastSyncAt: '2026-09-20 09:00:00'
 		}).status).toBe('stale_or_unhealthy_location');
+	});
+});
+
+describe('applyProjectionGate', () => {
+	it('bloque un avis autrement eligible si le contexte est absent ou invalide', () => {
+		const eligible = classifyAgentReview({ ...healthy, rating: 5, comment: 'Excellent' });
+		expect(applyProjectionGate(eligible, 'context_missing')).toEqual({
+			status: 'sensitive_or_blocked',
+			autoPublishable: false,
+			reasons: ['context_missing']
+		});
+	});
+
+	it('ne masque pas un verdict plus prioritaire et laisse passer une projection valide', () => {
+		const human = classifyAgentReview({ ...healthy, rating: 2, comment: 'Decevant' });
+		expect(applyProjectionGate(human, 'context_missing')).toBe(human);
+		const eligible = classifyAgentReview({ ...healthy, rating: 5, comment: 'Excellent' });
+		expect(applyProjectionGate(eligible, null)).toBe(eligible);
 	});
 });
 

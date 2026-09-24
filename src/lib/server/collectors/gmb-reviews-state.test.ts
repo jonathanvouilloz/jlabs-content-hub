@@ -29,6 +29,7 @@ function raw(over: Record<string, unknown> = {}): Record<string, unknown> {
 		comment: 'Super',
 		createTime: '2026-07-18T10:52:48.406099Z',
 		updateTime: '2026-07-18T10:52:48.406099Z',
+		reviewReplyUrl: 'https://business.google.com/reviews/reply/example',
 		...over
 	};
 }
@@ -177,6 +178,7 @@ describe('normalizeReview — null est un trou nommé, jamais un objet à champs
 		expect(n).not.toBeNull();
 		expect(n!.reviewKey).toBe('AbC-xyz');
 		expect(n!.reviewName).toBe('accounts/111/locations/123/reviews/AbC-xyz');
+		expect(n!.reviewReplyUrl).toBe('https://business.google.com/reviews/reply/example');
 		expect(n!.rating).toBe(5);
 		expect(n!.remoteReplyText).toBe('Merci !');
 		// Format DB, PAS l'ISO de Google : sinon la comparaison lexicale est cassée.
@@ -222,6 +224,11 @@ describe('normalizeReview — null est un trou nommé, jamais un objet à champs
 		const n = normalizeReview(raw({ name: undefined, reviewId: 'XyZ' }), CTX);
 		expect(n!.reviewKey).toBe('XyZ');
 	});
+
+	it('rend null quand Google ne fournit pas de lien de gestion', () => {
+		const n = normalizeReview(raw({ reviewReplyUrl: undefined }), CTX);
+		expect(n!.reviewReplyUrl).toBeNull();
+	});
 });
 
 // ── Le diff ────────────────────────────────────────────────────────────────────────────
@@ -229,6 +236,7 @@ describe('normalizeReview — null est un trou nommé, jamais un objet à champs
 function stored(over: Partial<StoredReview> = {}): StoredReview {
 	return {
 		reviewKey: 'AbC-xyz',
+		reviewReplyUrl: 'https://business.google.com/reviews/reply/example',
 		rating: 5,
 		comment: 'Super',
 		authorName: 'Jean D.',
@@ -244,6 +252,7 @@ function incoming(over: Partial<NormalizedReview> = {}): NormalizedReview {
 	return {
 		reviewKey: 'AbC-xyz',
 		reviewName: 'accounts/111/locations/123/reviews/AbC-xyz',
+		reviewReplyUrl: 'https://business.google.com/reviews/reply/example',
 		locationId: 'locations/123',
 		locationLabel: 'Plainpalais',
 		authorName: 'Jean D.',
@@ -275,6 +284,12 @@ describe('diffReview', () => {
 		);
 		expect(d.action).toBe('update');
 		expect(d.fields.sort()).toEqual(['remoteReplyAt', 'remoteReplyText']);
+	});
+
+	it('synchronise le lien officiel Google sans invalider le brouillon', () => {
+		const d = diffReview(stored({ reviewReplyUrl: null }), incoming());
+		expect(d).toEqual({ action: 'update', fields: ['reviewReplyUrl'] });
+		expect(invalidatesDraft(d)).toBe(false);
 	});
 
 	it('une note ou un commentaire modifié invalide le brouillon (GMB-002)', () => {

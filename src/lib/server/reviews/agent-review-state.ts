@@ -39,6 +39,23 @@ export interface AgentReviewDecision {
 	reasons: string[];
 }
 
+/**
+ * Une policy active ne suffit jamais : la projection doit etre courante, valide et couvrir
+ * la fiche concernee. On conserve toutefois les verdicts plus prioritaires (deja repondu,
+ * note basse, contenu sensible, fiche stale) au lieu de les masquer par une erreur de contexte.
+ */
+export function applyProjectionGate(
+	decision: AgentReviewDecision,
+	projectionFailure: string | null
+): AgentReviewDecision {
+	if (!projectionFailure || decision.status !== 'eligible_auto') return decision;
+	return {
+		status: 'sensitive_or_blocked',
+		autoPublishable: false,
+		reasons: [projectionFailure]
+	};
+}
+
 function parseTimestamp(value: string | null): number | null {
 	if (!value) return null;
 	const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)

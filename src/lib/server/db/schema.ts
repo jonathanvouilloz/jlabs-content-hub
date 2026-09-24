@@ -215,6 +215,8 @@ export const gmbReviews = seostats.table(
 		locationId: text('location_id').notNull(),
 		locationLabel: text('location_label').notNull(),
 		reviewId: text('review_id').notNull().unique(),
+		/** URL officielle fournie par GBP pour ouvrir/repondre a cet avis. Jamais reconstruite. */
+		reviewReplyUrl: text('review_reply_url'),
 		authorName: text('author_name').notNull(),
 		rating: integer('rating').notNull(),
 		comment: text('comment').notNull().default(''),

@@ -337,6 +337,7 @@ export async function publishToLocations(
 
 export interface GmbReview {
 	reviewId: string;
+	reviewReplyUrl: string | null;
 	locationId: string;
 	locationLabel: string;
 	authorName: string;
@@ -383,6 +384,10 @@ export async function fetchLocationReviews(
 			for (const r of data.reviews) {
 				reviews.push({
 					reviewId: r.name || r.reviewId,
+					reviewReplyUrl:
+						typeof r.reviewReplyUrl === 'string' && r.reviewReplyUrl.trim()
+							? r.reviewReplyUrl.trim()
+							: null,
 					locationId,
 					locationLabel: '',
 					authorName: r.reviewer?.displayName || 'Anonyme',
@@ -477,6 +482,7 @@ export async function syncProjectReviews(projectId: string): Promise<number> {
 				locationId: r.locationId,
 				locationLabel: r.locationLabel,
 				reviewId: r.reviewId,
+				reviewReplyUrl: r.reviewReplyUrl,
 				authorName: r.authorName,
 				rating: r.rating,
 				comment: r.comment,

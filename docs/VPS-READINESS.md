@@ -10,11 +10,15 @@ Faire de SEO Stats la frontière métier sécurisée entre Hermes et les donnée
 reste scheduler, propriétaire de Neon, des jobs, findings, policies et audits. Hermes ne reçoit ni
 `DATABASE_URL` ni accès SQL.
 
-## Baseline avant implémentation
+Runbook opérateur Barber Concept : [`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK.md).
 
-Le working tree porte un chantier local important autour de machine-auth, client tokens, fédération
-`core.entities`, idempotence et durcissement des imports. Il doit être revu, découpé, testé et déployé
-avant d’ajouter la surface VPS. Ne pas rebaser ou committer à l’aveugle les modifications existantes.
+## État de déploiement au 24 septembre 2026
+
+La slice GMB Barber Concept est fusionnée sur `main` (`4e03fc6`) et déployée sur
+`https://hubseo.jonlabs.ch`. Le build Linux/Vercel est `Ready`. Le credential dédié a été tourné,
+borné à `barberconcept` et testé en production (`200` sur le projet, `403` hors allowlist). Les
+migrations DATA-009/DATA-010 sont déclarées appliquées par l'opérateur. Restent le câblage du profil
+VPS/Telegram, la preuve de projection/policy réelle et l'observation du canary.
 
 ## Lot S0 — Stabiliser le chantier local
 
@@ -47,8 +51,9 @@ avant d’ajouter la surface VPS. Ne pas rebaser ou committer à l’aveugle les
       Hermes · `db1705c` docs et outils.
       ⚠️ Les ~30 scripts jetables `reply-reviews-*` / `publish-replies-*` sont **délibérément non commités** :
       c’est la boucle manuelle que le Lot S4 remplace.
-- [ ] Obtenir l’autorisation de push/déploiement (Jonathan).
-- [ ] Vérifier `/api/whoami`, migrations, auth humaine et machine en production.
+- [x] Push `main` et déploiement Vercel autorisés puis réalisés (`4e03fc6`).
+- [x] Auth machine Barber Concept vérifiée en production (`200`/`403`).
+- [ ] Vérifier l'auth humaine et consigner la preuve de migration depuis la base.
 
 ### Gate S0
 
@@ -86,7 +91,8 @@ Scopes initiaux recommandés :
 `/api/agent/v1/projects/{slug}/...` est implémentée avec allowlist projet, curseur stable,
 idempotence, audit de livraison et réconciliation GET-only. Documentation :
 [`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md). Cette livraison ne ferme pas
-le Lot S1 général (jobs/findings/retry/cancel restent à exposer) et n'est pas encore déployée.
+le Lot S1 général (jobs/findings/retry/cancel restent à exposer), mais la slice Barber Concept est
+déployée en production.
 
 ### Gate S1
 
@@ -145,7 +151,7 @@ Ordre obligatoire : `GMB-003` → `GMB-004` → `GMB-005` → `GMB-006` → `GMB
 - [ ] Créer un finding pour nom inconnu, homonyme ou affectation incohérente.
 - [ ] Produire mini-rapport quotidien et clôture mensuelle immuable/versionnée.
 
-### État local de la slice API avis (2026-09-24)
+### État production de la slice API avis (2026-09-24)
 
 - [x] Lecture versionnée, paginée et bornée à `barberconcept`, avec fraîcheur et six décisions explicites.
 - [x] Proposition immuable liée au snapshot, à la projection et à la policy versionnée.
@@ -154,16 +160,16 @@ Ordre obligatoire : `GMB-003` → `GMB-004` → `GMB-005` → `GMB-006` → `GMB
 - [x] Mentions candidates par avis avec preuve/confiance ; aucune prime ou éligibilité exposée.
 - [x] Lecture mensuelle Europe/Zurich et clôture immuable/révisionnée.
 - [x] Documentation opérateur et placeholders VPS sans secrets Google/Neon.
-- [ ] Appliquer DATA-009 et DATA-010 sur staging puis production.
+- [x] DATA-009 et DATA-010 déclarées appliquées par l'opérateur ; preuve DB à archiver.
 - [ ] Promouvoir la projection et la policy Barber Concept réelles.
-- [ ] Déployer puis créer le bearer `barberconcept` borné aux quatre scopes.
+- [x] Déployer et créer le bearer `barberconcept` borné aux scopes requis ; isolation `200`/`403` prouvée.
 - [ ] Brancher et prouver l'escalade Telegram dans le profil Hermes.
 - [ ] Observer une semaine dry-run puis deux semaines d'auto-publication 4–5 étoiles.
 
 Validation locale : 45 tests ciblés verts ; suite complète 78 fichiers / 1 665 tests verts ;
 `npm run check` à 0 erreur / 42 avertissements préexistants. Le build compile 4 176 modules SSR
-et 3 987 modules client, puis le packaging `adapter-vercel` retrouve le blocage Windows connu
-`EPERM` sur la création du symlink `.vercel/output/functions/(app).func`. Build Linux/Vercel à prouver.
+et 3 987 modules client. Le packaging Windows retrouve le blocage connu `EPERM` sur la création du
+symlink `.vercel/output/functions/(app).func`, mais le build Linux/Vercel de production est `Ready`.
 
 ### Gate S4
 

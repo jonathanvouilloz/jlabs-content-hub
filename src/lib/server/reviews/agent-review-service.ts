@@ -22,6 +22,7 @@ import {
 	buildReviewSnapshotHash
 } from './review-reply-candidate-state.js';
 import {
+	applyProjectionGate,
 	classifyAgentReview,
 	encodeReviewCursor,
 	europeZurichMonthWindow,
@@ -29,6 +30,7 @@ import {
 	type AgentReviewPolicy,
 	type ReviewCursor
 } from './agent-review-state.js';
+import { parseReviewReplyContext, type ProjectionStatus } from './review-reply-context-state.js';
 import {
 	publishReviewReply,
 	runIdempotentReviewPublication,
@@ -80,6 +82,25 @@ function effectivePolicy(
 	};
 }
 
+function projectionFailure(
+	projection: typeof projectProjections.$inferSelect | null | undefined,
+	locationId: string
+): string | null {
+	if (!projection) return 'context_missing';
+	let payload: unknown;
+	try {
+		payload = JSON.parse(projection.payload);
+	} catch {
+		return 'context_invalid';
+	}
+	const result = parseReviewReplyContext(
+		payload,
+		locationId,
+		projection.status as ProjectionStatus
+	);
+	return result.ok ? null : result.reason;
+}
+
 export async function listAgentReviews(input: {
 	db: AppDb;
 	projectSlug: string;
@@ -115,7 +136,7 @@ export async function listAgentReviews(input: {
 
 	const page = rows.slice(0, limit);
 	const reviewIds = page.map(({ review }) => review.reviewId);
-	const [proposalRows, policyRows] = await Promise.all([
+	const [proposalRows, policyRows, projection] = await Promise.all([
 		reviewIds.length === 0
 			? Promise.resolve([])
 			: input.db
@@ -126,7 +147,10 @@ export async function listAgentReviews(input: {
 		input.db
 			.select()
 			.from(reviewAutomationPolicies)
-			.where(and(eq(reviewAutomationPolicies.projectId, project.id), eq(reviewAutomationPolicies.status, 'current')))
+			.where(and(eq(reviewAutomationPolicies.projectId, project.id), eq(reviewAutomationPolicies.status, 'current'))),
+		input.db.query.projectProjections.findFirst({
+			where: and(eq(projectProjections.projectId, project.id), eq(projectProjections.status, 'current'))
+		})
 	]);
 	const latestProposal = new Map<string, typeof reviewReplyProposals.$inferSelect>();
 	for (const proposal of proposalRows) {
@@ -136,7 +160,7 @@ export async function listAgentReviews(input: {
 	const data = page.map(({ review, location }) => {
 		const proposal = latestProposal.get(review.reviewId) ?? null;
 		const policy = effectivePolicy(policyRows, review.locationId);
-		const decision = classifyAgentReview({
+		const decision = applyProjectionGate(classifyAgentReview({
 			rating: review.rating,
 			comment: review.comment,
 			remoteReplyText: review.remoteReplyText,
@@ -146,9 +170,11 @@ export async function listAgentReviews(input: {
 			proposalState: proposal?.state,
 			policy: policy?.policy,
 			now: input.now
-		});
+		}), projectionFailure(projection, review.locationId));
 		return {
 			reviewId: review.reviewId,
+			/** URL Google officielle (Review.reviewReplyUrl), null avant le prochain sync/backfill. */
+			googleReviewUrl: review.reviewReplyUrl,
 			snapshot: buildReviewSnapshotHash({
 				projectId: project.id,
 				reviewId: review.reviewId,
@@ -250,7 +276,7 @@ export async function proposeAgentReviewReply(input: {
 		policyHash: policy?.row.policyHash ?? 'missing',
 		policyVersion: policy?.row.version ?? 0
 	});
-	const decision = classifyAgentReview({
+	const decision = applyProjectionGate(classifyAgentReview({
 		rating: review.review.rating,
 		comment: review.review.comment,
 		remoteReplyText: review.review.remoteReplyText,
@@ -259,7 +285,7 @@ export async function proposeAgentReviewReply(input: {
 		locationLastSyncStatus: review.location?.lastSyncStatus ?? null,
 		policy: policy?.policy,
 		now: input.now
-	});
+	}), projectionFailure(projection, review.review.locationId));
 	const state = decision.autoPublishable && projection ? 'gated_pass' : 'held';
 	const id = createId();
 	const inserted = await input.db
@@ -681,7 +707,7 @@ export async function publishAgentReviewReply(input: {
 		})
 	]);
 	const policy = effectivePolicy(policyRows, review.review.locationId);
-	const decision = classifyAgentReview({
+	const decision = applyProjectionGate(classifyAgentReview({
 		rating: review.review.rating,
 		comment: review.review.comment,
 		remoteReplyText: review.review.remoteReplyText,
@@ -690,7 +716,7 @@ export async function publishAgentReviewReply(input: {
 		locationLastSyncStatus: review.location?.lastSyncStatus ?? null,
 		policy: policy?.policy,
 		now: input.now
-	});
+	}), projectionFailure(projection, review.review.locationId));
 	if (!decision.autoPublishable) throw new AgentReviewApiError(409, decision.status);
 	if (policy?.row.id !== proposal.policyId || policy.row.policyHash !== proposal.policyHash) {
 		throw new AgentReviewApiError(409, 'policy_changed');

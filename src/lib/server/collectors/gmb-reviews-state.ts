@@ -146,6 +146,8 @@ export interface NormalizedReview {
 	reviewKey: string;
 	/** Le `name` complet renvoyé par Google, conservé pour la trace et les preuves. */
 	reviewName: string;
+	/** URL output-only fournie par Google pour gerer/repondre a cet avis. */
+	reviewReplyUrl: string | null;
 	locationId: string;
 	locationLabel: string;
 	authorName: string;
@@ -165,6 +167,7 @@ export interface NormalizedReview {
 interface RawReview {
 	name?: unknown;
 	reviewId?: unknown;
+	reviewReplyUrl?: unknown;
 	reviewer?: { displayName?: unknown };
 	starRating?: unknown;
 	comment?: unknown;
@@ -213,6 +216,10 @@ export function normalizeReview(
 	return {
 		reviewKey,
 		reviewName: rawName,
+		reviewReplyUrl:
+			typeof r.reviewReplyUrl === 'string' && r.reviewReplyUrl.trim()
+				? r.reviewReplyUrl.trim()
+				: null,
 		locationId: ctx.locationId,
 		locationLabel: ctx.locationLabel,
 		authorName:
@@ -236,6 +243,7 @@ export function normalizeReview(
 /** L'état en base d'un avis, réduit aux champs que Google peut contredire. */
 export interface StoredReview {
 	reviewKey: string;
+	reviewReplyUrl: string | null;
 	rating: number;
 	comment: string;
 	authorName: string;
@@ -254,6 +262,7 @@ export interface StoredReview {
  * rien et n'a donc rien à en dire.
  */
 export const SYNCABLE_FIELDS = [
+	'reviewReplyUrl',
 	'rating',
 	'comment',
 	'authorName',
@@ -288,6 +297,7 @@ export function diffReview(existing: StoredReview | null, incoming: NormalizedRe
 	if (!existing) return { action: 'insert', fields: [] };
 
 	const fields: SyncableField[] = [];
+	if (existing.reviewReplyUrl !== incoming.reviewReplyUrl) fields.push('reviewReplyUrl');
 	if (existing.rating !== incoming.rating) fields.push('rating');
 	if (existing.comment !== incoming.comment) fields.push('comment');
 	if (existing.authorName !== incoming.authorName) fields.push('authorName');
