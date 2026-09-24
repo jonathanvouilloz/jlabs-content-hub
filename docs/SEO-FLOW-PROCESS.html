@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEO Jon Labs — Architecture &amp; flux de travail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f7f2; --surface: #ffffff; --surface2: #eef3ec;
+    --text: #1c2a20; --muted: #5c6f60; --accent: #4a7c59;
+    --accent2: #2f5c3d; --border: #d8e2d6;
+    --on-accent: #ffffff; --overlay: rgba(28,42,32,.55);
+    --legend-bg: #f0f5ef; --why-bg: #e9f1e8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(1200px 600px at 80% -10%, rgba(74,124,89,.10), transparent 60%);
+    color: var(--text);
+    font-family: "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 1500px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 12px; }
+  header h1 { font-size: clamp(26px, 4vw, 40px); font-weight: 800; letter-spacing: -.02em; }
+  header p { color: var(--muted); max-width: 860px; margin: 10px auto 0; font-size: 15px; }
+  .toc {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin: 28px 0 8px; padding: 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 16px;
+  }
+  .toc-link {
+    color: var(--accent2); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 6px 12px; border-radius: 999px; background: var(--surface2);
+    border: 1px solid var(--border); transition: .15s;
+  }
+  .toc-link:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface2)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 28px 28px 22px; margin-top: 26px;
+  }
+  .card h2 {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 21px; font-weight: 700; letter-spacing: -.01em;
+    margin-bottom: 18px;
+  }
+  .num {
+    background: var(--accent); color: var(--on-accent); font-weight: 800;
+    font-size: 13px; border-radius: 8px; padding: 3px 9px;
+  }
+  .diagram-wrap { position: relative; margin: 8px 0 4px; }
+  .mermaid { display: flex; justify-content: center; cursor: zoom-in; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  .zoom-btn {
+    position: absolute; top: 10px; right: 10px;
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    width: 36px; height: 36px; font-size: 17px; cursor: pointer;
+    opacity: 0; transition: opacity .15s;
+  }
+  .diagram-wrap:hover .zoom-btn { opacity: 1; }
+  .hint {
+    display: block; text-align: center; color: var(--muted);
+    font-size: 12px; margin-top: 6px;
+  }
+
+  /* Légende de vulgarisation */
+  .legend {
+    background: var(--legend-bg); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 18px 12px; margin-top: 20px;
+  }
+  .legend-title {
+    font-size: 14px; font-weight: 700; letter-spacing: .01em;
+    color: var(--accent2); margin-bottom: 12px;
+  }
+  .legend-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 10px;
+  }
+  .lg {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; font-size: 13.5px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .lg-term { font-weight: 700; color: var(--accent2); font-size: 13.5px; }
+  .lg-desc { color: var(--text); }
+  .lg-why {
+    background: var(--why-bg); border-radius: 8px;
+    padding: 6px 9px; font-size: 12.5px; color: var(--text);
+    font-style: italic; margin-top: 2px;
+  }
+
+  .narration {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px; padding: 14px 16px; margin-top: 18px;
+    color: var(--text); font-size: 14.5px;
+  }
+  .narration .mic { font-size: 18px; line-height: 1.3; }
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 40px; }
+  footer a { color: var(--accent2); }
+
+  /* Lightbox plein écran */
+  .lb {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--overlay); backdrop-filter: blur(3px);
+    display: none; flex-direction: column;
+  }
+  .lb.open { display: flex; }
+  .lb-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-bar button {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 7px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .lb-bar button:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface2)); }
+  .lb-scale { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .lb-stage {
+    flex: 1; overflow: auto; padding: 28px;
+    display: flex; align-items: flex-start; justify-content: flex-start;
+  }
+  .lb-stage svg {
+    max-width: none; height: auto;
+    transform-origin: 0 0; transition: transform .12s ease-out;
+    background: var(--surface); border-radius: 8px;
+  }
+  .lb-title { font-weight: 700; font-size: 14px; }
+  @media print {
+    body { background: #fff; color: #111; }
+    .card { break-inside: avoid; border-color: #ccc; background: #fff; }
+    .zoom-btn, .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SEO Jon Labs — comment ça tourne</h1>
+    <p>La boucle complète : données Google → cockpit agentique → agents IA → validation humaine → mesure.
+    Chaque scène = un diagramme complet, un bloc « comprendre » (vulgarisation + pourquoi des choix) et la narration.
+    <strong>Clic sur un diagramme = plein écran, zoom +/−.</strong></p>
+    <nav class="toc"><a class="toc-link" href="#scene-1">01 · Scène 1 — La boucle en une image</a><a class="toc-link" href="#scene-2">02 · Scène 2 — L'onboarding : le début d'un projet</a><a class="toc-link" href="#scene-3">03 · Scène 3 — Les acteurs</a><a class="toc-link" href="#scene-4">04 · Scène 4 — Production de contenu : du brief au publié</a><a class="toc-link" href="#scene-5">05 · Scène 5 — Monitoring : le cockpit qui ne dort jamais</a><a class="toc-link" href="#scene-6">06 · Scène 6 — Présence locale : Google Business en pilote automatique</a><a class="toc-link" href="#scene-7">07 · Scène 7 — Le rapport hebdo : la boucle se referme</a><a class="toc-link" href="#scene-8">08 · Scène 8 — Gouvernance : ce que l'IA peut faire seule, et ce qu'elle ne peut pas</a><a class="toc-link" href="#scene-9">09 · Scène 9 — Où vivent les données</a><a class="toc-link" href="#scene-10">10 · Annexe — Les crons (la machine dans le temps)</a></nav>
+  </header>
+  <section class="card" id="scene-1"><h2><span class="num">01</span>Scène 1 — La boucle en une image</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef src fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef col fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef det fill:#fbf4e0,stroke:#d0b45a,color:#4a3f12
+    classDef hum fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef exe fill:#f4eaf8,stroke:#a37bb5,color:#3d2350
+    classDef pub fill:#fdecec,stroke:#c98a8a,color:#5a2323
+
+    subgraph SRC["① Les sources — Google"]
+        direction LR
+        GSC["Google Search Console<br/>clics · impressions · positions"]
+        SM["Sitemaps + crawl"]
+        UI["URL Inspection API"]
+        GMB["Google Business Profile"]
+    end
+
+    subgraph COL["② La collecte — file de jobs"]
+        direction LR
+        Q["Queue Neon : collect → detect → propose<br/>cadences hebdo & quotidien"]
+    end
+
+    subgraph DET["③ La détection — 9 jobs hebdo"]
+        direction LR
+        D1["Collecte GSC"]
+        D2["Collecte sitemap"]
+        D3["Inspection URLs"]
+        D4["Opportunités"]
+        D5["Baisses confirmées"]
+        D6["Requêtes nouvelles / perdues"]
+        D7["Cannibalisation"]
+        D8["Transitions d'indexation"]
+        D9["Propositions d'action"]
+    end
+
+    subgraph INB["④ La validation humaine — Inbox"]
+        direction LR
+        H1["Approuver (lié au hash exact)"]
+        H2["Rejeter · modifier"]
+        H3["Snooze · ignorer"]
+    end
+
+    subgraph EXE["⑤ L'exécution — agents IA"]
+        direction LR
+        E1["Refresh de contenu"]
+        E2["Title / meta"]
+        E3["Diagnostic indexation"]
+        E4["Nouveau contenu"]
+    end
+
+    subgraph PUB["⑥ Publication & mesure"]
+        direction LR
+        P1["Site · GMB · LinkedIn"]
+        P2["Rapport hebdo cross-projet"]
+    end
+
+    SRC --> Q
+    Q --> DET
+    DET --> INB
+    INB --> EXE
+    EXE --> PUB
+    DET -. "constats" .-> P2
+    PUB -->|"mesure"| MES["🔁 La mesure referme la boucle<br/>les données reviennent dans les sources"]
+    class MES pub</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Google Search Console (GSC)</span><span class="lg-desc">Le compteur officiel de Google : qui cherche quoi, combien de fois ton site apparaît, et combien de clics il reçoit.</span></div><div class="lg"><span class="lg-term">Sitemap</span><span class="lg-desc">Le plan du site que tu donnes à Google : « voilà toutes mes pages ».</span><span class="lg-why">💡 sans lui, Google découvre tes pages au hasard des liens.</span></div><div class="lg"><span class="lg-term">URL Inspection</span><span class="lg-desc">La loupe de Google : page par page, es-tu indexé ou non, et pourquoi.</span><span class="lg-why">💡 le sitemap dit ce qui <em>devrait</em> être indexé, l'inspection dit ce qui l'est <em>réellement</em>.</span></div><div class="lg"><span class="lg-term">Google Business Profile (GMB)</span><span class="lg-desc">La fiche locale (adresse, horaires, avis) qui apparaît sur Maps et dans la recherche locale.</span></div><div class="lg"><span class="lg-term">File de jobs</span><span class="lg-desc">Une liste de petites tâches à faire : collecter, détecter, proposer.</span><span class="lg-why">💡 Vercel n'exécute rien en continu — une fonction démarre, travaille, s'éteint. Une file découpe le travail en morceaux qui tiennent dans une seule fonction.</span></div><div class="lg"><span class="lg-term">Les 9 jobs du catalogue hebdo</span><span class="lg-desc">3 collectes (données), 5 détecteurs (signaux), 1 producteur (propositions).</span><span class="lg-why">💡 chaque job est petit, rejouable et traçable — on sait toujours où la chaîne en est.</span></div><div class="lg"><span class="lg-term">Inbox / validation humaine</span><span class="lg-desc">Les propositions arrivent dans une boîte où Jonathan décide : j'approuve, je rejette, j'ignore.</span><span class="lg-why">💡 certaines actions sont destructives (supprimer, rediriger) ou coûteuses (créer du contenu) — l'IA propose, l'humain dispose.</span></div><div class="lg"><span class="lg-term">Approbation liée au hash</span><span class="lg-desc">On n'approuve pas « une idée », on approuve la version exacte de la proposition.</span><span class="lg-why">💡 si la proposition change entre-temps, ton approbation ne vaut plus — impossible d'approuver par erreur une version modifiée.</span></div><div class="lg"><span class="lg-term">Rapport hebdo</span><span class="lg-desc">Le résumé de la semaine pour tous les projets.</span><span class="lg-why">💡 c'est la boucle qui se ferme : on mesure l'effet des actions, et le client voit le résultat.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (45 s).</strong> « Tout part des sources Google : Search Console, les sitemaps,</div></div></section><section class="card" id="scene-2"><h2><span class="num">02</span>Scène 2 — L'onboarding : le début d'un projet</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef prep fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef coll fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef priv fill:#fdecec,stroke:#c98a8a,color:#5a2323
+    classDef out fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+
+    subgraph PREP["Préparation — depuis le Noyau"]
+        N1["Noyau : projets.yaml · wiki · briefs existants"]
+        N2["Compilateur de sources<br/>onboarding contextualisé<br/>(les questions savent déjà)"]
+    end
+
+    subgraph COLL["Collecte — privée et sourcée"]
+        C1["Interview guidée<br/>(protocole dirigé pas à pas)"]
+        C2["Questionnaire structuré<br/>(au rythme du client)"]
+        C3["Lien privé sécurisé<br/>(Better Auth · jamais public)"]
+        C4["Réponses + pièces jointes<br/>(Vercel Blob)"]
+        C5["Reprise possible<br/>(brouillon enregistré)"]
+    end
+
+    subgraph OUT["Sortie — ce qui entre en production"]
+        O1["Export : sources brutes + couverture"]
+        O2["Faits à confirmer par le client<br/>(non sourcé = non publié)"]
+    end
+
+    N1 --> N2
+    N2 --> C1
+    N2 --> C2
+    C3 --> C1
+    C3 --> C2
+    C1 --> C4
+    C2 --> C4
+    C4 --> C5
+    C4 --> O1
+    C5 --> O1
+    O1 --> O2
+    O2 -->|"confirmation"| O1
+    O1 -->|"briefs · contenu · marque"| PROD["Production SEO"]
+    O1 -->|"slug créé"| MON["Monitoring (cockpit)"]</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Noyau</span><span class="lg-desc">Le cerveau central : le registre des projets (slugs), le wiki, les briefs déjà écrits.</span></div><div class="lg"><span class="lg-term">Onboarding contextualisé</span><span class="lg-desc">Le questionnaire est préparé avec ce qu'on sait déjà.</span><span class="lg-why">💡 le client ne doit pas répéter ce qu'on connaît — des questions intelligentes donnent de meilleures réponses.</span></div><div class="lg"><span class="lg-term">Interview guidée</span><span class="lg-desc">Un entretien pas à pas, mené à l'écran. Pour les clients qui préfèrent être accompagnés.</span></div><div class="lg"><span class="lg-term">Questionnaire structuré</span><span class="lg-desc">Le même contenu, en libre-service, au rythme du client.</span></div><div class="lg"><span class="lg-term">Lien privé sécurisé</span><span class="lg-desc">Chaque client a son espace, protégé par connexion.</span><span class="lg-why">💡 confidentialité par construction — les réponses ne sont jamais publiques, jamais dans le savoir partagé.</span></div><div class="lg"><span class="lg-term">Pièces jointes (Blob)</span><span class="lg-desc">Le client dépose ses documents (factures, plans, photos) directement dans sa session.</span></div><div class="lg"><span class="lg-term">Reprise possible</span><span class="lg-desc">Le brouillon est enregistré, on continue plus tard.</span><span class="lg-why">💡 une interview ne se fait pas toujours d'une traite.</span></div><div class="lg"><span class="lg-term">Export des sources + couverture</span><span class="lg-desc">En sortie : les sources brutes et ce qu'elles couvrent.</span><span class="lg-why">💡 la production ne travaille que sur du sourcé.</span></div><div class="lg"><span class="lg-term">Faits à confirmer</span><span class="lg-desc">La liste de ce que le client doit valider.</span><span class="lg-why">💡 un fait non confirmé par une source fiable ne devient jamais une affirmation publiée.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (45 s).</strong> « Et comment naît un projet ? Tout commence par l'onboarding.</div></div></section><section class="card" id="scene-3"><h2><span class="num">03</span>Scène 3 — Les acteurs</h2><div class="diagram-wrap"><pre class="mermaid">flowchart LR
+    classDef hum fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef ag fill:#f4eaf8,stroke:#a37bb5,color:#3d2350
+    classDef sys fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef prov fill:#f1f1f1,stroke:#a8a8a8,color:#3a3a3a
+
+    J["Jonathan<br/>stratégie · validation · arbitrage"]:::hum
+    AG["Agents IA (skills)<br/>recherche · rédaction · diagnostic · exécution"]:::ag
+    CO["Cockpit seo-stats<br/>Neon · Vercel · file de jobs · inbox · rapports"]:::sys
+    GOOG["Google<br/>GSC · GMB · indexation"]:::prov
+    CLI["Clients<br/>digest hebdo opt-in · vue projet"]:::sys
+
+    J -->|"valide (A2–A4)"| AG
+    AG -->|"propose"| CO
+    CO -->|"findings + rapports"| J
+    CO -->|"collecte"| GOOG
+    AG -->|"public / répond"| GOOG
+    CO -->|"digest"| CLI</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Slug</span><span class="lg-desc">L'identifiant unique d'un projet (ex. `barberconcept`).</span><span class="lg-why">💡 une seule identité par projet partout — factures, SEO, contenu se rejoignent par le même fil.</span></div><div class="lg"><span class="lg-term">Agents IA (skills)</span><span class="lg-desc">Des programmes spécialisés qui font chacun un métier : chercher, rédiger, diagnostiquer, publier.</span></div><div class="lg"><span class="lg-term">Cockpit seo-stats</span><span class="lg-desc">L'app qui collecte, détecte, propose et archive : la mémoire opérationnelle de tout le SEO.</span></div><div class="lg"><span class="lg-term">Digest hebdo client</span><span class="lg-desc">Le résumé que reçoit le client chaque semaine.</span><span class="lg-why">💡 le client voit le résultat sans ouvrir l'app — la mécanique reste interne.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (30 s).</strong> « Le système a quatre acteurs. Moi : la stratégie et le droit de</div></div></section><section class="card" id="scene-4"><h2><span class="num">04</span>Scène 4 — Production de contenu : du brief au publié</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef phase fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef gate fill:#fbf4e0,stroke:#d0b45a,color:#4a3f12
+    classDef hub fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef pub fill:#fdecec,stroke:#c98a8a,color:#5a2323
+
+    subgraph AMONT["Phase 1 — Recherche & cadrage"]
+        TM["Topical map"]
+        KW["Mots-clés & volumes réels"]
+        SERP["Analyse SERP : intention"]
+        COMP["Écart concurrentiel"]
+        ENT["Entités"]
+        GSC2["GSC : ce qui marche déjà"]
+    end
+
+    BRIEF["Brief SEO<br/>spec immuable · sources vérifiées · CTA unique"]
+
+    CRITIC{"Relecture adversarial<br/>PASS / FAIL"}
+
+    subgraph PROD["Phase 2 — Production"]
+        W["Écriture : décisions, pas volume"]
+        HZ["Humanizer : anti-AI"]
+        SRC2["Vérification des sources"]
+        ENR["Enrichissement JSON-LD"]
+        RV["Revue éditoriale"]
+    end
+
+    subgraph HUB2["Phase 3 — Publication"]
+        H1["Hub : draft → review → approved"]
+        P1["Site (Astro)"]
+        P2["Sitemap + indexation"]
+        P3["GMB · LinkedIn"]
+    end
+
+    AMONT --> BRIEF --> CRITIC
+    CRITIC -->|"PASS"| PROD
+    CRITIC -->|"FAIL"| BRIEF
+    PROD --> HUB2
+    H1 --> P1 & P2 & P3
+    P1 --> P2</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Topical map</span><span class="lg-desc">La carte des sujets que le site doit couvrir, organisés par thème et par importance.</span></div><div class="lg"><span class="lg-term">Analyse SERP</span><span class="lg-desc">Regarder ce que Google affiche déjà pour une requête.</span><span class="lg-why">💡 pour viser l'intention réelle, pas celle qu'on imagine.</span></div><div class="lg"><span class="lg-term">Brief SEO / spec immuable</span><span class="lg-desc">Le contrat de l'article : sujet, intention, CTA unique, sources, liens internes, longueur.</span><span class="lg-why">💡 tout le monde (agents, relecteurs) travaille sur la même cible, et on peut vérifier qu'aucun élément n'a été perdu en route.</span></div><div class="lg"><span class="lg-term">Relecture adversarial</span><span class="lg-desc">Un agent dont le métier est de <em>casser</em> le brief : trouver l'intention floue, la différenciation nulle, les sources faibles.</span><span class="lg-why">💡 casser un brief coûte deux minutes, réécrire un article raté coûte deux heures — autant détecter la faiblesse avant d'écrire.</span></div><div class="lg"><span class="lg-term">Écriture : décisions, pas volume</span><span class="lg-desc">Chaque section répond à une décision que le lecteur vient prendre (choisir, comparer, agir) au lieu de remplir des paragraphes.</span><span class="lg-why">💡 Google récompense les pages qui répondent vite, et le lecteur part si la réponse est enterrée — un article n'est pas jugé au nombre de mots.</span></div><div class="lg"><span class="lg-term">Humanizer (anti-AI)</span><span class="lg-desc">La passe qui enlève les tics d'écriture machine : triplets, transitions génériques, emphase artificielle.</span><span class="lg-why">💡 le contenu doit sonner humain — c'est la voix de Jon, pas celle d'un modèle.</span></div><div class="lg"><span class="lg-term">Sources vérifiées</span><span class="lg-desc">Chaque affirmation sensible est ouverte et vérifiée (HTTP 200 ne suffit pas : on vérifie que la page dit bien ce qu'on affirme).</span><span class="lg-why">💡 une fausse info publiée = crédibilité perdue et risque de désaveu.</span></div><div class="lg"><span class="lg-term">Enrichissement JSON-LD</span><span class="lg-desc">Des données structurées que Google comprend (Article, FAQ, horaires).</span><span class="lg-why">💡 ça aide Google à comprendre la page et parfois à l'afficher plus richement.</span></div><div class="lg"><span class="lg-term">Hub : draft → review → approved</span><span class="lg-desc">Le contenu passe par des statuts avant publication.</span><span class="lg-why">💡 rien ne part sans validation — sauf le canal GMB, calibré pour l'auto-approbation.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (40 s).</strong> « Un article ne part jamais d'une intuition. Phase 1 : recherche —</div></div></section><section class="card" id="scene-5"><h2><span class="num">05</span>Scène 5 — Monitoring : le cockpit qui ne dort jamais</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef cron fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef q fill:#fbf4e0,stroke:#d0b45a,color:#4a3f12
+    classDef out fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef err fill:#fdecec,stroke:#c98a8a,color:#5a2323
+
+    CRON["Crons Vercel<br/>tick horaire · gmb-publish 9h<br/>linkedin 9h · digest lundi 8h"]:::cron
+
+    TICK["tick horaire :<br/>planifie les cadences dues<br/>+ draine la file + publie le rapport"]:::cron
+
+    subgraph HEBDO["Catalogue hebdo — 9 jobs / projet (lundi 09:00)"]
+        H1["collect:gsc_query_page<br/>(données Search Console)"]
+        H2["collect:sitemap<br/>(inventaire du site)"]
+        H3["collect:url_inspection<br/>(mode policy · scope full)"]
+        H4["detect:keyword_opportunity<br/>(positions 5-15 · CTR)"]
+        H5["detect:keyword_decline<br/>(baisses confirmées)"]
+        H6["detect:query_turnover<br/>(requêtes nouvelles/perdues)"]
+        H7["detect:cannibalization<br/>(2 URLs · 1 requête)"]
+        H8["detect:index_transition<br/>(indexé → non indexé)"]
+        H9["propose:actions<br/>(propositions à l'inbox)"]
+        H1 --> H4
+        H1 --> H5
+        H1 --> H6
+        H1 --> H7
+        H1 --> H3
+        H2 --> H3
+        H3 --> H8
+        H4 --> H9
+    end
+
+    subgraph QUOT["Catalogue quotidien — 5 jobs / projet (07:00)"]
+        Q1["findings:lifecycle<br/>(entretien des findings)"]
+        Q2["collect:url_inspection<br/>(scope due · échéances)"]
+        Q3["collect:gmb_reviews<br/>(avis clients)"]
+        Q4["detect:index_transition"]
+        Q5["detect:review_pending<br/>(avis en attente de réponse)"]
+        Q2 --> Q4
+        Q3 --> Q5
+    end
+
+    RUN["Règles d'exécution de la file<br/>collect → detect → propose<br/>prérequis obligatoires / optionnels<br/>25 jobs max · tour d'équité<br/>refroidissement provider"]:::q
+
+    FIND["Findings persistants (append-only)"]:::out
+    INBOX["Inbox : approuver / rejeter / snooze<br/>approbation liée au hash exact"]:::out
+    REP["Rapport hebdo cross-projet<br/>publié · révisable · SLO dérivé"]:::out
+    ERR["Erreurs classées<br/>retry · dead-letter · alertes email"]:::err
+
+    CRON --> TICK
+    TICK --> HEBDO
+    TICK --> QUOT
+    HEBDO --> RUN
+    QUOT --> RUN
+    RUN --> FIND
+    FIND --> INBOX
+    RUN --> REP
+    RUN --> ERR</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Tick horaire</span><span class="lg-desc">Une fonction qui se réveille toutes les heures pour faire avancer la file.</span><span class="lg-why">💡 Vercel ne fait tourner aucun processus en continu — le tick est le réveil qui planifie, draine et publie.</span></div><div class="lg"><span class="lg-term">Catalogue hebdo (9 jobs)</span><span class="lg-desc">Le travail de la semaine, par projet : 3 collectes, 5 détecteurs, 1 producteur de propositions.</span></div><div class="lg"><span class="lg-term">Catalogue quotidien (5 jobs)</span><span class="lg-desc">Le travail de chaque jour, par projet : l'entretien des findings, l'inspection des URLs dues, la collecte des avis, et deux détections (transitions d'indexation, avis en attente).</span></div><div class="lg"><span class="lg-term">25 jobs max par tick</span><span class="lg-desc">Un tick ne prend que 25 tâches.</span><span class="lg-why">💡 chaque tick vit dans une fonction limitée en temps (elle meurt après ~5 minutes) — plafonner garantit qu'un tick finit toujours son travail et que la file avance régulièrement.</span></div><div class="lg"><span class="lg-term">Tour d'équité</span><span class="lg-desc">Les gros projets ne prennent pas tout le tick.</span><span class="lg-why">💡 sans ça, un projet chargé ferait attendre les autres indéfiniment.</span></div><div class="lg"><span class="lg-term">Refroidissement provider</span><span class="lg-desc">Quand Google dit « quota épuisé », toute la cohorte attend avant de réessayer.</span><span class="lg-why">💡 réessayer en boucle un quota épuisé ne fait qu'épuiser le quota plus vite.</span></div><div class="lg"><span class="lg-term">Dépendances collect → detect → propose</span><span class="lg-desc">Une détection ne part pas avant sa collecte, une proposition pas avant sa détection.</span><span class="lg-why">💡 détecter sur des données périmées fabriquerait de faux signaux — et si la collecte meurt, le run le dit (`partial`) au lieu de faire semblant.</span></div><div class="lg"><span class="lg-term">Findings persistants</span><span class="lg-desc">Chaque signal est écrit en base, horodaté, avec ses preuves.</span><span class="lg-why">💡 on garde l'historique — une absence de preuve ne devient jamais « tout va bien ».</span></div><div class="lg"><span class="lg-term">Erreurs classées</span><span class="lg-desc">`retry` (réessaie plus tard) ou `dead-letter` (ne réessaie jamais).</span><span class="lg-why">💡 un quota épuisé et un bug ne se traitent pas pareil — sans classement, on boucle sur des erreurs sans fin.</span></div><div class="lg"><span class="lg-term">Absent ≠ zéro</span><span class="lg-desc">Un pipeline en panne n'est pas « 0 problème ».</span><span class="lg-why">💡 sans cette règle, le projet dont la collecte est morte passerait pour le plus sain du portefeuille.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (50 s).</strong> « La surveillance est un système, pas une habitude. Des crons sur</div></div></section><section class="card" id="scene-6"><h2><span class="num">06</span>Scène 6 — Présence locale : Google Business en pilote automatique</h2><div class="diagram-wrap"><pre class="mermaid">flowchart LR
+    classDef gen fill:#f4eaf8,stroke:#a37bb5,color:#3d2350
+    classDef auto fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef hum fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef esc fill:#fdecec,stroke:#c98a8a,color:#5a2323
+
+    G1["/gmb-generate<br/>calendrier mensuel"]:::gen
+    G2["/gmb-generate-images"]:::gen
+    G3["/publish-hub"]:::gen
+    G4["Cron 9h00 gmb-publish<br/>auto-approve"]:::auto
+    G5["Google Business Profile"]:::auto
+
+    R1["Avis clients"]:::auto
+    R2["collect quotidien"]:::auto
+    R3{"Détection"}:::auto
+    R4["gmb-review-responder<br/>réponse vérifiée (GET → PUT → GET)"]:::auto
+    R5["Escalade humaine<br/>1–3★ · légal · médical · confidentialité"]:::esc
+    R6["Suivi employés cités"]:::hum
+
+    G1 --> G2 --> G3 --> G4 --> G5
+    R1 --> R2 --> R3
+    R3 -->|"4–5★ sans réponse"| R4
+    R3 -->|"négatif / sensible"| R5
+    R3 --> R6</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Auto-approve</span><span class="lg-desc">Les posts GMB passent directement en « approved ».</span><span class="lg-why">💡 un post de fiche locale est peu risqué et daté (calendrier) — le valider un par un n'apporte rien, à condition de bien calibrer le calendrier en amont.</span></div><div class="lg"><span class="lg-term">Réponse vérifiée en 3 temps</span><span class="lg-desc">L'agent relit l'avis distant, écrit sa réponse, puis relit pour vérifier qu'elle est bien en ligne.</span><span class="lg-why">💡 impossible d'écraser une réponse publiée entre-temps — et il faut prouver que la réponse est réellement partie.</span></div><div class="lg"><span class="lg-term">Escalade humaine</span><span class="lg-desc">Un avis 1–3★ ou sensible (légal, médical, confidentialité) monte vers Jonathan.</span><span class="lg-why">💡 l'IA ne doit pas répondre à l'aveugle sur des sujets à risque — l'automatisation s'arrête où la confiance s'arrête.</span></div><div class="lg"><span class="lg-term">Suivi des employés cités</span><span class="lg-desc">Les avis qui mentionnent un employé sont comptés et agrégés par mois.</span><span class="lg-why">💡 la qualité de service se mesure aussi dans les données — utile au client pour piloter ses équipes.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (40 s).</strong> « La présence locale tourne sur deux rails. Le premier : la</div></div></section><section class="card" id="scene-7"><h2><span class="num">07</span>Scène 7 — Le rapport hebdo : la boucle se referme</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef run fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef rep fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef warn fill:#fbf4e0,stroke:#d0b45a,color:#4a3f12
+
+    W1["Lundi 07:00 — 9 cadences hebdo planifiées<br/>(81 jobs / 9 projets)"]:::run
+    W2["tick draine la file<br/>25 jobs max par tick"]:::run
+    W3["Tous les steps conclus ?"]:::run
+    R1["Rapport publié (REP-003)<br/>cross-projet · JSON immuable · SLO dérivé"]:::rep
+    R2["Constats : santé pipeline / signaux / absences<br/>« absent ≠ zéro »"]:::rep
+    R3["Révision possible (REP-004)<br/>jamais de réécriture silencieuse"]:::warn
+    D["Digest admin + digest clients opt-in"]:::warn
+
+    W1 --> W2 --> W3
+    W3 -->|"oui"| R1 --> R2 --> R3 --> D
+    W3 -->|"non / échéance"| R1</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">81 jobs / 9 projets</span><span class="lg-desc">9 entrées de catalogue × 9 projets.</span><span class="lg-why">💡 le rapport n'est publié que quand tout est conclu (ou à l'échéance) — sinon il dirait des demi-vérités.</span></div><div class="lg"><span class="lg-term">SLO dérivé</span><span class="lg-desc">La ponctualité se calcule depuis la première publication, jamais déclarée.</span><span class="lg-why">💡 une colonne « ponctuel : oui » pourrait mentir ; un calcul, non.</span></div><div class="lg"><span class="lg-term">Révision tracée</span><span class="lg-desc">On ne corrige pas le rapport en silence : on publie une révision avec une raison.</span><span class="lg-why">💡 un rapport publié est un artefact — le corriger sans trace détruirait la confiance dans les archives.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (35 s).</strong> « Chaque lundi, le cycle produit un artefact : le rapport</div></div></section><section class="card" id="scene-8"><h2><span class="num">08</span>Scène 8 — Gouvernance : ce que l'IA peut faire seule, et ce qu'elle ne peut pas</h2><div class="diagram-wrap"><pre class="mermaid">flowchart TB
+    classDef a0 fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef a1 fill:#e3f0e3,stroke:#5f8f5f,color:#1e3a22
+    classDef a2 fill:#fbf4e0,stroke:#d0b45a,color:#4a3f12
+    classDef a3 fill:#f7e8dc,stroke:#c98a5a,color:#5a3a1e
+    classDef a4 fill:#fdecec,stroke:#c95a5a,color:#5a2323
+
+    A0["A0 — Observation<br/>collecte · parse · diff · rapport<br/><b>automatique</b>"]:::a0
+    A1["A1 — Playbook permanent<br/>retry · resync · correctif réversible<br/><b>automatique, audité</b>"]:::a1
+    A2["A2 — Plan approuvé<br/>refresh · nouveau contenu · liens<br/><b>approbation du plan = exécution</b>"]:::a2
+    A3["A3 — Confirmé production<br/>navigation large · schéma · claims sensibles<br/><b>approuver puis confirmer le rendu</b>"]:::a3
+    A4["A4 — Sensible / destructif<br/>301 · canonical · noindex · suppression<br/><b>toujours humain, à l'instant T</b>"]:::a4
+
+    A0 --> A1 --> A2 --> A3 --> A4</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">A0 — Observation</span><span class="lg-desc">Collecter, lire, comparer, rapporter : aucun risque.</span><span class="lg-why">💡 lire ne casse rien — autant l'automatiser à 100 %.</span></div><div class="lg"><span class="lg-term">A1 — Playbook permanent</span><span class="lg-desc">Retenter, resynchroniser, corriger une erreur réversible : automatique mais audité.</span><span class="lg-why">💡 ce sont des gestes sans conséquence, mais on garde la trace.</span></div><div class="lg"><span class="lg-term">A2 — Plan approuvé</span><span class="lg-desc">Approuver un plan précis autorise son exécution.</span><span class="lg-why">💡 demander deux fois la même validation est du bruit — l'approbation porte sur un périmètre exact, l'agent s'y tient.</span></div><div class="lg"><span class="lg-term">A3 — Confirmé production</span><span class="lg-desc">Changements larges (navigation, schémas, claims sensibles) : on approuve le plan, puis on confirme le rendu final.</span><span class="lg-why">💡 un détail visuel peut tout changer — l'œil humain reste le dernier juge.</span></div><div class="lg"><span class="lg-term">A4 — Sensible / destructif</span><span class="lg-desc">301, canonical, noindex, suppression : toujours un humain à l'instant T.</span><span class="lg-why">💡 ce sont des gestes irréversibles — l'IA propose, l'humain dispose, et seulement au moment de l'action.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (35 s).</strong> « La vraie question de l'IA en SEO, c'est la gouvernance. J'ai un</div></div></section><section class="card" id="scene-9"><h2><span class="num">09</span>Scène 9 — Où vivent les données</h2><div class="diagram-wrap"><pre class="mermaid">flowchart LR
+    classDef part fill:#eef3ee,stroke:#9db29f,color:#2c3b2e
+    classDef app fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+    classDef db fill:#f4eaf8,stroke:#a37bb5,color:#3d2350
+    classDef ext fill:#f1f1f1,stroke:#a8a8a8,color:#3a3a3a
+
+    NOYAU["Noyau (umbrella)<br/>cerveau · atelier · invoices · onboarding<br/>projets.yaml = canon des slugs"]:::part
+    AO["agent-ops<br/>contrats · resolvers · skills portables"]:::part
+    SEO["seo-stats — cockpit<br/>SvelteKit → Vercel"]:::app
+    NEON["Neon Postgres (4 schémas)<br/>core (registre) · seostats · invoices · onboarding"]:::db
+    GGL["Google<br/>GSC · GMB"]:::ext
+    SITE["jonlabs — vitrine publique<br/>Astro · études de cas · blog"]:::app
+    CLI["Clients<br/>portail · digest hebdo"]:::ext
+
+    NOYAU -->|"slugs (jointure)"| NEON
+    AO -->|"API métier sécurisées"| SEO
+    SEO --> NEON
+    SEO -->|"collecte + publication"| GGL
+    SITE -->|"pointe, ne possède pas"| NOYAU
+    SEO -->|"digest"| CLI</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">Neon partagé, 4 schémas</span><span class="lg-desc">Une seule base physique, mais chaque app possède son schéma (`core`, `seostats`, `invoices`, `onboarding`).</span><span class="lg-why">💡 les données restent souveraines (chaque app migre son schéma comme elle veut) tout en permettant la jointure par slug.</span></div><div class="lg"><span class="lg-term">API métier, jamais SQL</span><span class="lg-desc">Les agents ne touchent jamais la base directement : ils passent par des API sécurisées.</span><span class="lg-why">💡 pas de credentials SQL chez les agents — chaque écriture est auditable, idempotente, et ne peut pas casser la base.</span></div><div class="lg"><span class="lg-term">La vitrine ne possède rien</span><span class="lg-desc">`jonlabs` rend et pointe, il ne stocke aucune donnée client.</span><span class="lg-why">💡 séparation des responsabilités — un site public ne peut pas fuiter une donnée qu'il ne possède pas.</span></div></div></div><div class="narration"><span class="mic">🎙️</span><div><strong>Narration (40 s).</strong> « Pour finir, l'architecture des données. Tout part du Noyau — mes</div></div></section><section class="card" id="scene-10"><h2><span class="num">10</span>Annexe — Les crons (la machine dans le temps)</h2><div class="diagram-wrap"><pre class="mermaid">flowchart LR
+    classDef cron fill:#e8eef7,stroke:#8ba6c8,color:#24364d
+
+    T["tick — toutes les heures<br/>planifie · draine · publie le rapport"]:::cron
+    G["gmb-publish — 9h00 chaque jour<br/>posts GMB dus + digest admin"]:::cron
+    L["linkedin-publish — 9h00 chaque jour"]:::cron
+    W["gmb-weekly-digest — lundi 8h00<br/>récap hebdo aux clients opt-in"]:::cron
+
+    T --- G --- L --- W</pre><button class="zoom-btn" type="button" aria-label="Agrandir">⤢</button><span class="hint">clic = plein écran · zoom +/−</span></div><div class="legend"><h3 class="legend-title">📖 Comprendre cette scène</h3><div class="legend-grid"><div class="lg"><span class="lg-term">tick horaire</span><span class="lg-desc">Le seul chemin par lequel la file avance en production.</span><span class="lg-why">💡 rejouer un tick, redémarrer ou rattraper un créneau manqué est la même opération — idempotent par créneau local.</span></div><div class="lg"><span class="lg-term">Crons à 9h00</span><span class="lg-desc">La publication GMB et LinkedIn se font le matin, en heure métier.</span><span class="lg-why">💡 les créneaux sont posés hors des heures de bascule d'heure d'été/hiver — un créneau quotidien ne doit jamais tomber dans le trou de mars.</span></div><div class="lg"><span class="lg-term">Digest du lundi 8h00</span><span class="lg-desc">Le récap de la semaine part avant le début de la journée.</span><span class="lg-why">💡 le client démarre sa semaine avec le résultat, pas avec une attente.</span></div></div></div></section>
+  <footer>
+    Source : <code>docs/SEO-FLOW-PROCESS.md</code> (éditer là, régénérer avec
+    <code>scripts/generate-flow-html.py</code>) — les diagrammes sont rendus par
+    <a href="https://mermaid.js.org" target="_blank" rel="noopener">Mermaid</a>.
+  </footer>
+</div>
+
+<div class="lb" id="lb" role="dialog" aria-modal="true">
+  <div class="lb-bar">
+    <button type="button" id="lb-close" aria-label="Fermer">✕ Fermer</button>
+    <button type="button" id="lb-zoom-out" aria-label="Zoom arrière">−</button>
+    <button type="button" id="lb-zoom-in" aria-label="Zoom avant">+</button>
+    <button type="button" id="lb-reset" aria-label="Réinitialiser">⤾ 100 %</button>
+    <span class="lb-title" id="lb-title"></span>
+    <span class="lb-scale" id="lb-scale">100 %</span>
+  </div>
+  <div class="lb-stage" id="lb-stage"></div>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    fontFamily: '"Inter Tight", system-ui, sans-serif',
+    themeVariables: {
+      background: "#ffffff",
+      primaryColor: "#eef3ec",
+      primaryTextColor: "#1c2a20",
+      primaryBorderColor: "#4a7c59",
+      secondaryColor: "#eef3ec",
+      secondaryTextColor: "#1c2a20",
+      secondaryBorderColor: "#d8e2d6",
+      tertiaryColor: "#eef3ec",
+      tertiaryTextColor: "#5c6f60",
+      tertiaryBorderColor: "#d8e2d6",
+      lineColor: "#4a7c59",
+      textColor: "#1c2a20",
+      fontColor: "#1c2a20",
+      edgeLabelBackground: "#ffffff",
+      clusterBkg: "rgba(238,243,236,.85)",
+      clusterBorder: "#d8e2d6",
+      clusterTitleFontSize: "15px",
+      nodeBorderRadius: "10px",
+      fontSize: "16px"
+    },
+    flowchart: { curve: "basis", htmlLabels: true, padding: 16 },
+    securityLevel: "loose"
+  });
+
+  // Lightbox : clic sur un diagramme → plein écran + zoom
+  const lb = document.getElementById("lb");
+  const stage = document.getElementById("lb-stage");
+  const lbTitle = document.getElementById("lb-title");
+  const lbScale = document.getElementById("lb-scale");
+  let scale = 1;
+  let current = null;
+
+  function applyScale() {
+    if (current) {
+      current.style.transform = `scale(${scale})`;
+      lbScale.textContent = `${Math.round(scale * 100)} %`;
+    }
+  }
+
+  function openLb(box) {
+    const svg = box.querySelector("svg");
+    if (!svg) return;
+    const clone = svg.cloneNode(true);
+    const vb = svg.viewBox.baseVal;
+    if (vb && vb.width) {
+      clone.setAttribute("width", vb.width);
+      clone.setAttribute("height", vb.height);
+    }
+    stage.replaceChildren(clone);
+    current = clone;
+    scale = 1;
+    applyScale();
+    const card = box.closest(".card");
+    lbTitle.textContent = card ? card.querySelector("h2")?.textContent?.replace(/^\d+\s*/, "") ?? "" : "";
+    lb.classList.add("open");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeLb() {
+    lb.classList.remove("open");
+    document.body.style.overflow = "";
+    stage.replaceChildren();
+    current = null;
+  }
+
+  document.querySelectorAll(".diagram-wrap").forEach(wrap => {
+    const box = wrap.querySelector(".mermaid");
+    const btn = wrap.querySelector(".zoom-btn");
+    if (!box) return;
+    box.addEventListener("click", () => openLb(box));
+    btn.addEventListener("click", e => { e.stopPropagation(); openLb(box); });
+  });
+
+  document.getElementById("lb-close").addEventListener("click", closeLb);
+  document.getElementById("lb-zoom-in").addEventListener("click", () => { scale *= 1.3; applyScale(); });
+  document.getElementById("lb-zoom-out").addEventListener("click", () => { scale /= 1.3; applyScale(); });
+  document.getElementById("lb-reset").addEventListener("click", () => { scale = 1; applyScale(); });
+  lb.addEventListener("click", e => { if (e.target === lb) closeLb(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeLb(); });
+</script>
+</body>
+</html>

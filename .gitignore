@@ -14,3 +14,7 @@ package-lock.json
 # Locks runtime
 .claude/scheduled_tasks.lock
 .env*
+
+# Caches Python (tools/, scripts/)
+__pycache__/
+*.pyc

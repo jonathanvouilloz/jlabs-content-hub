@@ -11,6 +11,7 @@ import re
 import json
 import argparse
 import sys
+import html
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
@@ -280,6 +281,63 @@ def crawl_site(site_root: Path, content_dirs: list[str] | None = None) -> dict[s
         skipped_cols = ASTRO_SKIP_COLLECTIONS
         if skipped_cols:
             print(f"  [~] Collections sans route ignorees : {', '.join(skipped_cols)}")
+
+    return nodes
+
+
+def derive_slug_from_built_html(file_path: Path, output_root: Path) -> str:
+    """Derive the public URL from a prerendered HTML file path."""
+    rel = file_path.relative_to(output_root).with_suffix("")
+    parts = list(rel.parts)
+    if parts and parts[-1] == "index":
+        parts.pop()
+    return normalize_slug("/" + "/".join(parts) if parts else "/")
+
+
+def crawl_built_site(output_root: Path) -> dict[str, dict]:
+    """Read the rendered site instead of source files.
+
+    This mode resolves framework-specific route helpers, component links and
+    build-time URL rewrites before analysing the graph. It is therefore the
+    authoritative mode for sites with i18n or generated navigation.
+    """
+    nodes: dict[str, dict] = {}
+    html_files = [
+        f for f in output_root.rglob("*.html")
+        if not any(part.startswith(".") for part in f.relative_to(output_root).parts)
+    ]
+    print(f"  [~] Build rendu : {len(html_files)} fichiers HTML trouves")
+
+    for file_path in html_files:
+        try:
+            body = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", body, flags=re.IGNORECASE | re.DOTALL)
+        raw_title = title_match.group(1) if title_match else file_path.stem
+        title = html.unescape(re.sub(r"<[^>]+>", "", raw_title)).strip()
+
+        description_match = re.search(
+            r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)["\']',
+            body,
+            flags=re.IGNORECASE,
+        )
+        description = html.unescape(description_match.group(1)).strip() if description_match else ""
+
+        slug = derive_slug_from_built_html(file_path, output_root)
+        main_match = re.search(r"<main(?:\s[^>]*)?>(.*?)</main>", body, flags=re.IGNORECASE | re.DOTALL)
+        link_body = main_match.group(1) if main_match else body
+        nodes[slug] = {
+            "slug": slug,
+            "title": title,
+            "file": str(file_path.relative_to(output_root)).replace("\\", "/"),
+            "category": "blog" if "/blog/" in slug else "pages",
+            "tags": [],
+            "description": description[:250],
+            "body_preview": "",
+            "links": extract_links_from_body(link_body),
+        }
 
     return nodes
 
@@ -662,11 +720,15 @@ const g = svg.append("g");
 const zoom = d3.zoom().scaleExtent([0.05, 6]).on("zoom", e => g.attr("transform", e.transform));
 svg.call(zoom);
 
+// Garde de l'espace entre les noeuds : le graphe privilégie la lisibilité
+// des liens plutôt qu'une occupation minimale de l'écran.
+const LINK_DISTANCE = 210;
+
 const sim = d3.forceSimulation(DATA.nodes)
-  .force("link", d3.forceLink(DATA.links).id(d => d.id).distance(90).strength(0.25))
-  .force("charge", d3.forceManyBody().strength(-250).distanceMax(400))
+  .force("link", d3.forceLink(DATA.links).id(d => d.id).distance(LINK_DISTANCE).strength(0.08))
+  .force("charge", d3.forceManyBody().strength(-1400).distanceMax(1200))
   .force("center", d3.forceCenter(W / 2, H / 2))
-  .force("collide", d3.forceCollide(d => d.size + 10));
+  .force("collide", d3.forceCollide(d => d.size + 30));
 
 // Edges
 const link = g.append("g")
@@ -715,8 +777,35 @@ node.append("text")
 
 // Tooltip
 const tip = document.getElementById("tip");
+const edgeSourceId = edge => typeof edge.source === "object" ? edge.source.id : edge.source;
+const edgeTargetId = edge => typeof edge.target === "object" ? edge.target.id : edge.target;
+
+function resetGraphFocus() {{
+  link
+    .attr("stroke", "#1e3a5f")
+    .attr("stroke-opacity", 0.6)
+    .attr("stroke-width", 1.2);
+  node.select("circle").attr("opacity", 1);
+  node.select("text").attr("opacity", 1);
+}}
+
+function highlightOutgoing(sourceId) {{
+  const targetIds = new Set(
+    DATA.links
+      .filter(edge => edgeSourceId(edge) === sourceId)
+      .map(edge => edgeTargetId(edge))
+  );
+
+  link
+    .attr("stroke", edge => edgeSourceId(edge) === sourceId ? "#38bdf8" : "#1e3a5f")
+    .attr("stroke-opacity", edge => edgeSourceId(edge) === sourceId ? 1 : 0.08)
+    .attr("stroke-width", edge => edgeSourceId(edge) === sourceId ? 3.2 : 0.8);
+  node.select("circle").attr("opacity", d => d.id === sourceId || targetIds.has(d.id) ? 1 : 0.25);
+  node.select("text").attr("opacity", d => d.id === sourceId || targetIds.has(d.id) ? 1 : 0.15);
+}}
 
 node.on("mouseover", (e, d) => {{
+  highlightOutgoing(d.id);
   const badges = [
     d.isOrphan      ? '<span class="badge b-red">orpheline</span>'    : "",
     d.outLinks === 0 ? '<span class="badge b-orange">cul-de-sac</span>' : "",
@@ -736,7 +825,10 @@ node.on("mouseover", (e, d) => {{
   tip.style.left = (e.clientX + 16) + "px";
   tip.style.top  = (e.clientY - 10) + "px";
 }})
-.on("mouseout", () => {{ tip.style.opacity = 0; }});
+.on("mouseout", () => {{
+  tip.style.opacity = 0;
+  resetGraphFocus();
+}});
 
 // Tick
 sim.on("tick", () => {{
@@ -782,6 +874,12 @@ def main():
         help="Dossiers a scanner, separes par virgule (ex: src/content/blog,src/pages). "
              "Defaut : auto-detection Astro (src/) ou scan complet.",
     )
+    parser.add_argument(
+        "--built-dir",
+        default=None,
+        help="Dossier de HTML prerendu a analyser. Relatif a `site` par defaut. "
+             "A utiliser pour les sites avec routes i18n ou liens generes au build.",
+    )
     args = parser.parse_args()
 
     site_root = Path(args.site).resolve()
@@ -791,13 +889,23 @@ def main():
         sys.exit(f"[!] Site introuvable : {site_root}")
 
     content_dirs = [d.strip() for d in args.content_dirs.split(",")] if args.content_dirs else None
+    built_dir = None
+    if args.built_dir:
+        built_dir = Path(args.built_dir)
+        if not built_dir.is_absolute():
+            built_dir = site_root / built_dir
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n[*] Analyse de {site_root}")
     print("    Crawl en cours...")
 
-    nodes = crawl_site(site_root, content_dirs=content_dirs)
+    if args.built_dir:
+        if not built_dir.exists():
+            sys.exit(f"[!] Dossier de build introuvable : {built_dir}")
+        nodes = crawl_built_site(built_dir)
+    else:
+        nodes = crawl_site(site_root, content_dirs=content_dirs)
     if not nodes:
         sys.exit("[!] Aucun fichier trouve. Verifie le chemin ou --content-dirs.")
 

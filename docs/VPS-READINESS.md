@@ -63,10 +63,15 @@ Scopes initiaux recommandés :
 - retry et double appel ne créent pas de duplication ;
 - les preuves ne contiennent pas de PII inutile.
 
-## Lot S2 — Notifications Discord et watchdog
+## Lot S2 — Notifications Discord, snapshots projet et watchdog
 
 Correspond à `TEL-001`, `TEL-002`, `REP-002` et au watchdog externe.
 
+- [x] Exposer une projection hebdomadaire déterministe par projet depuis le rapport portefeuille (`GET /api/agent/reports/{slot}/projects/{slug}`, scope `monitor:read`).
+- [x] Livrer dans `agent-ops` la matérialisation immuable `docs/monitoring/YYYY-MM-DD-seo-weekly-rN.md` et le contrat de dispatch idempotent.
+- [x] Implémenter le fan-out post-publication `ready|degraded` dans la queue canonique SEO Stats, avec clé par slot/révision/slug, retries isolés et feature flag OFF par défaut.
+- [x] Livrer le receiver HMAC V2 Agent Ops, la file disque durable, le worker borné à 3, les retries locaux, la récupération après crash et le lancement Hermes sans credential de publication.
+- [ ] Déployer ces deux services sur le VPS et valider le canary `physiopommier` avant d’élargir l’allowlist ; les projets `paused|archived` restent absents du rapport publiable et les sites sans repo sont exclus de l’allowlist.
 - [ ] Définir le contrat de notification : type, sévérité, slug, établissement, source URL, dedupe key.
 - [ ] Livrer intégration cassée, dead-letter, désindexation critique, chute critique et avis 1–2★.
 - [ ] Livrer un digest hebdomadaire portefeuille et des drill-downs projet.

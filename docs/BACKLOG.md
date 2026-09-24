@@ -2292,6 +2292,291 @@ Acceptation :
 
 ---
 
+# E14 — Drain parallèle et scalabilité du tick
+
+**Objectif :** supprimer le goulot `MAX_JOBS_PER_TICK = 25` d'un worker unique pour que 50 projets tiennent dans la fenêtre hebdo, sans refonte de la file.  
+**Jalon :** M6+  ·  **Référence :** `docs/ARCHITECTURE-CIBLE.md` §6.2/§15 (file durable, déjà multi-workers par construction).
+
+## PAR-001 — Worker de drain VPS dédié
+
+**Priorité :** P1 · **Taille :** M · **État :** READY · **Dépendances :** VPS-002
+
+Travail :
+
+- extraire du tick un rôle `worker` pur (réclamation → exécution → conclusion), sans planification ni publication ;
+- déployer N workers systemd (ou un worker multi-tours) qui drainent la même file Postgres ;
+- conserver le tick Vercel comme planificateur + publicateur seul.
+
+Acceptation :
+
+- deux workers concurrents ne possèdent jamais le même job (déjà garanti par `FOR UPDATE SKIP LOCKED`, à re-prouver par test) ;
+- un run 9 projets tient dans un tick au lieu de trois ;
+- l'arrêt d'un worker ne laisse aucun `running` orphelin (reaper existant).
+
+## PAR-002 — Supprimer le plafond arbitraire du tick
+
+**Priorité :** P1 · **Taille :** S · **État :** READY · **Dépendances :** PAR-001
+
+Travail :
+
+- rendre `MAX_JOBS_PER_TICK` configurable par environnement (Vercel: plafond fonction, VPS: non borné) ;
+- mesurer le temps de drain réel par type de job (collect GSC, sitemap, inspection, détecteurs) ;
+- publier le budget restant dans les stats du tick.
+
+Acceptation :
+
+- le drain VPS ne dépend plus d'un budget de fonction ;
+- les métriques de durée par type de job alimentent le dimensionnement (point de rupture §15 du doc cible : ~15 sites crawl concurrent, ~20 quotas API).
+
+---
+
+# E15 — Boucle d'effet : vérification d'application et mesure d'impact
+
+**Objectif :** fermer la boucle G1/G2/G7 : chaque proposition suivie jusqu'à « appliqué ? », « effet mesuré ? », verdict à horizon.  
+**Jalon :** M6+  ·  **Référence :** `docs/ARCHITECTURE-CIBLE.md` §7 + SPEC §7.5-7.9 (le schéma `action_proposals.verification_status` attend déjà cette mécanique).
+
+## EFF-001 — Phase A : vérification d'application (déterministe, zéro token)
+
+**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** AGT-004 (exécution), IDX-005
+
+Travail :
+
+- pour chaque proposition `approved` avec `execution_job_id` : vérifier l'application réelle ;
+- sources de preuve : commit présent dans le repo (git), `content_hash` des URLs concernées changé, changement visible dans le crawl suivant ;
+- écrire le verdict dans `verification_status` (`passed`/`failed`/`partial`) avec preuve horodatée ;
+- une action approuvée jamais appliquée remonte comme signal (pas un silence).
+
+Acceptation :
+
+- la vérification ne consomme aucun token LLM ;
+- le verdict est rejouable (deux exécutions donnent le même résultat sur le même état) ;
+- `failed`/`partial` alimentent un finding de type `action_not_applied`.
+
+## EFF-002 — Phase B : mesure d'effet aux horizons 14/28/56 jours
+
+**Priorité :** P0 · **Taille :** L · **État :** BLOCKED · **Dépendances :** EFF-001
+
+Travail :
+
+- comparer fenêtres glissantes (clics, impressions, position) sur les URLs concernées, aux horizons J+14, J+28, J+56 ;
+- statut `observing` pendant l'horizon ; verdict terminal `positive` / `neutral` / `negative` / `inconclusive` ;
+- `inconclusive` est un verdict légitime, jamais forcé ;
+- persister dans une table `outcomes` (action_id, horizon, deltas, verdict).
+
+Acceptation :
+
+- une semaine ne suffit jamais à conclure (aucun verdict avant J+14) ;
+- la mesure est 100 % déterministe sur les observations déjà stockées ;
+- le rapport hebdo affiche les verdicts échus de la semaine.
+
+## EFF-003 — Budget de changements hebdo par site
+
+**Priorité :** P1 · **Taille :** S · **État :** BLOCKED · **Dépendances :** EFF-002, CFG-001
+
+Travail :
+
+- plafond N changements/site/semaine (défaut 3), décompté sur les propositions `approved` de la semaine ;
+- au-delà : propositions mises en attente, pas rejetées ;
+- le budget est le mécanisme d'attribution : sans lui, la phase B est ininterprétable.
+
+Acceptation :
+
+- deux semaines consécutives ne proposent jamais plus de N actions appliquées par site ;
+- le dépassement est visible et auditables (jobs, rapports).
+
+---
+
+# E16 — Config projet unifiée (équivalent ops.yaml)
+
+**Objectif :** une seule source de config métier par projet (livrables, cadences, budget, seuils, branding_path), versionnée en git, chargée par `ops sync` dans Postgres — sans source parallèle.  
+**Jalon :** M6+  ·  **Référence :** `docs/ARCHITECTURE-CIBLE.md` §5 (config dans git, état dans Postgres — invariant I6).
+
+## CFG-001 — Modèle `ops.yaml` et validation
+
+**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** AGT-001
+
+Travail :
+
+- définir le schéma (Pydantic/Zod) : slug, client (contacts, destinataires), contrat (début/fin/actif), capacités (seo/gbp/auto_apply), branding_path, seo (gsc_property, budget hebdo, seuil de sévérité, exclusions), gbp (location_id, auto_reply_min_stars), livrables (type/cadence/destinataire/canal) ;
+- le fichier vit dans `projets/{slug}/docs/ops.yaml` (diff git, survit au contrat) ;
+- `ops validate --site <slug>` en préflight : un ops.yaml invalide échoue bruyamment.
+
+Acceptation :
+
+- ajouter un client = une ligne dans le registre + un `docs/ops.yaml` ; aucun code ni cron touché (I1) ;
+- le schéma est validé au chargement, jamais dégradé silencieusement.
+
+## CFG-002 — `ops sync` : fusion avec le canon et projection en base
+
+**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** CFG-001
+
+Travail :
+
+- charger tous les `ops.yaml` au début de chaque cycle ;
+- fusionner avec le registre canonique `cerveau/_system/projects.yaml` (le slug reste LA clé — jamais un second registre) ;
+- projeter dans `project_projections` (déjà hashé/versionné) et alimenter les tables cadences ;
+- en cas de divergence fichier vs base : le fichier gagne, la divergence est journalisée.
+
+Acceptation :
+
+- `projects.yaml` reste la source de vérité des slugs ; `ops.yaml` porte la config métier ;
+- une cadence changée dans le fichier est visible dans le diff git et appliquée au prochain sync ;
+- aucune information par-client ne vit dans `seo-stats/` ni dans `cerveau/` en dehors du registre.
+
+## CFG-003 — Livrables et cadences découplées
+
+**Priorité :** P2 · **Taille :** M · **État :** BLOCKED · **Dépendances :** CFG-002, REP-003
+
+Travail :
+
+- découpler cadence de collecte (hebdo pour tous) de cadence de livraison (client trimestriel ≠ analyse trimestrielle) ;
+- job `deliver` quotidien lit les `livrables` de tous les sites, calcule ce qui est dû, génère depuis la base ;
+- idempotence via table `deliveries` (pas de double envoi sur retry) ;
+- destinataire interne (Telegram, technique) vs client (email/PDF, synthétique, tone of voice) — deux rendus depuis les mêmes données.
+
+Acceptation :
+
+- un rapport trimestriel est une agrégation de semaines déjà stockées, jamais une analyse à part ;
+- aucun retry n'envoie deux fois le même livrable.
+
+---
+
+# E17 — Template branding projet et pipeline docs/brand
+
+**Objectif :** tous les projets SEO portent la même structure `docs/brand/` (mêmes fichiers, mêmes sections, même frontmatter), produite par le flux : contexte initial → audit (skill `brand-source-audit`) → onboarding (RC) → `docs/brand/`.  
+**Jalon :** M6+  ·  **Référence :** `docs/ARCHITECTURE-CIBLE.md` §11 (BrandContext objet de première classe) + `agent-ops/templates/branding/` (contrat de schéma).
+
+## BRN-001 — Adopter le template branding v1
+
+**Priorité :** P1 · **Taille :** S · **État :** READY · **Dépendances :** aucune
+
+Travail :
+
+- adopter `agent-ops/templates/branding/` (README + squelettes) comme contrat de schéma ;
+- migrer Physio Pommier (déjà conforme) vers le squelette exact et le garder comme fixture de référence ;
+- documenter le frontmatter commun (`project/status/sources/validated_by/validated_on/review_due`).
+
+Acceptation :
+
+- deux projets quelconques ont le même squelette de fichiers, seules les valeurs diffèrent ;
+- un dossier `docs/brand/` absent ou incomplet sur un site avec production de contenu → échec bruyant en préflight.
+
+## BRN-002 — Charger le BrandContext dans la projection projet
+
+**Priorité :** P1 · **Taille :** M · **État :** BLOCKED · **Dépendances :** BRN-001, CFG-002
+
+Travail :
+
+- charger `docs/brand/` en structure typée (identity, voice, message, anti-patterns, exemples) ;
+- injecter les champs pertinents par tâche, jamais les fichiers bruts ;
+- inclure `interdits` (anti-patterns) — le champ qui protège les rédacs ;
+- `source_hash` sur la version de marque utilisée, invalidation des fixtures quand le branding change.
+
+Acceptation :
+
+- toute tâche de rédaction reçoit explicitement son BrandContext (y compris SEO : un title qui ignore le positionnement est inutilisable) ;
+- un changement de branding invalide les fixtures produites sur l'ancienne version.
+
+## BRN-003 — Boucle de calibration vers les exemples
+
+**Priorité :** P2 · **Taille :** S · **État :** BLOCKED · **Dépendances :** BRN-002, E09 (Telegram)
+
+Travail :
+
+- chaque réponse/action approuvée sans modification devient candidate exemple de ton ;
+- validation → `voice.md` → `exemples:` (fixture) ;
+- pendant la calibration (4-6 semaines), tout part en approbation, chaque verdict est logué (approuvé tel quel / modifié / rejeté).
+
+Acceptation :
+
+- les exemples se remplissent par la boucle, pas par rédaction ;
+- un taux de rejet élevé sur un type de contenu signale un détecteur/prompt défaillant, pas la gate.
+
+---
+
+# E18 — Système anti-fragile du monitoring hebdomadaire
+
+> Ferme la boucle quand un run finit après la publication, détecte les timeouts récurrents, et
+> resserre la charge d'un projet qui rame. Déclencheur : rapport du **2026-08-10** resté
+> `partial` alors que wildcat a fini `succeeded` à 14:02, une heure après la publication (13:02).
+> Conception : `docs/features/e18-anti-fragile.md`.
+
+## Contexte mesuré (10/08)
+
+Le 10/08, 4 projets (barbermedia, jonlabs, spinlink, wildcat) ont eu `ProviderTimeout` (appel
+Google > 30 s) ou `WorkerDied` (fonction Vercel tuée) sur `collect:url_inspection`. Ce n'est pas
+un problème de charge : wildcat n'avait que **15 URLs**. Le rapport publié `partial` à 13:02 ne
+redevenait jamais `complete`, parce que le tick rend `already_published` et s'arrête — la brique
+`reviseWeeklyReport` existe mais n'est jamais appelée en production.
+
+## AFS-001 — Auto-révision `partial` → `complete` dans le tick
+
+**Priorité :** P1 · **Taille :** S · **État :** DONE · **Dépendances :** —
+
+Travail :
+
+- dans `publishWeeklyReport`, branche `already_published`, si la révision courante est `partial`,
+  recalculer la préparation du créneau ; si le statut redevient `complete`, déclencher
+  `reviseWeeklyReport` avec la raison canonique ;
+- garde anti-bruit : ne réviser QUE `partial` → `complete` (un projet en dead-letter laisse le
+  créneau `partial` sans révision à l'infini) ;
+- idempotence par la contrainte `(period_slot, revision)` ; SLO dérivé de la PREMIÈRE publication.
+
+Acceptation :
+
+- un rapport `partial` dont tous les runs deviennent terminaux est révisé `complete` au tick
+  suivant ;
+- un rapport `partial` avec un projet en dead-letter n'est PAS révisé ;
+- la révision porte sa raison (`revision_reason` non nul) et n'écrase pas la publication d'origine.
+
+Files : `src/lib/server/report-publication-state.ts` (`decideAutoRevision`, testé),
+`src/lib/server/report-publication.ts` (`maybeAutoRevisePartial`).
+
+## AFS-002 — Détection des timeouts récurrents par projet (alerte inbox)
+
+**Priorité :** P2 · **Taille :** S · **État :** DONE · **Dépendances :** —
+
+Travail :
+
+- charger les semaines d'inspection d'un projet depuis `job_attempts` (append-only), en ne
+  comptant que les codes `ProviderTimeout` / `WorkerDied` ;
+- juger la récurrence sur la fenêtre (défaut 3 semaines, seuil 2) ;
+- produire le finding `recurrent_inspection_timeout` (type fermé), idempotent par fingerprint.
+
+Acceptation :
+
+- un projet avec N semaines de timeouts produit un finding ;
+- un timeout isolé (ex. cardrank le 03/08) ne suffit pas ;
+- le finding porte sa preuve (semaines concernées, source `job_attempts`).
+
+Files : `src/lib/server/anti-fragile-state.ts` (détection pure, testée),
+`src/lib/server/anti-fragile.ts` (`ensureRecurrentTimeoutFinding`).
+
+## AFS-003 — Resserrement automatique du budget d'inspection
+
+**Priorité :** P2 · **Taille :** S · **État :** DONE · **Dépendances :** AFS-002
+
+Travail :
+
+- à l'exécution du plan d'inspection, resserrer le budget quotidien du projet (×0.5) s'il est
+  jugé à timeouts récurrents ;
+- le resserrement est DÉRIVÉ, jamais écrit dans `project_projections` : il repasse au défaut dès
+  que le projet redevient stable ;
+- borne basse (défaut 5 URLs) : on ne prive jamais un projet de toute inspection.
+
+Acceptation :
+
+- un projet à timeouts récurrents voit son budget resserré (chaque tentative passe sous le budget
+  de durée, la charge s'étale) ;
+- la réversibilité est automatique (dérivé, pas persistant) ;
+- jamais sous la borne basse.
+
+Files : `src/lib/server/anti-fragile-state.ts` (`computeTightenedBudget`, testée),
+`src/lib/server/anti-fragile.ts` (`resolveInspectionBudgetForProject`),
+`src/lib/server/collectors/index-selection.ts` (branché dans `planInspectionSelection`).
+
+---
+
 ## 5. Backlog d'extensions — ICEBOX
 
 Ces éléments ne bloquent pas l'objectif des 90 % et ne doivent pas retarder M1 à M6.
@@ -2473,5 +2758,10 @@ Ce lot peut démarrer immédiatement et ne dépend d'aucun provider payant :
 | E11 | agents/skills | M5 | P0/P1 | BLOCKED par API et rapports |
 | E12 | sécurité/ops/coûts | transversal | P0 | premiers tickets READY |
 | E13 | VPS/capacité | M6 | P0/P1 | BLOCKED par MVP local |
+| E14 | drain parallèle | M6+ | P1 | PAR-001 READY, PAR-002 READY |
+| E15 | boucle d'effet | M6+ | P0 | BLOCKED par AGT-004 |
+| E16 | config projet unifiée | M6+ | P1 | BLOCKED par AGT-001 |
+| E17 | template branding | M6+ | P1 | BRN-001 READY, BRN-002/003 BLOCKED |
+| E18 | système anti-fragile du monitoring hebdo | M6+ | P1 | AFS-001/002/003 DONE |
 
 Le backlog contient volontairement des dépendances explicites vers des tickets futurs. Un outil d'import doit préserver les IDs et convertir ces dépendances en liens `blocks/is blocked by`.
