@@ -114,8 +114,14 @@ describe('classifyJobFailure — codes internes', () => {
 		expect(cls({ code: LEASE_STALL_ERROR_CODE, message: 'bail bloqué' })).toBe('retryable');
 	});
 
-	it('handler manquant = permanent (erreur de configuration, pas de boucle)', () => {
+	it('handler ou configuration webhook manquants = permanent (pas de boucle)', () => {
 		expect(cls({ code: NO_HANDLER_ERROR_CODE, message: 'aucun handler' })).toBe('permanent');
+		expect(cls({ code: 'HermesWebhookNotConfigured', message: 'secret absent' })).toBe('permanent');
+		expect(cls({ code: 'HermesWebhookInvalidUrl', message: 'URL invalide' })).toBe('permanent');
+		expect(cls({ code: 'HermesWebhookInsecureUrl', message: 'HTTPS requis' })).toBe('permanent');
+		expect(cls({ code: 'InvalidSeoWeeklyDispatchPayload', message: 'payload invalide' })).toBe(
+			'permanent'
+		);
 	});
 
 	it('une erreur illisible retombe sur retryable (on ne condamne jamais à l’aveugle)', () => {

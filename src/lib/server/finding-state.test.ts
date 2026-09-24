@@ -26,9 +26,9 @@ import {
 } from './finding-state.js';
 
 describe('vocabulaire SPEC §7.6/§10.4', () => {
-	it('expose les 20 types du catalogue initial, sans doublon', () => {
-		expect(FINDING_TYPES).toHaveLength(20);
-		expect(new Set(FINDING_TYPES).size).toBe(20);
+	it('expose les 21 types du catalogue, sans doublon', () => {
+		expect(FINDING_TYPES).toHaveLength(21);
+		expect(new Set(FINDING_TYPES).size).toBe(21);
 	});
 	it('statuts = 7 de §7.6 + reopened, sans doublon', () => {
 		expect(FINDING_STATUSES).toHaveLength(8);

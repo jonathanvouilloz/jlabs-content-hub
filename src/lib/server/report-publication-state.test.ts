@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+	AUTO_REVISION_REASON,
 	DEFAULT_PUBLISH_DEADLINE_MINUTES,
 	PUBLICATION_SCHEMA_VERSION,
 	PUBLICATION_STATUSES,
 	READINESS_STATES,
 	classifyProjectReadiness,
 	currentPublicationSlot,
+	decideAutoRevision,
 	decidePublication,
 	deriveSlo,
 	renderPublicationAnnouncement,
@@ -459,5 +461,41 @@ describe('renderPublicationAnnouncement', () => {
 		expect(a.lines.join('\n')).toContain(
 			'Projets attendus : 2 · prêts 1 · dégradés 1 · en attente 0 · absents 0'
 		);
+	});
+});
+
+// ── L'auto-révision (E18 — anti-fragile) ─────────────────────────────
+
+describe('decideAutoRevision', () => {
+	it('révise quand un `partial` redevient `complete` (le trou du 10/08)', () => {
+		// Rapport publié partial à 13:02 (wildcat encore running), devenu complete quand
+		// wildcat a fini à 14:02. C'est exactement le cas que la machine doit corriger seule.
+		const d = decideAutoRevision({ currentStatus: 'partial', recomputedStatus: 'complete' });
+		expect(d.action).toBe('revise');
+	});
+
+	it('NE révise PAS quand le créneau reste `partial` (projet en dead-letter)', () => {
+		// Un run mort n'est pas une latence qui se résout : réviser chaque tick serait du bruit
+		// qui enterre la vraie valeur du statut.
+		const d = decideAutoRevision({ currentStatus: 'partial', recomputedStatus: 'partial' });
+		expect(d.action).toBe('skip');
+		if (d.action === 'skip') expect(d.note).toContain('toujours partial');
+	});
+
+	it('NE révise PAS un créneau déjà `complete`', () => {
+		const d = decideAutoRevision({ currentStatus: 'complete', recomputedStatus: 'complete' });
+		expect(d.action).toBe('skip');
+		if (d.action === 'skip') expect(d.note).toContain('déjà complet');
+	});
+
+	it('NE révise JAMAIS dans le sens `complete` → `partial`', () => {
+		// Une révision n'est pas une dégradation : un projet qui retombe se lit comme un run
+		// degraded sur le créneau, pas comme une réécriture de son verdict.
+		const d = decideAutoRevision({ currentStatus: 'complete', recomputedStatus: 'partial' });
+		expect(d.action).toBe('skip');
+	});
+
+	it('la raison canonique dit que c’est un geste de la machine, pas un choix humain', () => {
+		expect(AUTO_REVISION_REASON).toContain('auto');
 	});
 });

@@ -98,7 +98,11 @@ export const GET: RequestHandler = async ({ request }) => {
 			}),
 			once: true,
 			maxJobs: MAX_JOBS_PER_TICK,
-			signal: controller.signal
+			signal: controller.signal,
+			hermesWebhook: {
+				url: env.HERMES_SEO_WEBHOOK_URL ?? '',
+				secret: env.HERMES_SEO_WEBHOOK_SECRET ?? ''
+			}
 		});
 	} catch (err) {
 		drainError = err instanceof Error ? err.message : String(err);
@@ -123,7 +127,17 @@ export const GET: RequestHandler = async ({ request }) => {
 			// `now` n'est PAS passé : `published_at` doit dire quand la ligne a été écrite, pas
 			// quand le tick a démarré. Un drain de quatre minutes ne s'attribue pas une
 			// ponctualité qu'il n'a pas eue — c'est la mesure du SLO §17.3 qui en dépend.
-			publication = await publishWeeklyReport({ db });
+			publication = await publishWeeklyReport({
+				db,
+				dispatch: {
+					enabled: env.FLAG_AGENT_RUNNER === 'true',
+					baseUrl: env.PUBLIC_APP_URL ?? '',
+					projectAllowlist: (env.SEO_AGENT_PROJECT_ALLOWLIST ?? '')
+						.split(',')
+						.map((slug) => slug.trim())
+						.filter(Boolean)
+				}
+			});
 		} catch (err) {
 			publishError = err instanceof Error ? err.message : String(err);
 			logger.error('publication du rapport échouée (tick par ailleurs valide)', {

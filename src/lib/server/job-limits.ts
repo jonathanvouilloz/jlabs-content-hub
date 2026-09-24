@@ -115,8 +115,14 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// plus dans `reservedTypes` : la réserve protège la COLLECTE qui coûte du quota, pas la
 	// relecture de ce qu'elle a écrit.
 	'detect:review_pending': 'none',
+	// GMB-009 — cette détection appelle un modèle et doit rejoindre sa cohorte de
+	// capacité/retry ; ce n'est ni une relecture SQL (`none`), ni du quota GBP (`gmb`).
+	'detect:employee_mentions': 'llm',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',
+	// Fan-out : un POST HMAC vers le receiver Agent Ops, sans quota Google/LLM. Les retries
+	// restent ceux de la queue ; le classer `llm` mélangerait transport et consommation IA.
+	'dispatch:seo_weekly': 'none',
 	noop: 'none',
 	// E03 — pas encore de handler (`NoHandlerRegistered`), mais déjà planifiable par
 	// `schedulePostPublish` : le jour où son handler arrive, il est déjà gouverné.

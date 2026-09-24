@@ -505,6 +505,14 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			jobType: 'detect:review_pending',
 			priority: 8,
 			dependsOn: [{ jobType: 'collect:gmb_reviews' }]
+		},
+		{
+			// GMB-009 — extraction LLM des mentions : elle ne peut juger que les avis que
+			// la collecte du jour vient de réconcilier. Prérequis obligatoire : un échec de
+			// collecte rend le run partial plutôt que d'analyser silencieusement l'état d'hier.
+			jobType: 'detect:employee_mentions',
+			priority: 8,
+			dependsOn: [{ jobType: 'collect:gmb_reviews' }]
 		}
 	],
 	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de

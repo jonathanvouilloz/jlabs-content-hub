@@ -23,7 +23,7 @@
  */
 import { and, eq, gte, lte, notExists, sql } from 'drizzle-orm';
 import type { AppDb } from '../db/types.js';
-import { indexObservations, indexSelection, projectProjections } from '../db/schema.js';
+import { indexObservations, indexSelection, projectProjections, projects } from '../db/schema.js';
 import { createId } from '../utils.js';
 import { toDbTimestamp } from '../timestamps.js';
 import { log } from '../log.js';
@@ -33,6 +33,7 @@ import { listFindings } from '../findings.js';
 import { POST_PUBLISH_OFFSETS_DAYS } from '../schedule-state.js';
 import { MAX_URLS_PER_JOB } from './url-inspection-state.js';
 import { diffInventories, normalizeUrl } from './sitemap-state.js';
+import { resolveInspectionBudgetForProject } from '../anti-fragile.js';
 import { loadLatestInventory, loadPreviousInventory, type InventoryUrlRow } from './sitemap-inventory.js';
 import {
 	INDEX_TRANSITION_TYPES,
@@ -145,6 +146,24 @@ export async function loadProjectSelectionOverrides(
 			indexing?: { selection?: ProjectSelectionOverrides };
 		};
 		return parsed?.indexing?.selection ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Slug du projet, pour l'alerte inbox anti-fragile (volet B).
+ *
+ * Une lecture par domaine, groupée comme `loadProjectSelectionOverrides` : le plan d'inspection
+ * l'utilise une fois par projet, jamais en boucle.
+ */
+async function loadProjectSlug(db: AppDb, projectId: string): Promise<string | null> {
+	try {
+		const row = await db.query.projects.findFirst({
+			where: eq(projects.id, projectId),
+			columns: { slug: true }
+		});
+		return row?.slug ?? null;
 	} catch {
 		return null;
 	}
@@ -665,9 +684,24 @@ export async function planInspectionSelection(input: {
 	const project = resolveProjectSelection(config, projectOverrides);
 	const poolUsed = await loadGlobalPoolUsed({ db: input.db, today });
 
+	// E18 — Anti-fragile (volet C) : le budget quotidien du projet est DÉRIVÉ à l'exécution. Si ses
+	// semaines récentes d'inspection portent des timeouts récurrents, il est resserré (moins
+	// d'URLs par tentative → chaque tentative passe sous le budget de durée, la charge s'étale).
+	// Purement dérivé, jamais écrit dans `project_projections` : il repasse au défaut dès que le
+	// projet redevient stable. `input.budget` (plafond explicite du job) reste appliqué tel quel
+	// par `resolveBudget` en parallèle.
+	const effectiveProjectBudget = await resolveInspectionBudgetForProject({
+		db: input.db,
+		projectId: input.projectId,
+		baseBudget: project.dailyBudget,
+		// Le slug sert à produire le finding d'alerte (volet B). Chargé une fois par plan, léger.
+		projectSlug: await loadProjectSlug(input.db, input.projectId),
+		now: input.now
+	});
+
 	const budgetRes = resolveBudget({
 		config,
-		projectDailyBudget: project.dailyBudget,
+		projectDailyBudget: effectiveProjectBudget.effectiveBudget,
 		poolUsed,
 		scope: input.scope,
 		jobBudget: input.budget ?? null,

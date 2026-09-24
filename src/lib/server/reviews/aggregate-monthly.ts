@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db/index.js';
-import { projects, gmbReviews, employeeMentions, projectContexts } from '$lib/server/db/schema.js';
-import { eq, and, gte, lt, desc, ilike } from 'drizzle-orm';
+import { projects, gmbReviews, projectContexts } from '$lib/server/db/schema.js';
+import { eq, and, gte, lt, desc, ilike, sql } from 'drizzle-orm';
 import type { ProjectContext } from '$lib/types/project-context.js';
 
 export interface ReviewItem {
@@ -98,23 +98,9 @@ export async function aggregateMonthly(
 			lt(gmbReviews.createTime, monthStart)
 		));
 
-	const employees = await db
-		.select()
-		.from(employeeMentions)
-		.where(and(
-			eq(employeeMentions.projectId, project.id),
-			eq(employeeMentions.year, year),
-			eq(employeeMentions.month, month)
-		));
-
-	const prevEmployees = await db
-		.select()
-		.from(employeeMentions)
-		.where(and(
-			eq(employeeMentions.projectId, project.id),
-			eq(employeeMentions.year, prevYear),
-			eq(employeeMentions.month, prevMonth)
-		));
+	// Read model dérivé de la source : aucune écriture/lecture de l'ancien agrégat mutable.
+	const employees = await loadEmployeeMentionReadModel(project.id, monthStart, nextMonth);
+	const prevEmployees = await loadEmployeeMentionReadModel(project.id, prevMonthStart, monthStart);
 
 	const employeeSamples: Record<string, ReviewItem[]> = {};
 	for (const emp of employees) {
@@ -125,12 +111,12 @@ export async function aggregateMonthly(
 				eq(gmbReviews.projectId, project.id),
 				gte(gmbReviews.createTime, monthStart),
 				lt(gmbReviews.createTime, nextMonth),
-				ilike(gmbReviews.mentionedEmployees, `%"name":"${emp.employeeName}"%`)
+				ilike(gmbReviews.mentionedEmployees, `%"name":"${emp.name}"%`)
 			))
 			.orderBy(desc(gmbReviews.createTime))
 			.limit(3);
 		if (samples.length > 0) {
-			employeeSamples[emp.employeeName] = samples.map(toReviewItem);
+			employeeSamples[emp.name] = samples.map(toReviewItem);
 		}
 	}
 
@@ -195,7 +181,7 @@ export async function aggregateMonthly(
 		},
 		locations,
 		employees: employees.map((e) => ({
-			name: e.employeeName,
+			name: e.name,
 			mentionCount: e.mentionCount,
 			positiveCount: e.positiveCount,
 			neutralCount: e.neutralCount,
@@ -205,6 +191,35 @@ export async function aggregateMonthly(
 		reviews: reviews.map(toReviewItem),
 		prevReviews: prevReviews.map(toReviewItem)
 	};
+}
+
+/**
+ * `gmb_reviews.mentioned_employees` est la source canonique. Le GROUP BY rend
+ * l'écran recalculable et idempotent, sans table d'agrégat à réparer.
+ */
+async function loadEmployeeMentionReadModel(projectId: string, from: string, to: string): Promise<EmployeeStats[]> {
+	const result = await db.execute(sql`
+		select
+			mention->>'name' as name,
+			count(*)::int as "mentionCount",
+			count(*) filter (where mention->>'sentiment' = 'positive')::int as "positiveCount",
+			count(*) filter (where mention->>'sentiment' = 'neutral')::int as "neutralCount",
+			count(*) filter (where mention->>'sentiment' = 'negative')::int as "negativeCount"
+		from seostats.gmb_reviews,
+		lateral jsonb_array_elements(
+			case when mentioned_employees ~ '^\\s*\\[' then mentioned_employees::jsonb else '[]'::jsonb end
+		) as mention
+		where project_id = ${projectId} and create_time >= ${from} and create_time < ${to}
+		group by mention->>'name'
+	`);
+	const rows = ('rows' in result ? result.rows : result) as unknown as EmployeeStats[];
+	return rows.map((row) => ({
+		name: row.name,
+		mentionCount: Number(row.mentionCount),
+		positiveCount: Number(row.positiveCount),
+		neutralCount: Number(row.neutralCount),
+		negativeCount: Number(row.negativeCount)
+	}));
 }
 
 function toReviewItem(r: typeof gmbReviews.$inferSelect): ReviewItem {

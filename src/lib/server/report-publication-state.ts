@@ -326,6 +326,60 @@ export function deriveStatus(readiness: PublicationReadiness): PublicationStatus
 		: 'partial';
 }
 
+// ── L'auto-révision (E18 — anti-fragile) ─────────────────────────────
+
+/**
+ * Raison canonique d'une révision déclenchée par le système lui-même.
+ *
+ * Une révision porte TOUJOURS sa raison (CHECK `revision_reason` en base), et celle-ci doit
+ * dire qu'elle est un geste de la machine, pas un choix humain : le lecteur du lignage doit
+ * pouvoir distinguer « le système s'est corrigé » d'« un humain a réécrit la semaine ».
+ */
+export const AUTO_REVISION_REASON =
+	'auto : les runs du créneau sont désormais terminaux (rapport passé de partial à complete)';
+
+export type AutoRevisionDecision =
+	| { action: 'revise' }
+	| { action: 'skip'; note: string };
+
+/**
+ * Faut-il réviser automatiquement ce créneau ?
+ *
+ * La règle anti-fragile, en une fonction pure : **le système se corrige quand la cause de la
+ * fragilité disparaît** — un `partial` publié à l'échéance (un run encore en vol) redevient
+ * `complete` quand ce run a fini. Et il ne se corrige QUE dans ce cas :
+ *
+ *   - `partial` → `complete` : révise. C'est le trou du 10/08 (wildcat `succeeded` à 14:02,
+ *     rapport publié `partial` à 13:02).
+ *   - `partial` → `partial` : NE RÉVISE PAS. Un projet resté en dead-letter n'est pas une
+ *     latence qui se résout, c'est une panne qui se regarde ; réviser à l'infini serait du bruit
+ *     qui enterre la vraie valeur du statut.
+ *   - `complete` → `complete` : ne révise pas (rien à corriger).
+ *   - `complete` → `partial` : ne révise jamais dans ce sens — une révision n'est pas une
+ *     dégradation, et un projet qui retombe doit se lire comme un run `degraded` sur le
+ *     créneau, pas comme une réécriture de son verdict.
+ */
+export function decideAutoRevision(input: {
+	/** Statut de la révision COURANTE (la plus haute) du créneau. */
+	currentStatus: PublicationStatus;
+	/** Statut recalculé MAINTENANT, quand tous les runs ont eu le temps de finir. */
+	recomputedStatus: PublicationStatus;
+}): AutoRevisionDecision {
+	if (input.currentStatus === 'partial' && input.recomputedStatus === 'complete') {
+		return { action: 'revise' };
+	}
+	if (input.currentStatus === 'complete') {
+		return {
+			action: 'skip',
+			note: 'créneau déjà complet : rien à corriger.'
+		};
+	}
+	return {
+		action: 'skip',
+		note: 'créneau toujours partial : un run attendu reste non terminal (ou dégradé) — pas de révision à l’infini.'
+	};
+}
+
 /**
  * Réduit les runs du créneau à la structure persistée.
  *

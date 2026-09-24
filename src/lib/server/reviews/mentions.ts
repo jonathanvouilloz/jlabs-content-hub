@@ -1,6 +1,5 @@
 import { db } from '$lib/server/db/index.js';
-import { gmbReviews, employeeMentions } from '$lib/server/db/schema.js';
-import { createId } from '$lib/server/utils.js';
+import { gmbReviews } from '$lib/server/db/schema.js';
 import { eq, and } from 'drizzle-orm';
 
 export type Sentiment = 'positive' | 'neutral' | 'negative';
@@ -21,74 +20,21 @@ export function sanitizeMentions(input: unknown): Mention[] {
 }
 
 export async function decrementMonthlyAggregate(
-	projectId: string,
-	mentions: Mention[],
-	year: number,
-	month: number
+	_projectId: string,
+	_mentions: Mention[],
+	_year: number,
+	_month: number
 ): Promise<void> {
-	for (const m of mentions) {
-		const name = m.name.trim();
-		const existing = await db.query.employeeMentions.findFirst({
-			where: and(
-				eq(employeeMentions.projectId, projectId),
-				eq(employeeMentions.employeeName, name),
-				eq(employeeMentions.year, year),
-				eq(employeeMentions.month, month)
-			)
-		});
-		if (!existing) continue;
-		if (existing.mentionCount > 1) {
-			await db.update(employeeMentions).set({
-				mentionCount: existing.mentionCount - 1,
-				positiveCount: existing.positiveCount - (m.sentiment === 'positive' ? 1 : 0),
-				neutralCount: existing.neutralCount - (m.sentiment === 'neutral' ? 1 : 0),
-				negativeCount: existing.negativeCount - (m.sentiment === 'negative' ? 1 : 0),
-				updatedAt: new Date().toISOString()
-			}).where(eq(employeeMentions.id, existing.id));
-		} else {
-			await db.delete(employeeMentions).where(eq(employeeMentions.id, existing.id));
-		}
-	}
+	// Compatibilité route legacy : le read model est désormais dérivé par GROUP BY.
 }
 
 async function incrementMonthlyAggregate(
-	projectId: string,
-	mentions: Mention[],
-	year: number,
-	month: number
+	_projectId: string,
+	_mentions: Mention[],
+	_year: number,
+	_month: number
 ): Promise<void> {
-	for (const m of mentions) {
-		const name = m.name.trim();
-		const existing = await db.query.employeeMentions.findFirst({
-			where: and(
-				eq(employeeMentions.projectId, projectId),
-				eq(employeeMentions.employeeName, name),
-				eq(employeeMentions.year, year),
-				eq(employeeMentions.month, month)
-			)
-		});
-		if (existing) {
-			await db.update(employeeMentions).set({
-				mentionCount: existing.mentionCount + 1,
-				positiveCount: existing.positiveCount + (m.sentiment === 'positive' ? 1 : 0),
-				neutralCount: existing.neutralCount + (m.sentiment === 'neutral' ? 1 : 0),
-				negativeCount: existing.negativeCount + (m.sentiment === 'negative' ? 1 : 0),
-				updatedAt: new Date().toISOString()
-			}).where(eq(employeeMentions.id, existing.id));
-		} else {
-			await db.insert(employeeMentions).values({
-				id: createId(),
-				projectId,
-				employeeName: name,
-				year,
-				month,
-				mentionCount: 1,
-				positiveCount: m.sentiment === 'positive' ? 1 : 0,
-				neutralCount: m.sentiment === 'neutral' ? 1 : 0,
-				negativeCount: m.sentiment === 'negative' ? 1 : 0
-			});
-		}
-	}
+	// Compatibilité route legacy : aucune écriture dans employee_mentions.
 }
 
 /**

@@ -139,7 +139,11 @@ async function main() {
 		pollIntervalMs: POLL_MS,
 		once: ONCE,
 		maxJobs: MAX_JOBS,
-		signal: controller.signal
+		signal: controller.signal,
+		hermesWebhook: {
+			url: process.env.HERMES_SEO_WEBHOOK_URL ?? '',
+			secret: process.env.HERMES_SEO_WEBHOOK_SECRET ?? ''
+		}
 	});
 
 	console.log(

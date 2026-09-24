@@ -374,13 +374,19 @@ describe('SCHEDULE_CATALOG', () => {
 		// GMB-002 lot 2 — son détecteur la suit, en quotidien lui aussi : un avis négatif
 		// découvert six jours après coup est le défaut que ce lot ferme.
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual([
-			'findings:lifecycle',
-			'collect:url_inspection',
-			'collect:gmb_reviews',
-			'detect:index_transition',
-			'detect:review_pending'
+		'findings:lifecycle',
+		'collect:url_inspection',
+		'collect:gmb_reviews',
+		'detect:index_transition',
+		'detect:review_pending',
+		'detect:employee_mentions'
 		]);
-	});
+		});
+
+		it('GMB-009 — les mentions employés dépendent obligatoirement de la collecte des avis', () => {
+		const detector = catalogFor('daily').find((e) => e.jobType === 'detect:employee_mentions')!;
+		expect(detector.dependsOn).toEqual([{ jobType: 'collect:gmb_reviews' }]);
+		});
 
 	it('GMB-002 lot 2 — la détection d’avis dépend OBLIGATOIREMENT de sa collecte', () => {
 		const collect = catalogFor('daily').find((e) => e.jobType === 'collect:gmb_reviews')!;

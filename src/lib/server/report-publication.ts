@@ -35,12 +35,14 @@ import { loadWeeklyReport } from './weekly-report.js';
 import { REPORT_SCHEMA_VERSION, type WeeklyReport } from './weekly-report-state.js';
 import {
 	currentPublicationSlot,
+	decideAutoRevision,
 	decidePublication,
 	deriveSlo,
 	deriveStatus,
 	summarizeReadiness,
 	renderPublicationAnnouncement,
 	resolvePublishDeadlineMinutes,
+	AUTO_REVISION_REASON,
 	PUBLICATION_SCHEMA_VERSION,
 	type ProjectRunInput,
 	type PublicationAnnouncement,
@@ -56,6 +58,10 @@ import {
 	type RevisionRefusal
 } from './report-history-state.js';
 import { deriveDetailState, type DetailState } from './report-retention-state.js';
+import {
+	queueSeoWeeklyDispatchesWithDb,
+	type QueueSeoWeeklyDispatchesResult
+} from './seo-weekly-dispatch.js';
 
 const logger = log('report-publication');
 
@@ -187,6 +193,57 @@ export interface PublishWeeklyReportResult {
 	dryRun: boolean;
 }
 
+export interface SeoWeeklyDispatchConfig {
+	enabled: boolean;
+	baseUrl: string;
+	projectAllowlist?: string[];
+}
+
+function parsePublicationReadiness(raw: string | null | undefined): PublicationReadiness | null {
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as PublicationReadiness;
+	} catch {
+		return null;
+	}
+}
+
+async function reconcileProjectDispatches(input: {
+	db: AppDb;
+	config?: SeoWeeklyDispatchConfig;
+	readiness: PublicationReadiness | null;
+	reportId: string;
+	revision: number;
+}): Promise<QueueSeoWeeklyDispatchesResult | null> {
+	if (!input.config?.enabled || !input.readiness) return null;
+	try {
+		const result = await queueSeoWeeklyDispatchesWithDb({
+			db: input.db,
+			enabled: true,
+			readiness: input.readiness,
+			reportId: input.reportId,
+			revision: input.revision,
+			baseUrl: input.config.baseUrl,
+			projectAllowlist: input.config.projectAllowlist
+		});
+		logger.info('fan-out SEO hebdomadaire réconcilié', {
+			reportId: input.reportId,
+			periodSlot: input.readiness.periodSlot,
+			revision: input.revision,
+			...result
+		});
+		return result;
+	} catch (err) {
+		logger.error('fan-out SEO hebdomadaire échoué (rapport conservé)', {
+			reportId: input.reportId,
+			periodSlot: input.readiness.periodSlot,
+			revision: input.revision,
+			error: err instanceof Error ? err.message : String(err)
+		});
+		return null;
+	}
+}
+
 export interface PublishWeeklyReportInput {
 	db: AppDb;
 	/**
@@ -201,6 +258,8 @@ export interface PublishWeeklyReportInput {
 	timeZone?: string;
 	/** Ne rien écrire : rend la décision et s'arrête. */
 	dryRun?: boolean;
+	/** Fan-out additif vers Hermes. Absent/OFF = comportement historique strictement inchangé. */
+	dispatch?: SeoWeeklyDispatchConfig;
 	/**
 	 * Créneau forcé. Réservé aux PREUVES : il permet d'exercer la publication sur un créneau
 	 * synthétique (donc supprimable) sans toucher au rapport réel de la semaine. L'app ne le
@@ -265,7 +324,14 @@ export async function publishWeeklyReport(
 	const existing = await db.query.weeklyReports.findFirst({
 		where: eq(weeklyReports.periodSlot, periodSlot),
 		orderBy: [desc(weeklyReports.revision)],
-		columns: { id: true, status: true, dueAt: true, publishedAt: true, revision: true }
+		columns: {
+			id: true,
+			status: true,
+			dueAt: true,
+			publishedAt: true,
+			revision: true,
+			readinessJson: true
+		}
 	});
 
 	const deadlineMinutes = input.deadlineMinutes ?? (await loadPublishDeadlineMinutes(db));
@@ -287,6 +353,33 @@ export async function publishWeeklyReport(
 							columns: { publishedAt: true }
 						})
 					)?.publishedAt ?? existing.publishedAt);
+		// Réconcilier aussi sur `already_published` ferme la fenêtre de panne « rapport écrit,
+		// process tué avant fan-out ». La clé de job rend ces appels idempotents.
+		await reconcileProjectDispatches({
+			db,
+			config: input.dispatch,
+			readiness: parsePublicationReadiness(existing.readinessJson),
+			reportId: existing.id,
+			revision: existing.revision
+		});
+
+		// ── E18 — Auto-révision `partial` → `complete` (anti-fragile). ──────────────
+		// Un rapport publié `partial` à l'échéance (un run encore en vol) doit se corriger seul
+		// quand ce run finit. C'est le trou du 10/08 : wildcat `succeeded` à 14:02, rapport
+		// `partial` publié à 13:02, personne ne l'a jamais revu. La garde est la plus légère
+		// possible : elle ne coûte une relecture de préparation QUE sur un créneau `partial`
+		// (les 167 ticks sur 168 où le rapport est `complete` n'ajoutent aucune lecture).
+		//
+		// ⚠️ Une révision n'écrit QUE le passage `partial` → `complete` (décision pure
+		// `decideAutoRevision`) : un projet resté en dead-letter laisse le créneau `partial` et
+		// ne déclenche AUCUNE révision à l'infini. L'idempotence est portée par la contrainte
+		// `(period_slot, revision)` + `already_revised` ; le SLO reste celui de la PREMIÈRE
+		// publication (dérivé plus bas), jamais d'une révision.
+		if (existing.status === 'partial') {
+			const autoRev = await maybeAutoRevisePartial({ db, periodSlot, existing, now, dryRun });
+			if (autoRev) return autoRev;
+		}
+
 		// Le SLO de la ligne EXISTANTE, dérivé de ce qu'elle porte — pas de l'échéance
 		// d'aujourd'hui, qui a pu changer entre-temps.
 		return {
@@ -454,6 +547,14 @@ export async function publishWeeklyReport(
 		incidents: decision.readiness.incidents.length
 	});
 
+	await reconcileProjectDispatches({
+		db,
+		config: input.dispatch,
+		readiness: decision.readiness,
+		reportId: inserted[0].id,
+		revision: 1
+	});
+
 	return {
 		action: 'publish',
 		reason: decision.reason,
@@ -521,6 +622,7 @@ export async function reviseWeeklyReport(input: {
 	/** Instant d'écriture. Injecté par les preuves ; l'app prend l'heure réelle. */
 	now?: Date;
 	dryRun?: boolean;
+	dispatch?: SeoWeeklyDispatchConfig;
 }): Promise<ReviseWeeklyReportResult> {
 	const db = input.db;
 	const now = input.now ?? new Date();
@@ -656,6 +758,14 @@ export async function reviseWeeklyReport(input: {
 		blockers: readiness.blockers.length
 	});
 
+	await reconcileProjectDispatches({
+		db,
+		config: input.dispatch,
+		readiness,
+		reportId: inserted[0].id,
+		revision: decision.revision
+	});
+
 	return {
 		action: 'revise',
 		refusal: null,
@@ -668,6 +778,91 @@ export async function reviseWeeklyReport(input: {
 		previousStatus: current.status as PublicationStatus,
 		readiness,
 		publishedAtDb,
+		dryRun
+	};
+}
+
+/**
+ * E18 — Auto-révision d'un créneau `partial` dont les runs ont fini (anti-fragile).
+ *
+ * Appelée depuis la branche `already_published` de `publishWeeklyReport`, et UNIQUEMENT quand
+ * la révision courante est `partial`. Elle recalcule la préparation du créneau (les runs ont
+ * eu le temps de finir entre la publication et ce tick) et, si le statut est redevenu
+ * `complete`, écrit une révision via `reviseWeeklyReport` — la MÊME brique que le geste humain,
+ * donc idempotente, sourcée sur le créneau (`now = slot_at`), et qui ne touche ni `slot_at` ni
+ * `due_at`. Rend `null` quand il n'y a rien à corriger : le tick retombe alors sur le verdict
+ * `already_published` inchangé.
+ *
+ * ⚠️ L'échéance est relue de la préparation PERSISTÉE (via `resolveDeadlineFromReadiness`) et
+ * jamais de `loadPublishDeadlineMinutes` : une révision décrit le périmètre du créneau avec les
+ * règles du créneau, comme `reviseWeeklyReport` le fait déjà.
+ */
+async function maybeAutoRevisePartial(input: {
+	db: AppDb;
+	periodSlot: string;
+	/** La révision COURANTE (la plus haute) du créneau, déjà lue par `publishWeeklyReport`. */
+	existing: {
+		id: string;
+		revision: number;
+		status: string;
+		readinessJson: string | null;
+	};
+	now: Date;
+	dryRun: boolean;
+}): Promise<PublishWeeklyReportResult | null> {
+	const { db, periodSlot, existing, now, dryRun } = input;
+
+	// Recalculer la préparation de CE créneau, sur l'horloge réelle : c'est précisément le fait
+	// que les runs ont eu du temps depuis la publication qu'on veut constater.
+	const projects = await loadSlotReadiness({ db, periodSlot, now });
+	const deadlineMinutes = resolveDeadlineFromReadiness(existing.readinessJson ?? '');
+	const readiness = summarizeReadiness({ periodSlot, deadlineMinutes, projects });
+	const recomputedStatus = deriveStatus(readiness);
+
+	const decision = decideAutoRevision({
+		currentStatus: existing.status as PublicationStatus,
+		recomputedStatus
+	});
+
+	if (decision.action !== 'revise') {
+		logger.info('auto-révision non nécessaire', {
+			periodSlot,
+			currentStatus: existing.status,
+			recomputedStatus,
+			note: decision.note
+		});
+		return null;
+	}
+
+	logger.info('auto-révision déclenchée (partial → complete)', {
+		periodSlot,
+		fromRevision: existing.revision
+	});
+
+	// `reviseWeeklyReport` porte déjà l'idempotence (`onConflictDoNothing` + `already_revised`)
+	// et la réconciliation des dispatches. On ne réinvente rien ici.
+	const revised = await reviseWeeklyReport({
+		db,
+		periodSlot,
+		reason: AUTO_REVISION_REASON,
+		now,
+		dryRun
+	});
+
+	// On rend une forme `PublishWeeklyReportResult` cohérente : le tick a bien un rapport, et il
+	// dit qu'il a été révisé (statut recomputé), pas seulement « déjà publié ».
+	return {
+		action: 'already_published',
+		reason: 'already_published',
+		periodSlot,
+		status: revised.status,
+		reportId: revised.reportId ?? existing.id,
+		slotAtDb: null,
+		dueAtDb: null,
+		publishedAtDb: revised.publishedAtDb,
+		readiness,
+		slo: null,
+		announcement: null,
 		dryRun
 	};
 }

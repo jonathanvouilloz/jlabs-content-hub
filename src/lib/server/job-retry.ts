@@ -134,7 +134,11 @@ const INTERNAL_CLASSES: Record<string, ErrorClass> = {
 	[WORKER_DEATH_ERROR_CODE]: 'retryable',
 	[LEASE_STALL_ERROR_CODE]: 'retryable',
 	// Erreur de CONFIGURATION : aucun retry ne fera apparaître le handler manquant.
-	[NO_HANDLER_ERROR_CODE]: 'permanent'
+	[NO_HANDLER_ERROR_CODE]: 'permanent',
+	HermesWebhookNotConfigured: 'permanent',
+	HermesWebhookInvalidUrl: 'permanent',
+	HermesWebhookInsecureUrl: 'permanent',
+	InvalidSeoWeeklyDispatchPayload: 'permanent'
 };
 
 /** Statut HTTP porté par l'erreur, quelle que soit la forme du client. */

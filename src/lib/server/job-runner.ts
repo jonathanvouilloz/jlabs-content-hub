@@ -95,6 +95,9 @@ import {
 } from './collectors/index-selection.js';
 import { loadGscLatencyDays } from './gsc-settings.js';
 import { expireSnoozes } from './findings.js';
+import { deliverHermesWebhook } from './hermes-webhook.js';
+import { JOB_TYPE_DISPATCH_SEO_WEEKLY } from './seo-weekly-dispatch.js';
+import { parseSeoWeeklyDispatchEvent } from './seo-weekly-dispatch-state.js';
 
 const logger = log('worker');
 
@@ -239,6 +242,9 @@ export const JOB_TYPE_DETECT_INDEX_TRANSITION = 'detect:index_transition';
  */
 export const JOB_TYPE_DETECT_REVIEW_PENDING = 'detect:review_pending';
 
+/** GMB-009 — extraction LLM durable, bornée et dépendante de la collecte quotidienne. */
+export const JOB_TYPE_DETECT_EMPLOYEE_MENTIONS = 'detect:employee_mentions';
+
 /**
  * FIND-003 — expiration des veilles. Job À PART du détecteur : une veille doit
  * expirer même les semaines où aucune détection ne tourne (sans quoi le snooze
@@ -256,11 +262,18 @@ export const JOB_TYPE_PROPOSE_ACTIONS = 'propose:actions';
 /** Job sans effet, utilisé par le test de concurrence et les fumigations. */
 export const JOB_TYPE_NOOP = 'noop';
 
+export interface HermesWebhookConfig {
+	url: string;
+	secret: string;
+}
+
 /**
  * Registre par défaut. `payload_json` du job peut porter `{ weeks, projectId }` ;
  * à défaut, le détecteur tourne sur le projet du job et sa fenêtre par défaut.
  */
-export function defaultHandlers(): Map<string, JobHandler> {
+export function defaultHandlers(options?: {
+	hermesWebhook?: HermesWebhookConfig;
+}): Map<string, JobHandler> {
 	return new Map<string, JobHandler>([
 		[
 			JOB_TYPE_COLLECT_GSC_QUERY_PAGE,
@@ -642,7 +655,29 @@ export function defaultHandlers(): Map<string, JobHandler> {
 				}
 			],
 			[
-				JOB_TYPE_FINDINGS_LIFECYCLE,
+						JOB_TYPE_DETECT_EMPLOYEE_MENTIONS,
+						async ({ db, job, signal }) => {
+							const payload = parsePayload(job.payloadJson);
+							// Import paresseux : le détecteur LLM dépend de `$env/dynamic/private`.
+							// Un worker qui ne le réclame pas (tests compris) reste chargeable sans
+							// runtime SvelteKit, comme le collecteur GMB via `gmb-auth.ts`.
+							const { runEmployeeMentionsDetector } = await import('./detectors/employee-mentions.js');
+							const res = await runEmployeeMentionsDetector({
+							db,
+							projectId: (payload.projectId as string) ?? job.projectId,
+							runId: job.runId,
+							signal,
+							maxReviews: typeof payload.maxReviews === 'number' ? payload.maxReviews : undefined
+						});
+						logger.info('extraction des employés mentionnés terminée', {
+							jobId: job.id, projectId: job.projectId, detector: res.detectorVersion,
+							processed: res.processed, persisted: res.persisted, unknownFindingsCreated: res.unknownFindingsCreated,
+							capped: res.capped, aborted: res.aborted, skippedReason: res.skippedReason
+						});
+					}
+				],
+				[
+					JOB_TYPE_FINDINGS_LIFECYCLE,
 			async ({ db, job }) => {
 				const payload = parsePayload(job.payloadJson);
 				const res = await expireSnoozes(
@@ -680,6 +715,25 @@ export function defaultHandlers(): Map<string, JobHandler> {
 				});
 			}
 		],
+		[
+			JOB_TYPE_DISPATCH_SEO_WEEKLY,
+			async ({ job, signal }) => {
+				const event = parseSeoWeeklyDispatchEvent(job.payloadJson);
+				await deliverHermesWebhook({
+					event,
+					url: options?.hermesWebhook?.url ?? '',
+					secret: options?.hermesWebhook?.secret ?? '',
+					signal
+				});
+				logger.info('mission SEO hebdomadaire remise à Agent Ops', {
+					jobId: job.id,
+					eventId: event.eventId,
+					projectSlug: event.projectSlug,
+					periodSlot: event.periodSlot,
+					revision: event.revision
+				});
+			}
+		],
 		[JOB_TYPE_NOOP, async () => {}]
 	]);
 }
@@ -702,6 +756,8 @@ export interface WorkerOptions {
 	/** Types traités par ce worker ; par défaut, ceux du registre. */
 	types?: string[];
 	handlers?: Map<string, JobHandler>;
+	/** Configuration injectée : aucun secret n’est persisté dans le payload de job. */
+	hermesWebhook?: HermesWebhookConfig;
 	leaseMs?: number;
 	/** Attente entre deux sondages quand la file est vide. */
 	pollIntervalMs?: number;
@@ -834,7 +890,7 @@ export const DEFAULT_COOLDOWN_LIMIT = 200;
  * observable sans lire les logs.
  */
 export async function runWorker(options: WorkerOptions): Promise<WorkerStats> {
-	const handlers = options.handlers ?? defaultHandlers();
+	const handlers = options.handlers ?? defaultHandlers({ hermesWebhook: options.hermesWebhook });
 	const types = options.types ?? [...handlers.keys()];
 	const pollIntervalMs = options.pollIntervalMs ?? 2000;
 	const maxJobs = options.maxJobs ?? 0;

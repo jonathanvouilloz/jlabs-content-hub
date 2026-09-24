@@ -35,6 +35,7 @@ export const FINDING_TYPES = [
 	'conversion_drop',
 	'review_pending_sla',
 	'negative_review',
+	'unknown_employee_mention',
 	'integration_stale'
 ] as const;
 export type FindingType = (typeof FINDING_TYPES)[number];
