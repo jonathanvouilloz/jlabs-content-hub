@@ -1,11 +1,11 @@
 # API agent GMB Barber Concept - v1
 
-> Etat au 24 septembre 2026 : déployé en production depuis `main` (`4e03fc6`) sur
+> Etat au 24 septembre 2026 : déployé en production depuis `main` (feature `e26fdb8`) sur
 > `https://hubseo.jonlabs.ch`. DATA-009/DATA-010 sont déclarées appliquées par l'opérateur et le
 > credential `barberconcept` a été vérifié en production (`200` autorisé, `403` hors projet).
 > Le profil VPS, ses crons, Telegram et sa baseline sont installés. La projection canonique est
-> `current`. DATA-011 est appliquée ; le code `googleReviewUrl` et la policy restent à mettre en
-> production. Runbook :
+> `current`. DATA-011 et le code `googleReviewUrl` sont en production. La policy v1 est `current` en
+> mode `guarded_auto`, seuil 4 étoiles, kill switch désactivé. Runbook :
 > [`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK.md).
 
 ## Frontiere de securite
@@ -282,11 +282,11 @@ coffre opérateur et l'environnement sécurisé du VPS.
 
 1. ~~appliquer DATA-009 puis DATA-010~~ — déclaré fait par l'opérateur ;
 2. ~~confirmer/promouvoir une projection Barber Concept `current`~~ — fait et vérifié idempotent ;
-3. créer une policy d'abord `draft_only`, lancer une semaine de dry-run ;
+3. ~~créer et promouvoir la policy~~ — v1 `guarded_auto`, seuil 4 étoiles, kill switch OFF ;
 4. ~~créer le credential borné et vérifier 401/403/cross-project~~ — vérifié en production ;
-5. ~~déployer le hub, configurer le VPS et appliquer DATA-011~~ — fait ; redéployer le code ;
+5. ~~déployer le hub, configurer le VPS et appliquer DATA-011~~ — fait sur `e26fdb8` ;
 6. ~~vérifier l'escalade Telegram~~ — routage de test validé ;
-7. promouvoir `guarded_auto`, `minRatingForAutoSend=4`, kill switch OFF ;
+7. ~~promouvoir `guarded_auto`, `minRatingForAutoSend=4`, kill switch OFF~~ — fait ;
 8. observer deux semaines de 4-5 étoiles avant de considérer la gate S4 fermée.
 
 Rollback : activer le kill switch ou repasser la policy en `draft_only`. La synchronisation des

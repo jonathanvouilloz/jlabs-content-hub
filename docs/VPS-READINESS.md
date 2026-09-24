@@ -14,11 +14,12 @@ Runbook opérateur Barber Concept : [`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK
 
 ## État de déploiement au 24 septembre 2026
 
-La slice GMB Barber Concept est fusionnée sur `main` (`4e03fc6`) et déployée sur
+La slice GMB Barber Concept est fusionnée sur `main` (feature `e26fdb8`) et déployée sur
 `https://hubseo.jonlabs.ch`. Le build Linux/Vercel est `Ready`. Le credential dédié a été tourné,
 borné à `barberconcept` et testé en production (`200` sur le projet, `403` hors allowlist). Les
-migrations DATA-009/DATA-010 sont déclarées appliquées par l'opérateur. Restent le câblage du profil
-VPS/Telegram, la preuve de projection/policy réelle et l'observation du canary.
+migrations DATA-009/DATA-010 sont déclarées appliquées par l'opérateur et DATA-011 a été vérifiée.
+Le profil VPS/Telegram, la projection canonique et la policy v1 `guarded_auto` sont actifs. Restent
+l'observation du premier passage complet et du canary 4–5 étoiles.
 
 ## Lot S0 — Stabiliser le chantier local
 
@@ -161,15 +162,16 @@ Ordre obligatoire : `GMB-003` → `GMB-004` → `GMB-005` → `GMB-006` → `GMB
 - [x] Lecture mensuelle Europe/Zurich et clôture immuable/révisionnée.
 - [x] Documentation opérateur et placeholders VPS sans secrets Google/Neon.
 - [x] DATA-009 et DATA-010 déclarées appliquées par l'opérateur ; preuve DB à archiver.
-- [ ] Promouvoir la projection et la policy Barber Concept réelles.
+- [x] Promouvoir la projection canonique et la policy v1 Barber Concept (`guarded_auto`, seuil 4★).
 - [x] Déployer et créer le bearer `barberconcept` borné aux scopes requis ; isolation `200`/`403` prouvée.
-- [ ] Brancher et prouver l'escalade Telegram dans le profil Hermes.
-- [ ] Observer une semaine dry-run puis deux semaines d'auto-publication 4–5 étoiles.
+- [x] Brancher et prouver le routage Telegram dans le profil Hermes.
+- [x] Appliquer DATA-011 et déployer le champ officiel `googleReviewUrl`.
+- [ ] Observer le premier passage complet puis deux semaines d'auto-publication 4–5 étoiles.
 
-Validation locale : 45 tests ciblés verts ; suite complète 78 fichiers / 1 665 tests verts ;
+Validation locale : tests ciblés verts ; suite complète 79 fichiers / 1 671 tests verts ;
 `npm run check` à 0 erreur / 42 avertissements préexistants. Le build compile 4 176 modules SSR
-et 3 987 modules client. Le packaging Windows retrouve le blocage connu `EPERM` sur la création du
-symlink `.vercel/output/functions/(app).func`, mais le build Linux/Vercel de production est `Ready`.
+et 3 987 modules client. Le build Linux/Vercel de la feature `e26fdb8` est `Ready` et sert l'alias de
+production.
 
 ### Gate S4
 

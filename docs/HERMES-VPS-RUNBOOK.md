@@ -9,7 +9,7 @@ Business Profile de Barber Concept. Le contrat détaillé des payloads reste dan
 État vérifié le 24 septembre 2026 :
 
 - production SEO Stats : `https://hubseo.jonlabs.ch` ;
-- code de production : branche `main`, commit `4e03fc6` ;
+- code de production : branche `main` ; feature livrée par `e26fdb8` ;
 - migrations DATA-009, DATA-010 et DATA-011 : appliquées ;
 - credential actif : `hermes-barberconcept-2026-09-r2` ;
 - projet autorisé : `barberconcept` uniquement ;
@@ -23,9 +23,12 @@ Business Profile de Barber Concept. Le contrat détaillé des payloads reste dan
 - 6 fiches synchronisées avec succès ;
 - projection `current` promue et vérifiée idempotente : voix, interdits, 6 fiches, 25 employés
   actifs/publics et alias validés ;
-- aucune policy de publication n'est encore active et aucun profil GMB complet n'est enregistré ;
-- restant avant autonomie : déployer le code `googleReviewUrl`, puis activer explicitement la
-  policy de publication.
+- policy `current` v1 active : `guarded_auto`, seuil 4 étoiles, kill switch désactivé et plafond de
+  20 publications par passage ;
+- code `googleReviewUrl` déployé ; les liens historiques restent `null` jusqu'au prochain
+  `collect:gmb_reviews` canonique ;
+- restant : observer le premier passage complet puis le canary 4–5 étoiles, sans rejouer
+  l'historique antérieur à la baseline.
 
 Le bearer brut n'est jamais écrit dans Git, dans ce document, dans un ticket ou dans un log. Il
 est irrécupérable s'il est perdu : dans ce cas, il faut le faire tourner.
@@ -299,11 +302,10 @@ réconciliations, escalades Telegram, erreurs par code, ancienneté de la derni�
 1. Installer les secrets et réussir les tests `200/403`.
 2. Confirmer une projection `current` contenant `gmb.reviewReplies`, `gmb.employeeMentions`, voix,
    interdits et roster canonique.
-3. Garder la policy en `draft_only` et le kill switch disponible.
-4. Observer une semaine : toutes les réponses restent des brouillons ou validations Telegram.
-5. Vérifier les cas 1–3 étoiles, sensibles, déjà répondus, stale et `write_unknown`.
-6. Passer à `guarded_auto` avec `minRatingForAutoSend=4` uniquement après validation humaine.
-7. Observer deux semaines de 4–5 étoiles avant d'élargir ou de fermer la gate S4.
+3. Policy actuelle : `guarded_auto`, `minRatingForAutoSend=4`, kill switch disponible et désactivé.
+4. Ne jamais publier les 1–3 étoiles, les contenus sensibles, les fiches stale ou un `write_unknown`.
+5. Observer le premier passage complet puis deux semaines de 4–5 étoiles avant d'élargir ou de
+   fermer la gate S4.
 
 Le VPS ne crée aucun cron de collecte GMB. Un déclenchement Hermes ne fait que consommer l'API ; le
 scheduler et la collecte canoniques restent dans SEO Stats/Vercel.
@@ -337,9 +339,9 @@ bloquées.
 
 - [ ] fichier d'environnement `0600`, bearer sauvegardé dans le coffre opérateur ;
 - [ ] service Hermes charge les cinq variables sans les logguer ;
-- [ ] `barberconcept` retourne `200`, autre slug `403`, bearer absent `401` ;
-- [ ] Telegram reçoit un test sans secret ;
-- [ ] policy confirmée `draft_only` et kill switch testé ;
+- [x] `barberconcept` retourne `200`, autre slug `403`, bearer absent `401` ;
+- [x] Telegram reçoit un test sans secret ;
+- [x] policy v1 confirmée `guarded_auto`, seuil 4 étoiles, kill switch désactivé ;
 - [ ] avis 1–3 étoiles et sensible escaladés, aucun publish ;
 - [ ] retry de proposition réutilise la même clé ;
 - [ ] `write_unknown` passe par `/reconcile`, sans second publish ;
