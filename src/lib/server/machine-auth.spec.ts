@@ -121,4 +121,29 @@ describe('authentification machine', () => {
 			legacy
 		]);
 	});
+
+	it('un token Barber ne peut ni lire un autre projet ni utiliser un scope absent', () => {
+		const barber = JSON.stringify([{
+			id: 'barber-hermes',
+			tokenHash: hash('barber-secret'),
+			scopes: ['review:read'],
+			projects: ['barberconcept']
+		}]);
+		const authenticated = authenticateMachineBearer(
+			'Bearer barber-hermes.barber-secret',
+			'review:read',
+			barber,
+			now
+		);
+		expect(authenticated).toMatchObject({ ok: true });
+		if (!authenticated.ok) throw new Error('credential should authenticate');
+		expect(credentialAllowsProject(authenticated.credential, 'barberconcept')).toBe(true);
+		expect(credentialAllowsProject(authenticated.credential, 'physiopommier')).toBe(false);
+		expect(authenticateMachineBearer(
+			'Bearer barber-hermes.barber-secret',
+			'review:publish',
+			barber,
+			now
+		)).toMatchObject({ ok: false, status: 403, code: 'forbidden' });
+	});
 });

@@ -3,10 +3,24 @@ export type AutoReplyCategory = 'positive' | 'sensitive' | 'human_review';
 export interface AutoReplyClassification {
 	category: AutoReplyCategory;
 	autoPublishable: boolean;
-	reason: '5_star_simple' | '5_star_no_comment' | 'sensitive_content' | 'rating_below_policy';
+	reason: 'positive_simple' | 'positive_no_comment' | 'sensitive_content' | 'rating_below_policy';
 }
 
 const SENSITIVE_TERMS = [
+	'menace',
+	'agress',
+	'violence',
+	'tuer',
+	'suicide',
+	'maladie',
+	'infection',
+	'allerg',
+	'hygien',
+	'contamin',
+	'brul',
+	'racis',
+	'sexis',
+	'fraude',
 	'factur',
 	'payé deux fois',
 	'rembourse',
@@ -34,7 +48,7 @@ function normalize(text: string): string {
  * Seuls les avis 5★ non sensibles peuvent entrer dans la publication automatique.
  */
 export function classifyAutoReply(input: { rating: number; comment: string }): AutoReplyClassification {
-	if (input.rating !== 5) {
+	if (input.rating < 4 || input.rating > 5) {
 		return { category: 'human_review', autoPublishable: false, reason: 'rating_below_policy' };
 	}
 
@@ -44,6 +58,6 @@ export function classifyAutoReply(input: { rating: number; comment: string }): A
 	}
 
 	return comment.trim()
-		? { category: 'positive', autoPublishable: true, reason: '5_star_simple' }
-		: { category: 'positive', autoPublishable: true, reason: '5_star_no_comment' };
+		? { category: 'positive', autoPublishable: true, reason: 'positive_simple' }
+		: { category: 'positive', autoPublishable: true, reason: 'positive_no_comment' };
 }

@@ -77,8 +77,16 @@ Scopes initiaux recommandés :
 | `monitor:retry` | retry idempotent d’un job autorisé |
 | `proposal:read` | propositions et preuves |
 | `proposal:decide` | décision humaine relayée, hash exact obligatoire |
-| `review:draft` | créer un brouillon GMB |
-| `review:publish` | publier uniquement après policy/gate |
+| `review:read` | lire les avis bornés au projet et leur décision de policy |
+| `review:propose` | proposer une réponse, des mentions candidates ou une clôture |
+| `review:publish` | publier uniquement après snapshot/policy/gate |
+| `review:report:read` | lire le récap mensuel Europe/Zurich |
+
+**Slice Barber Concept locale (2026-09-24).** La surface versionnée
+`/api/agent/v1/projects/{slug}/...` est implémentée avec allowlist projet, curseur stable,
+idempotence, audit de livraison et réconciliation GET-only. Documentation :
+[`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md). Cette livraison ne ferme pas
+le Lot S1 général (jobs/findings/retry/cancel restent à exposer) et n'est pas encore déployée.
 
 ### Gate S1
 
@@ -136,6 +144,26 @@ Ordre obligatoire : `GMB-003` → `GMB-004` → `GMB-005` → `GMB-006` → `GMB
 - [ ] Rendre les agrégats dérivables/rejouables depuis la source par avis.
 - [ ] Créer un finding pour nom inconnu, homonyme ou affectation incohérente.
 - [ ] Produire mini-rapport quotidien et clôture mensuelle immuable/versionnée.
+
+### État local de la slice API avis (2026-09-24)
+
+- [x] Lecture versionnée, paginée et bornée à `barberconcept`, avec fraîcheur et six décisions explicites.
+- [x] Proposition immuable liée au snapshot, à la projection et à la policy versionnée.
+- [x] Publication `GET → contrôle → PUT → GET`, aucune réécriture d'une réponse existante.
+- [x] Timeout en `write_unknown`, réservation idempotente et réconciliation GET-only.
+- [x] Mentions candidates par avis avec preuve/confiance ; aucune prime ou éligibilité exposée.
+- [x] Lecture mensuelle Europe/Zurich et clôture immuable/révisionnée.
+- [x] Documentation opérateur et placeholders VPS sans secrets Google/Neon.
+- [ ] Appliquer DATA-009 et DATA-010 sur staging puis production.
+- [ ] Promouvoir la projection et la policy Barber Concept réelles.
+- [ ] Déployer puis créer le bearer `barberconcept` borné aux quatre scopes.
+- [ ] Brancher et prouver l'escalade Telegram dans le profil Hermes.
+- [ ] Observer une semaine dry-run puis deux semaines d'auto-publication 4–5 étoiles.
+
+Validation locale : 45 tests ciblés verts ; suite complète 78 fichiers / 1 665 tests verts ;
+`npm run check` à 0 erreur / 42 avertissements préexistants. Le build compile 4 176 modules SSR
+et 3 987 modules client, puis le packaging `adapter-vercel` retrouve le blocage Windows connu
+`EPERM` sur la création du symlink `.vercel/output/functions/(app).func`. Build Linux/Vercel à prouver.
 
 ### Gate S4
 

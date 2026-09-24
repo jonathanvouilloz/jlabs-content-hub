@@ -1,20 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { parseReviewReplyContext } from './review-reply-context-state.js';
+import { derivePublicRoster, parseReviewReplyContext } from './review-reply-context-state.js';
 
 const payload = {
 	gmb: {
 		reviewReplies: {
-			version: 'barberconcept-2026-08-17',
+			version: 'barberconcept-2026-09-24',
 			businessName: 'Barber Concept',
-			defaultSignature: "L'équipe Barber Concept",
+			defaultSignature: "L'equipe Barber Concept",
 			contactEmail: 'contact@barberconcept.ch',
-			locations: [{ id: 'locations/rive', label: 'Barber Concept Rive' }],
-			publicRoster: [
+			voice: { tutoiement: true, banned: ['atelier'] },
+			interdits: ['promesse de remboursement'],
+			locations: [{ id: 'locations/rive', label: 'Barber Concept Rive' }]
+		},
+		employeeMentions: {
+			enabled: true,
+			version: 'roster-2026-09-24',
+			employees: [
 				{
 					id: 'noe',
-					name: 'Noé',
+					displayName: 'Noe',
 					aliases: ['Noe'],
-					locationIds: ['locations/rive'],
+					locations: ['locations/rive'],
+					active: true,
+					eligibleForBonus: true,
 					publicReplyAllowed: true
 				}
 			]
@@ -23,40 +31,41 @@ const payload = {
 };
 
 describe('parseReviewReplyContext', () => {
-	it('accepte un contexte complet et expose uniquement le roster publiable de la fiche', () => {
+	it('derive le roster public depuis la capability canonique', () => {
 		expect(parseReviewReplyContext(payload, 'locations/rive')).toEqual({
 			ok: true,
 			context: {
-				version: 'barberconcept-2026-08-17',
+				version: 'barberconcept-2026-09-24',
 				businessName: 'Barber Concept',
-				defaultSignature: "L'équipe Barber Concept",
+				defaultSignature: "L'equipe Barber Concept",
 				contactEmail: 'contact@barberconcept.ch',
 				locationLabel: 'Barber Concept Rive',
-				publicRoster: [{ name: 'Noé', aliases: ['Noe'] }]
+				voice: { tutoiement: true, banned: ['atelier'] },
+				interdits: ['promesse de remboursement'],
+				rosterVersion: 'roster-2026-09-24',
+				rosterAvailable: true,
+				publicRoster: [{ name: 'Noe', aliases: ['Noe'] }]
 			}
 		});
 	});
 
-	it('échoue fermé si le contexte ne donne pas la localisation de l’avis', () => {
+	it('echoue ferme si la projection est stale ou si la fiche manque', () => {
+		expect(parseReviewReplyContext(payload, 'locations/rive', 'stale')).toEqual({
+			ok: false,
+			reason: 'projection_stale'
+		});
 		expect(parseReviewReplyContext(payload, 'locations/sion')).toEqual({
 			ok: false,
 			reason: 'location_missing'
 		});
 	});
 
-	it('ne rend jamais un employé non publiable disponible pour une réponse', () => {
-		const privateRoster = structuredClone(payload);
-		privateRoster.gmb.reviewReplies.publicRoster[0].publicReplyAllowed = false;
-		expect(parseReviewReplyContext(privateRoster, 'locations/rive')).toEqual({
-			ok: true,
-			context: {
-				version: 'barberconcept-2026-08-17',
-				businessName: 'Barber Concept',
-				defaultSignature: "L'équipe Barber Concept",
-				contactEmail: 'contact@barberconcept.ch',
-				locationLabel: 'Barber Concept Rive',
-				publicRoster: []
-			}
-		});
+	it('ne rend jamais un employe inactif ou non publiable disponible', () => {
+		const roster = structuredClone(payload.gmb.employeeMentions);
+		roster.employees[0].publicReplyAllowed = false;
+		expect(derivePublicRoster(roster, 'locations/rive')).toEqual([]);
+		roster.employees[0].publicReplyAllowed = true;
+		roster.employees[0].active = false;
+		expect(derivePublicRoster(roster, 'locations/rive')).toEqual([]);
 	});
 });

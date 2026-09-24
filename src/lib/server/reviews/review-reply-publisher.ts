@@ -3,23 +3,42 @@ import {
 	type RemoteReviewSnapshot,
 	type ReviewReplyProposalSnapshot
 } from './review-reply-publisher-state.js';
+import { buildReviewSnapshotHash } from './review-reply-candidate-state.js';
 
 export interface PublishableReviewReply extends ReviewReplyProposalSnapshot {
 	id: string;
+	projectId?: string;
+	locationId?: string;
+	rating?: number;
+	comment?: string;
+	remoteUpdateAt?: string | null;
+	reviewSnapshotHash?: string;
 }
 
 export type ReviewReplyDeliveryEvent = {
 	proposalId: string;
-	state: 'reserved' | 'sent' | 'write_unknown' | 'verified' | 'conflict';
+	state: 'reserved' | 'sent' | 'write_unknown' | 'retry_eligible' | 'verified' | 'conflict';
 	error?: string;
-	reason?: 'remote_reply_differs' | 'review_missing';
+	reason?: 'remote_reply_differs' | 'review_missing' | 'snapshot_changed';
 	remote?: RemoteReviewSnapshot;
 };
 
 export type ReviewReplyPublishResult =
 	| { state: 'verified' }
-	| { state: 'conflict'; reason: 'remote_reply_differs' | 'review_missing' }
+	| { state: 'conflict'; reason: 'remote_reply_differs' | 'review_missing' | 'snapshot_changed' }
 	| { state: 'write_unknown'; error: string };
+
+export async function runIdempotentReviewPublication(input: {
+	reserve: () => Promise<
+		| { acquired: true }
+		| { acquired: false; result: ReviewReplyPublishResult }
+	>;
+	execute: () => Promise<ReviewReplyPublishResult>;
+}): Promise<{ result: ReviewReplyPublishResult; idempotent: boolean }> {
+	const reservation = await input.reserve();
+	if (!reservation.acquired) return { result: reservation.result, idempotent: true };
+	return { result: await input.execute(), idempotent: false };
+}
 
 /**
  * Publie UNE réponse sous dépendances injectées. L'ordonnancement est la garantie :
@@ -54,6 +73,28 @@ export async function publishReviewReply(input: {
 	if (decision.action === 'conflict') {
 		await record({ state: 'conflict', reason: decision.reason, remote: before });
 		return { state: 'conflict', reason: decision.reason };
+	}
+
+	if (
+		before.kind === 'present' &&
+		input.proposal.reviewSnapshotHash &&
+		input.proposal.projectId &&
+		input.proposal.locationId &&
+		typeof before.rating === 'number' &&
+		typeof before.comment === 'string'
+	) {
+		const remoteSnapshotHash = buildReviewSnapshotHash({
+			projectId: input.proposal.projectId,
+			reviewId: input.proposal.reviewId,
+			locationId: input.proposal.locationId,
+			rating: before.rating,
+			comment: before.comment,
+			remoteUpdateAt: before.updateAt ?? null
+		});
+		if (remoteSnapshotHash !== input.proposal.reviewSnapshotHash) {
+			await record({ state: 'conflict', reason: 'snapshot_changed', remote: before });
+			return { state: 'conflict', reason: 'snapshot_changed' };
+		}
 	}
 
 	try {

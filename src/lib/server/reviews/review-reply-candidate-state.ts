@@ -23,6 +23,20 @@ function hash(value: unknown): string {
 	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+export function buildReviewSnapshotHash(input: Pick<
+	ReviewReplyCandidateInput,
+	'projectId' | 'reviewId' | 'locationId' | 'rating' | 'comment' | 'remoteUpdateAt'
+>): string {
+	return hash({
+		projectId: input.projectId,
+		reviewId: input.reviewId,
+		locationId: input.locationId,
+		rating: input.rating,
+		comment: input.comment,
+		remoteUpdateAt: input.remoteUpdateAt
+	});
+}
+
 /**
  * Fige les deux empreintes qui rendent un candidat rejouable : l'avis distant d'une part,
  * et le texte + contexte/policy qui ont servi à le proposer d'autre part.
@@ -33,14 +47,7 @@ export function buildReviewReplyCandidate(input: ReviewReplyCandidateInput): Rev
 	const language = input.language.trim();
 	if (!language) throw new Error('language must not be empty');
 
-	const reviewSnapshotHash = hash({
-		projectId: input.projectId,
-		reviewId: input.reviewId,
-		locationId: input.locationId,
-		rating: input.rating,
-		comment: input.comment,
-		remoteUpdateAt: input.remoteUpdateAt
-	});
+	const reviewSnapshotHash = buildReviewSnapshotHash(input);
 	const proposalHash = hash({
 		reviewSnapshotHash,
 		replyText,

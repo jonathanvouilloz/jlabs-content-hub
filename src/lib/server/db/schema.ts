@@ -1968,6 +1968,8 @@ export const reviewReplyProposals = seostats.table(
 		policyId: text('policy_id').references(() => reviewAutomationPolicies.id),
 		policyVersion: integer('policy_version').notNull(),
 		policyHash: text('policy_hash').notNull(),
+		idempotencyKey: text('idempotency_key'),
+		requestedBy: text('requested_by'),
 		gateStatus: text('gate_status').notNull(),
 		gateReasonsJson: text('gate_reasons_json').notNull(),
 		state: text('state').notNull().default('drafted'),
@@ -1983,6 +1985,9 @@ export const reviewReplyProposals = seostats.table(
 	},
 	(table) => [
 		uniqueIndex('review_reply_proposals_candidate_unique').on(table.projectId, table.reviewId, table.reviewSnapshotHash, table.proposalHash),
+		uniqueIndex('review_reply_proposals_idempotency_unique')
+			.on(table.projectId, table.idempotencyKey)
+			.where(sql`idempotency_key IS NOT NULL`),
 		uniqueIndex('review_reply_proposals_one_live_review').on(table.projectId, table.reviewId).where(sql`state NOT IN ('verified', 'conflict', 'cancelled')`),
 		index('idx_review_reply_proposals_publishable').on(table.state, table.scheduledAt),
 		index('idx_review_reply_proposals_project_review').on(table.projectId, table.reviewId)
@@ -2012,5 +2017,73 @@ export const reviewReplyDeliveries = seostats.table(
 	(table) => [
 		uniqueIndex('review_reply_deliveries_effect_unique').on(table.projectId, table.effectKey),
 		index('idx_review_reply_deliveries_proposal').on(table.proposalId, table.createdAt)
+	]
+);
+
+/** Audit append-only de chaque transition d'une tentative de publication. */
+export const reviewReplyDeliveryEvents = seostats.table(
+	'review_reply_delivery_events',
+	{
+		id: text('id').primaryKey(),
+		deliveryId: text('delivery_id').notNull().references(() => reviewReplyDeliveries.id),
+		proposalId: text('proposal_id').notNull().references(() => reviewReplyProposals.id),
+		projectId: text('project_id').notNull().references(() => projects.id),
+		state: text('state').notNull(),
+		detailJson: text('detail_json'),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [index('idx_review_reply_delivery_events_delivery').on(table.deliveryId, table.createdAt)]
+);
+
+/**
+ * Proposition de mention issue d'Hermes. Elle reste candidate jusqu'a une validation
+ * explicite ; aucune colonne ne porte un montant ou un compteur de prime.
+ */
+export const reviewMentionCandidates = seostats.table(
+	'review_mention_candidates',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id').notNull().references(() => projects.id),
+		reviewId: text('review_id').notNull(),
+		locationId: text('location_id').notNull(),
+		detectedToken: text('detected_token').notNull(),
+		normalizedToken: text('normalized_token').notNull(),
+		sentiment: text('sentiment').notNull(),
+		evidence: text('evidence').notNull(),
+		confidence: doublePrecision('confidence').notNull(),
+		rosterVersion: text('roster_version'),
+		status: text('status').notNull().default('candidate'),
+		resolutionJson: text('resolution_json'),
+		idempotencyKey: text('idempotency_key').notNull(),
+		createdBy: text('created_by').notNull(),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('review_mention_candidates_idempotency_unique').on(table.projectId, table.idempotencyKey),
+		index('idx_review_mention_candidates_review').on(table.projectId, table.reviewId),
+		index('idx_review_mention_candidates_status').on(table.projectId, table.status)
+	]
+);
+
+/** Cloture mensuelle immuable : une correction cree une revision, jamais un UPDATE. */
+export const reviewMonthlyReports = seostats.table(
+	'review_monthly_reports',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id').notNull().references(() => projects.id),
+		periodKey: text('period_key').notNull(),
+		timezone: text('timezone').notNull().default('Europe/Zurich'),
+		revision: integer('revision').notNull().default(1),
+		payloadJson: text('payload_json').notNull(),
+		payloadHash: text('payload_hash').notNull(),
+		supersedesId: text('supersedes_id'),
+		createdBy: text('created_by').notNull(),
+		createdAt: text('created_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('review_monthly_reports_revision_unique').on(table.projectId, table.periodKey, table.revision),
+		uniqueIndex('review_monthly_reports_payload_unique').on(table.projectId, table.periodKey, table.payloadHash),
+		index('idx_review_monthly_reports_period').on(table.projectId, table.periodKey)
 	]
 );

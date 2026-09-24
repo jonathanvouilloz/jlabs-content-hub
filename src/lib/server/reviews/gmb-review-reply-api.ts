@@ -1,4 +1,5 @@
 import type { RemoteReviewSnapshot } from './review-reply-publisher-state.js';
+import { toDbTimestamp } from '../timestamps.js';
 
 const GMB_REVIEWS_BASE = 'https://mybusiness.googleapis.com/v4';
 
@@ -22,15 +23,32 @@ function headers(accessToken: string): HeadersInit {
 	return { Authorization: `Bearer ${accessToken}` };
 }
 
+const RATING_BY_ENUM: Record<string, number> = {
+	ONE: 1,
+	TWO: 2,
+	THREE: 3,
+	FOUR: 4,
+	FIVE: 5
+};
+
 /** Lit l'avis sans transformer une absence Google en « pas de réponse » locale. */
 export async function readGoogleReviewReply(input: GoogleReviewReplyRequest): Promise<RemoteReviewSnapshot> {
 	const res = await (input.fetchImpl ?? fetch)(endpoint(input), { headers: headers(input.accessToken) });
 	if (res.status === 404) return { kind: 'missing' };
 	if (!res.ok) throw new Error(`Google review GET failed: ${res.status} ${await res.text()}`);
-	const body = (await res.json()) as { reviewReply?: { comment?: unknown } };
+	const body = (await res.json()) as {
+		starRating?: unknown;
+		comment?: unknown;
+		updateTime?: unknown;
+		reviewReply?: { comment?: unknown; updateTime?: unknown };
+	};
 	return {
 		kind: 'present',
-		replyText: typeof body.reviewReply?.comment === 'string' ? body.reviewReply.comment : null
+		replyText: typeof body.reviewReply?.comment === 'string' ? body.reviewReply.comment : null,
+		rating: typeof body.starRating === 'string' ? RATING_BY_ENUM[body.starRating] : undefined,
+		comment: typeof body.comment === 'string' ? body.comment : '',
+		updateAt: typeof body.updateTime === 'string' ? toDbTimestamp(body.updateTime) : null,
+		replyAt: typeof body.reviewReply?.updateTime === 'string' ? toDbTimestamp(body.reviewReply.updateTime) : null
 	};
 }
 
