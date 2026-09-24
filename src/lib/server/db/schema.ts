@@ -1945,3 +1945,72 @@ export const weeklyReports = seostats.table(
 		index('idx_weekly_reports_published').on(table.publishedAt)
 	]
 );
+
+// ── GMB-004→007 — réponses aux avis : candidat immuable & livraison auditée ──
+
+/** `gmb_reviews.draft_reply` reste une projection UI ; ce candidat porte l'autorité d'envoi. */
+export const reviewReplyProposals = seostats.table(
+	'review_reply_proposals',
+	{
+		id: text('id').primaryKey(),
+		projectId: text('project_id').notNull().references(() => projects.id),
+		reviewId: text('review_id').notNull(),
+		locationId: text('location_id').notNull(),
+		reviewSnapshotHash: text('review_snapshot_hash').notNull(),
+		reviewRating: integer('review_rating').notNull(),
+		reviewComment: text('review_comment').notNull(),
+		remoteUpdateAt: text('remote_update_at'),
+		proposalHash: text('proposal_hash').notNull(),
+		replyText: text('reply_text').notNull(),
+		language: text('language').notNull(),
+		projectionId: text('projection_id').references(() => projectProjections.id),
+		projectionHash: text('projection_hash').notNull(),
+		policyId: text('policy_id').references(() => reviewAutomationPolicies.id),
+		policyVersion: integer('policy_version').notNull(),
+		policyHash: text('policy_hash').notNull(),
+		gateStatus: text('gate_status').notNull(),
+		gateReasonsJson: text('gate_reasons_json').notNull(),
+		state: text('state').notNull().default('drafted'),
+		scheduledAt: text('scheduled_at'),
+		reservationId: text('reservation_id'),
+		reservedAt: text('reserved_at'),
+		sentAt: text('sent_at'),
+		verifiedAt: text('verified_at'),
+		cancelledAt: text('cancelled_at'),
+		cancellationReason: text('cancellation_reason'),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('review_reply_proposals_candidate_unique').on(table.projectId, table.reviewId, table.reviewSnapshotHash, table.proposalHash),
+		uniqueIndex('review_reply_proposals_one_live_review').on(table.projectId, table.reviewId).where(sql`state NOT IN ('verified', 'conflict', 'cancelled')`),
+		index('idx_review_reply_proposals_publishable').on(table.state, table.scheduledAt),
+		index('idx_review_reply_proposals_project_review').on(table.projectId, table.reviewId)
+	]
+);
+
+/** Journal append-only : un PUT interrompu reste `write_unknown` jusqu'au GET Google. */
+export const reviewReplyDeliveries = seostats.table(
+	'review_reply_deliveries',
+	{
+		id: text('id').primaryKey(),
+		proposalId: text('proposal_id').notNull().references(() => reviewReplyProposals.id),
+		projectId: text('project_id').notNull().references(() => projects.id),
+		effectKey: text('effect_key').notNull(),
+		attemptNo: integer('attempt_no').notNull().default(1),
+		state: text('state').notNull(),
+		outboundBodyHash: text('outbound_body_hash').notNull(),
+		httpStatus: integer('http_status'),
+		errorClass: text('error_class'),
+		errorMessage: text('error_message'),
+		remoteReplyText: text('remote_reply_text'),
+		remoteReplyAt: text('remote_reply_at'),
+		verifiedAt: text('verified_at'),
+		createdAt: text('created_at').notNull().default(nowText),
+		updatedAt: text('updated_at').notNull().default(nowText)
+	},
+	(table) => [
+		uniqueIndex('review_reply_deliveries_effect_unique').on(table.projectId, table.effectKey),
+		index('idx_review_reply_deliveries_proposal').on(table.proposalId, table.createdAt)
+	]
+);
