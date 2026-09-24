@@ -3,7 +3,11 @@ import { env } from '$env/dynamic/private';
 import { db } from './db/index.js';
 import { projects } from './db/schema.js';
 import { inArray } from 'drizzle-orm';
-import { authenticateMachineBearer, type MachineAuthResult } from './machine-auth.js';
+import {
+	authenticateMachineBearer,
+	credentialAllowsProject,
+	type MachineAuthResult
+} from './machine-auth.js';
 import { clientTokenStorageCandidates } from './client-token.js';
 import { legacyMachineScopeForRequest } from './api-auth-policy.js';
 
@@ -16,8 +20,23 @@ export function authorizeMachine(event: RequestEvent, requiredScope: string): Ma
 	return authenticateMachineBearer(
 		event.request.headers.get('authorization'),
 		requiredScope,
-		env.MACHINE_CREDENTIALS_JSON
+		env.MACHINE_CREDENTIALS_JSON,
+		undefined,
+		env.HERMES_MACHINE_CREDENTIALS_JSON
 	);
+}
+
+/** Accès agent : un scope valide ne suffit pas, le slug doit être explicitement autorisé. */
+export function authorizeMachineProject(
+	event: RequestEvent,
+	requiredScope: string,
+	projectSlug: string
+): MachineAuthResult {
+	const result = authorizeMachine(event, requiredScope);
+	if (!result.ok) return result;
+	return credentialAllowsProject(result.credential, projectSlug)
+		? result
+		: { ok: false, status: 403, code: 'forbidden' };
 }
 
 /**

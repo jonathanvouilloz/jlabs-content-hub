@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { authenticateMachineBearer, parseMachineCredentials } from './machine-auth';
+import {
+	authenticateMachineBearer,
+	credentialAllowsProject,
+	parseMachineCredentialMaps,
+	parseMachineCredentials
+} from './machine-auth';
 import { createClientToken, clientTokenStorageCandidates, clientTokenStorageValue } from './client-token';
 
 const hash = (secret: string) => createHash('sha256').update(secret).digest('hex');
@@ -53,6 +58,44 @@ describe('authentification machine', () => {
 
 	it('rejette une configuration qui contient un secret en clair', () => {
 		expect(() => parseMachineCredentials(JSON.stringify([{ id: 'bad', token: 'plaintext', tokenHash: hash('x'), scopes: ['projects:read'] }]))).toThrow(/clair/i);
+	});
+
+	it('fusionne le credential Hermes séparé avec une allowlist de projets sans écraser la map existante', () => {
+		const hermes = JSON.stringify([
+			{
+				id: 'hermes-seo-read',
+				tokenHash: hash('hermes-secret'),
+				scopes: ['agent:insights:read'],
+				projects: ['lecureux', 'barberconcept'],
+				expiresAt: '2027-08-01T00:00:00.000Z'
+			}
+		]);
+
+		expect(parseMachineCredentialMaps(credentials, hermes)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: 'hermes-2026-08' }),
+				expect.objectContaining({ id: 'hermes-seo-read', projects: ['lecureux', 'barberconcept'] })
+			])
+		);
+		expect(
+			authenticateMachineBearer(
+				'Bearer hermes-seo-read.hermes-secret',
+				'agent:insights:read',
+				credentials,
+				now,
+				hermes
+			)
+		).toMatchObject({ ok: true, credential: { id: 'hermes-seo-read', projects: ['lecureux', 'barberconcept'] } });
+	});
+
+	it('échoue fermée si l’identité Hermes duplique un ID de la map existante', () => {
+		expect(() => parseMachineCredentialMaps(credentials, credentials)).toThrow(/dupliqué/i);
+	});
+
+	it('restreint un credential à son allowlist de projets et refuse une allowlist absente', () => {
+		expect(credentialAllowsProject({ projects: ['lecureux'] }, 'lecureux')).toBe(true);
+		expect(credentialAllowsProject({ projects: ['lecureux'] }, 'wildcat')).toBe(false);
+		expect(credentialAllowsProject({}, 'lecureux')).toBe(false);
 	});
 
 	it('ne persiste qu’un hash expirant des nouveaux tokens client', () => {

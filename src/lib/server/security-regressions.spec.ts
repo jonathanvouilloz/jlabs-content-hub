@@ -40,6 +40,18 @@ describe('politique transitoire des routes validateApiKey', () => {
 		expect(legacyMachineScopeForRequest('POST', '/api/projects/wildcat/gsc/backfill')).toBe('gsc:write');
 		expect(legacyMachineScopeForRequest('PATCH', '/api/content/abc/status')).toBe('content:status');
 		expect(legacyMachineScopeForRequest('DELETE', '/api/comments/abc')).toBe('comments:write');
+		expect(
+			legacyMachineScopeForRequest(
+				'GET',
+				'/api/agent/reports/2026-08-03T09:00/projects/physiopommier'
+			)
+		).toBe('monitor:read');
+		expect(
+			legacyMachineScopeForRequest(
+				'POST',
+				'/api/agent/reports/2026-08-03T09:00/projects/physiopommier'
+			)
+		).toBeNull();
 		expect(legacyMachineScopeForRequest('GET', '/api/not-classified')).toBeNull();
 	});
 });

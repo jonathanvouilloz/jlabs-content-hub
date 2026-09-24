@@ -18,6 +18,7 @@ export function legacyMachineScopeForRequest(method: string, pathname: string): 
 	if (/^\/api\/projects(?:\/|$)/.test(pathname)) return write ? 'projects:write' : 'projects:read';
 	if (/^\/api\/reviews(?:\/|$)/.test(pathname)) return write ? 'reviews:write' : 'reviews:read';
 	if (/^\/api\/seo-reports(?:\/|$)/.test(pathname)) return write ? 'seo-reports:write' : 'seo-reports:read';
+	if (/^\/api\/agent\/reports(?:\/|$)/.test(pathname)) return write ? null : 'monitor:read';
 	if (pathname === '/api/whoami' || pathname === '/api/whoami/') return 'system:read';
 	return null;
 }
