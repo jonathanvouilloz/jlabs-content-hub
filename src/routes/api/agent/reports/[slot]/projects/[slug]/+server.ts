@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { db } from '$lib/server/db/index.js';
-import { authorizeMachine, machineAuthError } from '$lib/server/api-auth.js';
+import { authorizeMachineProject, machineAuthError } from '$lib/server/api-auth.js';
 import { loadPublishedReport } from '$lib/server/report-publication.js';
 import {
 	buildProjectWeeklySnapshot,
@@ -9,7 +9,12 @@ import {
 import type { RequestHandler } from './$types.js';
 
 export const GET: RequestHandler = async (event) => {
-	const auth = authorizeMachine(event, 'monitor:read');
+	// Le RAPPORT est cross-projet, mais cette route en rend la projection d'UN projet,
+	// nommé par le slug. Le scope seul laissait donc un credential `monitor:read` lire le
+	// snapshot de n'importe quel client — exactement ce que l'acceptation AGT-001 interdit
+	// (« un token projet A ne lit jamais le projet B »), et ce que le cloisonnement du profil
+	// Hermes `barber-concept` exige. L'allowlist du credential tranche, comme sur /insights.
+	const auth = authorizeMachineProject(event, 'monitor:read', event.params.slug);
 	if (!auth.ok) return machineAuthError(auth);
 
 	const rawRevision = Number(event.url.searchParams.get('revision'));

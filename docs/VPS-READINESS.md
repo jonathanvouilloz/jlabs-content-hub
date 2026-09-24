@@ -18,12 +18,36 @@ avant d’ajouter la surface VPS. Ne pas rebaser ou committer à l’aveugle les
 
 ## Lot S0 — Stabiliser le chantier local
 
-- [ ] Cartographier chaque fichier modifié/non suivi vers son objectif et sa migration.
-- [ ] Exécuter `npm run check`, tests ciblés, suite complète et build Linux/Vercel.
+- [x] Cartographier chaque fichier modifié/non suivi vers son objectif et sa migration (2026-09-24).
+- [x] `npm run check` : 0 erreur, 42 avertissements préexistants. `npm test` : 73 fichiers, 1 646 tests verts.
+      Build : compilation client (4 160 modules) et serveur (3 987) OK ; le packaging adapter-vercel échoue sur
+      le symlink Windows `EPERM`. **Build Linux/Vercel non vérifié** — il le sera au déploiement.
 - [ ] Vérifier migrations 0062+, base neuve et base existante/staging.
 - [ ] Jouer le backfill client tokens en dry-run sur staging, puis appliquer après revue.
-- [ ] Faire une revue sécurité machine-auth/CSRF/scopes et vérifier absence de bearer admin côté navigateur.
-- [ ] Découper en commits cohérents puis obtenir l’autorisation de push/déploiement.
+- [x] Revue sécurité machine-auth/CSRF/scopes (2026-09-24) :
+      · **Aucun bearer côté navigateur**, et deux specs de non-régression le verrouillent déjà
+        (`security-regressions.spec.ts`, `projects.api.spec.ts`).
+      · **CSRF SvelteKit actif** : `4a82f97` a supprimé l'override `checkOrigin: false`, donc le défaut
+        `true` s'applique — il n'y a plus de clé `csrf` à lire dans `svelte.config.js`, c'est normal.
+      · **Toutes les routes `/api/` portent une garde**, sauf les trois callbacks OAuth/Better Auth
+        (protégés par construction) et `/api/setup`, qui se ferme dès qu'un utilisateur existe.
+      · `legacyMachineScopeForRequest` échoue fermé sur route inconnue ; `/api/agent/**` n'y est pas mappé
+        et exige un scope explicite.
+      · ⭐ **Défaut trouvé et corrigé** : `/api/agent/reports/{slot}/projects/{slug}` rend la projection
+        d'UN projet nommé par le slug, mais n'utilisait que `authorizeMachine` — le scope sans l'allowlist.
+        Un credential `monitor:read` lisait donc le snapshot de **n'importe quel client**, ce que
+        l'acceptation AGT-001 interdit et que le cloisonnement du profil `barber-concept` exige.
+        Passé à `authorizeMachineProject`, avec une spec qui interdit le retour de la forme non bornée.
+        ⚠️ **Conséquence de configuration** : le credential `monitor:read` d'Agent Ops doit désormais
+        porter une allowlist `projects`, sinon il reçoit 403 sur tous les slugs. Le fan-out n'ayant
+        jamais été déployé (flag OFF), le changement ne casse rien en vol.
+- [x] Découpé en 4 commits sur `feat/s0-stabilisation`, et **chacun vérifié isolément** (`check` 0 erreur ;
+      1 599 → 1 640 → 1 646 → 1 646 tests verts) — sans quoi « régression attribuable » ne veut rien dire :
+      `1f52f9d` substrat avis GMB-004→007 · `1609a64` E18 + fan-out + GMB-009 · `dadded5` surface machine
+      Hermes · `db1705c` docs et outils.
+      ⚠️ Les ~30 scripts jetables `reply-reviews-*` / `publish-replies-*` sont **délibérément non commités** :
+      c’est la boucle manuelle que le Lot S4 remplace.
+- [ ] Obtenir l’autorisation de push/déploiement (Jonathan).
 - [ ] Vérifier `/api/whoami`, migrations, auth humaine et machine en production.
 
 ### Gate S0
