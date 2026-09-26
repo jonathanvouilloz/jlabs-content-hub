@@ -28,6 +28,18 @@ describe('decideReviewReplyPublication', () => {
 		).toEqual({ action: 'verified', reason: 'remote_reply_matches' });
 	});
 
+	it('reconnaît une réponse arrivée que Google a annotée de sa traduction', () => {
+		for (const replyText of [
+			'Merci pour votre retour !\n\n(Translated by Google)\nThanks for your feedback!',
+			'(Translated by Google) Thanks for your feedback!\n\n(Original)\nMerci pour votre retour !'
+		]) {
+			expect(decideReviewReplyPublication({ proposal, remote: { kind: 'present', replyText } })).toEqual({
+				action: 'verified',
+				reason: 'remote_reply_matches'
+			});
+		}
+	});
+
 	it('refuse l’envoi quand l’avis n’est plus lisible à distance', () => {
 		expect(decideReviewReplyPublication({ proposal, remote: { kind: 'missing' } })).toEqual({
 			action: 'conflict',
