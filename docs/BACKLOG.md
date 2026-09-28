@@ -1483,6 +1483,16 @@ Acceptation :
 
 ---
 
+## GMB-010 — Résolution des mentions candidates envoyées par Hermes
+
+**Priorité :** P0 · **Taille :** M · **État :** READY (créé le 2026-09-28) · **Dépendances :** GMB-009, API agent v1
+
+**Pourquoi.** Hermes extrait les prénoms et les dépose dans `review_mention_candidates`, mais aucun
+code ne les résout contre le roster : 24/24 restent `candidate`, dont des doublons et des mentions
+déjà validées, et le récap mensuel les compte toutes comme « non résolues ». En parallèle,
+`detect:employee_mentions` meurt en 429 (3 RPM) depuis le 25/09. Plan complet, décisions roster et
+chiffres attendus du rattrapage : [`features/gmb-010-hermes-mention-resolution.md`](features/gmb-010-hermes-mention-resolution.md).
+
 # E09 — Telegram et approbations distantes
 
 **Objectif :** notifier et valider rapidement sans affaiblir les garanties du dashboard.  
