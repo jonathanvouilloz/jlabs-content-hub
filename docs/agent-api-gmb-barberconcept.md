@@ -172,8 +172,10 @@ reservation idempotente -> GET Google -> controle snapshot/reponse -> PUT -> GET
 ```
 
 Un avis 1-3 etoiles, sensible, stale, modifie ou deja repondu ne produit aucun PUT. Un timeout du
-PUT ne declenche jamais un second PUT. Le hub relit une fois Google : s'il ne peut pas confirmer le
-texte exact, l'etat reste `write_unknown`.
+PUT ne declenche jamais un second PUT. Google peut accepter le PUT et ne montrer la reponse que plus
+tard (mesure le 2026-09-28) : le hub relit donc Google a 0, 2, 4 et 8 s. S'il ne peut toujours pas
+confirmer le texte exact, l'etat reste `write_unknown`. L'heure renvoyee par Google dans le corps du PUT
+est journalisee (`putReplyAt`) comme preuve d'acceptation.
 
 Etats de resultat : `verified`, `conflict`, `write_unknown`. Un double appel avec la meme cle de
 publication reutilise la reservation et ne refait pas l'ecriture.
@@ -186,9 +188,16 @@ Scope : `review:publish`.
 
 Cette action peut ajouter un evenement d'audit local, mais n'appelle que le GET Google :
 
-- texte distant identique : `verified` ;
+- texte distant identique (traduction Google annexee toleree) : `verified` ;
 - texte distant different ou avis absent : `conflict` ;
-- toujours aucune reponse : `retry_eligible`.
+- aucune reponse, PUT accepte il y a moins de 15 min : `200 {state: "write_unknown",
+  reason: "awaiting_remote_propagation", retryAfterSeconds}` — rien n'est ecrit, relancer
+  `reconcile` apres `retryAfterSeconds` ;
+- aucune reponse, sans PUT accepte ou apres 15 min : `retry_eligible`.
+
+Depuis le 2026-09-28, `reconcile` accepte aussi une proposition deja en `retry_eligible` : une reponse
+arrivee tard se conclut `verified` en lecture seule, sans second publish. Si elle est toujours absente,
+la reponse est `{state: "retry_eligible", idempotent: true}` et rien n'est ecrit.
 
 `retry_eligible` n'envoie rien. Une nouvelle tentative exige un appel de publication explicite
 avec une nouvelle cle d'idempotence, apres une nouvelle relecture/policy check.

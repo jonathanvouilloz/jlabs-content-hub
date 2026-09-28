@@ -39,7 +39,8 @@ const ALLOWED_TRANSITIONS: Record<ReviewReplyState, readonly ReviewReplyTransiti
 	scheduled: ['reserved', 'cancelled'],
 	reserved: ['write_unknown', 'failed', 'cancelled'],
 	write_unknown: ['verified', 'conflict', 'retry_eligible'],
-	retry_eligible: ['reserved', 'cancelled'],
+	// Relecture seule (reconcile) : une réponse arrivée tard se conclut sans nouveau PUT.
+	retry_eligible: ['reserved', 'cancelled', 'verified', 'conflict'],
 	verified: [],
 	conflict: [],
 	cancelled: [],

@@ -209,8 +209,11 @@ curl --fail-with-body --silent --show-error \
   "${SEO_STATS_BASE_URL}/api/agent/v1/projects/${SEO_STATS_PROJECT_SLUG}/proposals/<proposalId>/reconcile"
 ```
 
-`verified` clôt l'action. `conflict` exige une intervention humaine. `retry_eligible` n'écrit rien :
-une nouvelle publication n'est possible qu'après relecture, nouvelle décision et nouvelle clé.
+`verified` clôt l'action. `conflict` exige une intervention humaine. `write_unknown` avec
+`reason: "awaiting_remote_propagation"` : Google a accepté le PUT mais ne montre pas encore la réponse,
+relancer `/reconcile` après `retryAfterSeconds` (fenêtre de 15 min). `retry_eligible` n'écrit rien :
+toujours relancer `/reconcile` d'abord (il peut conclure `verified`), et ne republier qu'après
+relecture, nouvelle décision et nouvelle clé.
 
 ## Mentions d'équipe
 

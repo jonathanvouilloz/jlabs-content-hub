@@ -18,6 +18,44 @@ describe('publishReviewReply', () => {
 		expect(record.mock.calls.map(([event]) => event.state)).toEqual(['reserved', 'sent', 'verified']);
 	});
 
+	it('relit Google plusieurs fois apres un PUT accepte avant de conclure (latence de propagation)', async () => {
+		const loadRemote = vi.fn()
+			.mockResolvedValueOnce({ kind: 'present', replyText: null })
+			.mockResolvedValueOnce({ kind: 'present', replyText: null })
+			.mockResolvedValueOnce({ kind: 'present', replyText: null })
+			.mockResolvedValueOnce({
+				kind: 'present',
+				replyText: `${proposal.replyText}
+
+(Translated by Google)
+Thanks for your feedback!`
+			});
+		const putReply = vi.fn().mockResolvedValue({ replyAt: '2026-09-28 10:39:38' });
+		const record = vi.fn().mockResolvedValue(undefined);
+		const sleep = vi.fn().mockResolvedValue(undefined);
+
+		await expect(publishReviewReply({
+			proposal, loadRemote, putReply, record, sleep, verifyDelaysMs: [0, 2000, 4000]
+		})).resolves.toEqual({ state: 'verified' });
+		expect(putReply).toHaveBeenCalledTimes(1);
+		expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([2000, 4000]);
+		expect(record.mock.calls.map(([event]) => event.state)).toEqual(['reserved', 'sent', 'verified']);
+		expect(record.mock.calls[1]?.[0]).toMatchObject({ putReplyAt: '2026-09-28 10:39:38' });
+	});
+
+	it('conclut write_unknown sans second PUT si la reponse reste invisible apres toutes les relectures', async () => {
+		const loadRemote = vi.fn().mockResolvedValue({ kind: 'present', replyText: null });
+		const putReply = vi.fn().mockResolvedValue({ replyAt: null });
+		const record = vi.fn().mockResolvedValue(undefined);
+
+		await expect(publishReviewReply({
+			proposal, loadRemote, putReply, record, sleep: vi.fn().mockResolvedValue(undefined), verifyDelaysMs: [0, 1, 1]
+		})).resolves.toMatchObject({ state: 'write_unknown' });
+		expect(putReply).toHaveBeenCalledTimes(1);
+		expect(loadRemote).toHaveBeenCalledTimes(4);
+		expect(record.mock.calls.map(([event]) => event.state)).toEqual(['reserved', 'sent', 'write_unknown']);
+	});
+
 	it('ne rejoue jamais un PUT qui a timeout', async () => {
 		const loadRemote = vi.fn()
 			.mockResolvedValueOnce({ kind: 'present', replyText: null })
@@ -25,7 +63,7 @@ describe('publishReviewReply', () => {
 		const putReply = vi.fn().mockRejectedValue(new Error('request timed out'));
 		const record = vi.fn().mockResolvedValue(undefined);
 
-		await expect(publishReviewReply({ proposal, loadRemote, putReply, record })).resolves.toMatchObject({
+		await expect(publishReviewReply({ proposal, loadRemote, putReply, record, verifyDelaysMs: [0] })).resolves.toMatchObject({
 			state: 'write_unknown'
 		});
 		expect(putReply).toHaveBeenCalledTimes(1);

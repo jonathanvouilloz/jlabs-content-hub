@@ -52,12 +52,20 @@ export async function readGoogleReviewReply(input: GoogleReviewReplyRequest): Pr
 	};
 }
 
-/** PUT nu : son résultat n'est jamais une preuve, seul le GET suivant l'est. */
-export async function putGoogleReviewReply(input: GoogleReviewReplyRequest, replyText: string): Promise<void> {
+/**
+ * PUT : son 2xx n'est pas une preuve de visibilité (seul le GET suivant l'est), mais
+ * l'heure de réponse renvoyée par Google est journalisée comme preuve d'acceptation.
+ */
+export async function putGoogleReviewReply(
+	input: GoogleReviewReplyRequest,
+	replyText: string
+): Promise<{ replyAt: string | null }> {
 	const res = await (input.fetchImpl ?? fetch)(`${endpoint(input)}/reply`, {
 		method: 'PUT',
 		headers: { ...headers(input.accessToken), 'Content-Type': 'application/json' },
 		body: JSON.stringify({ comment: replyText })
 	});
 	if (!res.ok) throw new Error(`Google reply PUT failed: ${res.status} ${await res.text()}`);
+	const body = (await res.json().catch(() => null)) as { updateTime?: unknown } | null;
+	return { replyAt: typeof body?.updateTime === 'string' ? toDbTimestamp(body.updateTime) : null };
 }

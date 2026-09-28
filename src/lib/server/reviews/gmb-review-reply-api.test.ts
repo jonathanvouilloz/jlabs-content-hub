@@ -29,11 +29,11 @@ describe('Google review reply API adapter', () => {
 	it('écrit avec PUT et échoue explicitement sur une réponse Google non-2xx', async () => {
 		const fetchImpl = vi
 			.fn()
-			.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ comment: 'Merci !', updateTime: '2026-09-28T10:39:38Z' }), { status: 200 }))
 			.mockResolvedValueOnce(new Response('quota', { status: 429 }));
 		const input = { accountId: 'acct', locationId: 'rive', reviewId: 'r-1', accessToken: 'token', fetchImpl };
 
-		await expect(putGoogleReviewReply(input, 'Merci !')).resolves.toBeUndefined();
+		await expect(putGoogleReviewReply(input, 'Merci !')).resolves.toEqual({ replyAt: '2026-09-28 10:39:38' });
 		await expect(putGoogleReviewReply(input, 'Merci !')).rejects.toThrow('Google reply PUT failed: 429 quota');
 		expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ method: 'PUT', body: JSON.stringify({ comment: 'Merci !' }) });
 	});

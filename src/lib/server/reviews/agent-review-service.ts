@@ -14,7 +14,7 @@ import {
 	reviewReplyProposals
 } from '../db/schema.js';
 import { createId } from '../utils.js';
-import { toDbTimestamp } from '../timestamps.js';
+import { dbTimestampToMs, toDbTimestamp } from '../timestamps.js';
 import { buildAgentMentionCandidate } from './agent-mention-state.js';
 import { classifyAutoReply } from './auto-reply-state.js';
 import {
@@ -37,7 +37,10 @@ import {
 	type ReviewReplyDeliveryEvent,
 	type ReviewReplyPublishResult
 } from './review-reply-publisher.js';
-import { decideReviewReplyPublication, type RemoteReviewSnapshot } from './review-reply-publisher-state.js';
+import {
+	decideReviewReplyReconciliation,
+	type RemoteReviewSnapshot
+} from './review-reply-publisher-state.js';
 
 export class AgentReviewApiError extends Error {
 	constructor(
@@ -607,7 +610,11 @@ async function applyDeliveryEvent(input: {
 		proposalId: input.proposalId,
 		projectId: input.projectId,
 		state: input.event.state,
-		detailJson: JSON.stringify({ error: input.event.error, reason: input.event.reason })
+		detailJson: JSON.stringify({
+			error: input.event.error,
+			reason: input.event.reason,
+			putReplyAt: input.event.putReplyAt ?? undefined
+		})
 	});
 	await input.db
 		.update(reviewReplyDeliveries)
@@ -657,7 +664,7 @@ export async function publishAgentReviewReply(input: {
 	proposalId: string;
 	idempotencyKey: string;
 	loadRemote: () => Promise<RemoteReviewSnapshot>;
-	putReply: (replyText: string) => Promise<void>;
+	putReply: (replyText: string) => Promise<{ replyAt: string | null } | void>;
 	now?: Date;
 }) {
 	const project = await requireProject(input.db, input.projectSlug);
@@ -794,6 +801,7 @@ export async function reconcileAgentReviewReply(input: {
 	projectSlug: string;
 	proposalId: string;
 	loadRemote: () => Promise<RemoteReviewSnapshot>;
+	now?: Date;
 }) {
 	const project = await requireProject(input.db, input.projectSlug);
 	const proposal = await input.db.query.reviewReplyProposals.findFirst({
@@ -806,7 +814,11 @@ export async function reconcileAgentReviewReply(input: {
 	if (proposal.state === 'verified' || proposal.state === 'conflict') {
 		return { state: proposal.state, idempotent: true };
 	}
-	if (proposal.state !== 'write_unknown') throw new AgentReviewApiError(409, 'proposal_not_reconcilable');
+	// `retry_eligible` est relisible : une réponse arrivée après coup (latence Google)
+	// doit pouvoir se conclure `verified` sans second POST ni second PUT.
+	if (proposal.state !== 'write_unknown' && proposal.state !== 'retry_eligible') {
+		throw new AgentReviewApiError(409, 'proposal_not_reconcilable');
+	}
 	const delivery = await input.db.query.reviewReplyDeliveries.findFirst({
 		where: and(
 			eq(reviewReplyDeliveries.projectId, project.id),
@@ -815,13 +827,33 @@ export async function reconcileAgentReviewReply(input: {
 		orderBy: desc(reviewReplyDeliveries.createdAt)
 	});
 	if (!delivery) throw new AgentReviewApiError(409, 'delivery_missing');
+	const sent = await input.db.query.reviewReplyDeliveryEvents.findFirst({
+		where: and(
+			eq(reviewReplyDeliveryEvents.deliveryId, delivery.id),
+			eq(reviewReplyDeliveryEvents.state, 'sent')
+		),
+		orderBy: desc(reviewReplyDeliveryEvents.createdAt)
+	});
 	const remote = await input.loadRemote();
-	const decision = decideReviewReplyPublication({ proposal, remote });
-	const state = decision.action === 'verified'
-		? 'verified'
-		: decision.action === 'conflict'
-			? 'conflict'
-			: 'retry_eligible';
+	const decision = decideReviewReplyReconciliation({
+		proposal,
+		remote,
+		putAcceptedAtMs: sent ? dbTimestampToMs(sent.createdAt) : null,
+		nowMs: (input.now ?? new Date()).getTime()
+	});
+	if (decision.action === 'pending') {
+		// PUT accepté par Google, réponse pas encore visible : rien n'est conclu, rien n'est écrit.
+		return {
+			state: 'write_unknown' as const,
+			reason: 'awaiting_remote_propagation' as const,
+			retryAfterSeconds: decision.retryAfterSeconds,
+			idempotent: false
+		};
+	}
+	if (decision.action === 'retry_eligible' && proposal.state === 'retry_eligible') {
+		return { state: 'retry_eligible' as const, idempotent: true };
+	}
+	const state = decision.action;
 	await applyDeliveryEvent({
 		db: input.db,
 		deliveryId: delivery.id,
@@ -829,7 +861,7 @@ export async function reconcileAgentReviewReply(input: {
 		proposalId: proposal.id,
 		reviewId: proposal.reviewId,
 		replyText: proposal.replyText,
-			event: {
+		event: {
 			proposalId: proposal.id,
 			state,
 			reason: decision.action === 'conflict' ? decision.reason : undefined,

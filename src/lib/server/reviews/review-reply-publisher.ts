@@ -1,5 +1,6 @@
 import {
 	decideReviewReplyPublication,
+	REVIEW_REPLY_VERIFY_DELAYS_MS,
 	type RemoteReviewSnapshot,
 	type ReviewReplyProposalSnapshot
 } from './review-reply-publisher-state.js';
@@ -21,6 +22,8 @@ export type ReviewReplyDeliveryEvent = {
 	error?: string;
 	reason?: 'remote_reply_differs' | 'review_missing' | 'snapshot_changed';
 	remote?: RemoteReviewSnapshot;
+	/** Heure de la réponse renvoyée par Google dans le corps du PUT 2xx (preuve d'acceptation). */
+	putReplyAt?: string | null;
 };
 
 export type ReviewReplyPublishResult =
@@ -44,13 +47,19 @@ export async function runIdempotentReviewPublication(input: {
  * Publie UNE réponse sous dépendances injectées. L'ordonnancement est la garantie :
  * audit de réservation → GET Google → PUT seulement si vide → GET Google de preuve.
  * Un timeout est indécidable : le second GET tranche et aucun retry ne part ici.
+ * Google peut accepter le PUT et ne pas encore montrer la réponse : la preuve est
+ * relue plusieurs fois (`verifyDelaysMs`) avant de conclure `write_unknown`.
  */
 export async function publishReviewReply(input: {
 	proposal: PublishableReviewReply;
 	loadRemote: () => Promise<RemoteReviewSnapshot>;
-	putReply: (replyText: string) => Promise<void>;
+	putReply: (replyText: string) => Promise<{ replyAt: string | null } | void>;
 	record: (event: ReviewReplyDeliveryEvent) => Promise<void>;
+	verifyDelaysMs?: readonly number[];
+	sleep?: (ms: number) => Promise<void>;
 }): Promise<ReviewReplyPublishResult> {
+	const sleep = input.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	const verifyDelaysMs = input.verifyDelaysMs ?? REVIEW_REPLY_VERIFY_DELAYS_MS;
 	const record = (event: Omit<ReviewReplyDeliveryEvent, 'proposalId'>) =>
 		input.record({ proposalId: input.proposal.id, ...event });
 
@@ -98,33 +107,35 @@ export async function publishReviewReply(input: {
 	}
 
 	try {
-		await input.putReply(input.proposal.replyText);
-		await record({ state: 'sent' });
+		const accepted = await input.putReply(input.proposal.replyText);
+		await record({ state: 'sent', putReplyAt: accepted?.replyAt ?? null });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		await record({ state: 'write_unknown', error: message });
 	}
 
-	let after: RemoteReviewSnapshot;
-	try {
-		after = await input.loadRemote();
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		await record({ state: 'write_unknown', error: message });
-		return { state: 'write_unknown', error: message };
-	}
-
-	const verified = decideReviewReplyPublication({ proposal: input.proposal, remote: after });
-	if (verified.action === 'verified') {
-		await record({ state: 'verified', remote: after });
-		return { state: 'verified' };
-	}
-	if (verified.action === 'conflict') {
-		await record({ state: 'conflict', reason: verified.reason, remote: after });
-		return { state: 'conflict', reason: verified.reason };
+	let after: RemoteReviewSnapshot | null = null;
+	for (const delay of verifyDelaysMs.length > 0 ? verifyDelaysMs : [0]) {
+		if (delay > 0) await sleep(delay);
+		try {
+			after = await input.loadRemote();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			await record({ state: 'write_unknown', error: message });
+			return { state: 'write_unknown', error: message };
+		}
+		const verified = decideReviewReplyPublication({ proposal: input.proposal, remote: after });
+		if (verified.action === 'verified') {
+			await record({ state: 'verified', remote: after });
+			return { state: 'verified' };
+		}
+		if (verified.action === 'conflict') {
+			await record({ state: 'conflict', reason: verified.reason, remote: after });
+			return { state: 'conflict', reason: verified.reason };
+		}
 	}
 
 	const error = 'Google ne confirme toujours aucune réponse après le PUT.';
-	await record({ state: 'write_unknown', error, remote: after });
+	await record({ state: 'write_unknown', error, remote: after ?? undefined });
 	return { state: 'write_unknown', error };
 }

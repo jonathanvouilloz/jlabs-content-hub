@@ -12,6 +12,7 @@ describe('transitionReviewReply', () => {
 		expect(transitionReviewReply('reserved', 'write_unknown')).toEqual({ allowed: true });
 		expect(transitionReviewReply('write_unknown', 'verified')).toEqual({ allowed: true });
 		expect(transitionReviewReply('write_unknown', 'retry_eligible')).toEqual({ allowed: true });
+		expect(transitionReviewReply('retry_eligible', 'verified')).toEqual({ allowed: true });
 	});
 
 	it('interdit un nouvel envoi après un état terminal', () => {
