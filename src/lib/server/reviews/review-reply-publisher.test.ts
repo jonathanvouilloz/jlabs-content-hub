@@ -72,6 +72,8 @@ Thanks for your feedback!`
 			'write_unknown',
 			'write_unknown'
 		]);
+		// Le PUT est parti : /reconcile doit appliquer la fenêtre de propagation.
+		expect(record.mock.calls[1]?.[0]).toMatchObject({ state: 'write_unknown', putAttempted: true });
 	});
 
 	it('ne remplace jamais une reponse distante existante', async () => {

@@ -93,3 +93,32 @@ export function decideReviewReplyReconciliation(input: {
 	}
 	return { action: 'retry_eligible' };
 }
+
+/**
+ * Instant à partir duquel une réponse a PEUT-ÊTRE été acceptée par Google : le dernier
+ * PUT 2xx (`sent`) ou, à défaut, le dernier PUT parti sans réponse exploitable
+ * (`write_unknown` marqué `putAttempted`). `null` = aucun PUT n'est jamais parti.
+ * Un `write_unknown` sans `putAttempted` (relecture échouée AVANT le PUT) ne compte pas.
+ */
+export function putAttemptAnchorMs(
+	events: readonly { state: string; detailJson: string | null; createdAtMs: number }[]
+): number | null {
+	// Une heure illisible rend NaN : `decideReviewReplyReconciliation` le lit « fenêtre non prouvée ».
+	const pickLatest = (items: readonly { createdAtMs: number }[]) => {
+		if (items.length === 0) return null;
+		if (items.some((item) => Number.isNaN(item.createdAtMs))) return Number.NaN;
+		return Math.max(...items.map((item) => item.createdAtMs));
+	};
+	const sent = pickLatest(events.filter((event) => event.state === 'sent'));
+	if (sent !== null) return sent;
+	return pickLatest(events.filter((event) => event.state === 'write_unknown' && putAttemptedIn(event.detailJson)));
+}
+
+function putAttemptedIn(detailJson: string | null): boolean {
+	if (!detailJson) return false;
+	try {
+		return (JSON.parse(detailJson) as { putAttempted?: unknown }).putAttempted === true;
+	} catch {
+		return false;
+	}
+}

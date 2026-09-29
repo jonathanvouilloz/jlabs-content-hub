@@ -180,6 +180,28 @@ est journalisee (`putReplyAt`) comme preuve d'acceptation.
 Etats de resultat : `verified`, `conflict`, `write_unknown`. Un double appel avec la meme cle de
 publication reutilise la reservation et ne refait pas l'ecriture.
 
+### Contrat de resultat commun (publish et reconcile)
+
+Depuis le 2026-09-29, `publish` et `reconcile` repondent avec **la meme forme**. Le champ canonique est
+`state`, toujours dans `data`, pour tous les etats :
+
+```json
+{ "ok": true, "data": { "state": "write_unknown", "reason": "awaiting_remote_propagation",
+  "retryAfterSeconds": 840, "idempotent": false } }
+```
+
+| `data.state` | Champs optionnels | Geste suivant |
+|---|---|---|
+| `verified` | — | aucun, la reponse est en ligne |
+| `conflict` | `reason` (`remote_reply_differs`, `review_missing`, `snapshot_changed`) | humain |
+| `write_unknown` | `error` (publish), `reason` + `retryAfterSeconds` (reconcile) | **GET `/reconcile` uniquement** |
+| `retry_eligible` | — (reconcile seulement) | voir plus bas |
+
+Il n'y a ni `status` ni `resultStatus`. `publish` garde aussi `data.result` (`{ state, reason?, error? }`),
+alias **deprecie** de l'ancienne forme, conserve pour les clients deja deployes. Avant cette date,
+publish ne portait l'etat que sous `data.result.state` : le worker Hermes le lisait `unknown`
+(incident `de76afbef07f442e1b074a82`).
+
 ## Reconciliation GET-only
 
 ### `GET /proposals/{proposalId}/reconcile`
@@ -194,6 +216,10 @@ Cette action peut ajouter un evenement d'audit local, mais n'appelle que le GET 
   reason: "awaiting_remote_propagation", retryAfterSeconds}` — rien n'est ecrit, relancer
   `reconcile` apres `retryAfterSeconds` ;
 - aucune reponse, sans PUT accepte ou apres 15 min : `retry_eligible`.
+
+Un PUT parti sans reponse exploitable (timeout, 5xx) compte comme un PUT **peut-etre** accepte : son
+evenement `write_unknown` porte `putAttempted: true`, et la fenetre de 15 min s'applique aussi a lui.
+Sinon, un timeout suivi d'une relecture vide rendrait `retry_eligible` sur une reponse deja en ligne.
 
 Depuis le 2026-09-28, `reconcile` accepte aussi une proposition deja en `retry_eligible` : une reponse
 arrivee tard se conclut `verified` en lecture seule, sans second publish. Si elle est toujours absente,

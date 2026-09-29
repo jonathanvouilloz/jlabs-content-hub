@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	decideReviewReplyPublication,
 	decideReviewReplyReconciliation,
+	putAttemptAnchorMs,
 	REVIEW_REPLY_SETTLE_MS
 } from './review-reply-publisher-state.js';
 
@@ -96,5 +97,52 @@ Thanks!` },
 		expect(decideReviewReplyReconciliation({
 			proposal, remote: { kind: 'missing' }, putAcceptedAtMs: null, nowMs: now
 		})).toEqual({ action: 'conflict', reason: 'review_missing' });
+	});
+});
+
+describe('putAttemptAnchorMs', () => {
+	it('ancre sur le dernier PUT 2xx (`sent`)', () => {
+		expect(putAttemptAnchorMs([
+			{ state: 'sent', detailJson: '{}', createdAtMs: 1_000 },
+			{ state: 'write_unknown', detailJson: '{"putAttempted":true}', createdAtMs: 5_000 },
+			{ state: 'sent', detailJson: '{}', createdAtMs: 3_000 }
+		])).toBe(3_000);
+	});
+
+	it('à défaut, ancre sur un PUT parti sans réponse exploitable (timeout)', () => {
+		expect(putAttemptAnchorMs([
+			{ state: 'write_unknown', detailJson: '{"error":"relecture"}', createdAtMs: 1_000 },
+			{ state: 'write_unknown', detailJson: '{"error":"timeout","putAttempted":true}', createdAtMs: 2_000 }
+		])).toBe(2_000);
+	});
+
+	it('ignore un write_unknown né AVANT le PUT : aucun PUT n’est parti', () => {
+		expect(putAttemptAnchorMs([
+			{ state: 'write_unknown', detailJson: '{"error":"GET 503"}', createdAtMs: 1_000 },
+			{ state: 'write_unknown', detailJson: null, createdAtMs: 2_000 },
+			{ state: 'write_unknown', detailJson: 'pas du json', createdAtMs: 3_000 }
+		])).toBeNull();
+	});
+
+	it('rend NaN sur une heure illisible (fenêtre non prouvée, jamais un retry)', () => {
+		const anchor = putAttemptAnchorMs([{ state: 'sent', detailJson: '{}', createdAtMs: Number.NaN }]);
+		expect(anchor).toBeNaN();
+		expect(decideReviewReplyReconciliation({
+			proposal, remote: { kind: 'present', replyText: null }, putAcceptedAtMs: anchor, nowMs: Date.now()
+		})).toMatchObject({ action: 'pending' });
+	});
+
+	it('un PUT au résultat inconnu ne rouvre le retry qu’après la fenêtre de propagation', () => {
+		const putAt = Date.parse('2026-09-29T07:45:00Z');
+		const anchor = putAttemptAnchorMs([
+			{ state: 'write_unknown', detailJson: '{"putAttempted":true}', createdAtMs: putAt }
+		]);
+		const absent = { kind: 'present', replyText: null } as const;
+		expect(decideReviewReplyReconciliation({
+			proposal, remote: absent, putAcceptedAtMs: anchor, nowMs: putAt + 60_000
+		})).toMatchObject({ action: 'pending' });
+		expect(decideReviewReplyReconciliation({
+			proposal, remote: absent, putAcceptedAtMs: anchor, nowMs: putAt + REVIEW_REPLY_SETTLE_MS
+		})).toEqual({ action: 'retry_eligible' });
 	});
 });

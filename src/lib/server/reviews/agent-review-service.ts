@@ -39,8 +39,10 @@ import {
 } from './review-reply-publisher.js';
 import {
 	decideReviewReplyReconciliation,
+	putAttemptAnchorMs,
 	type RemoteReviewSnapshot
 } from './review-reply-publisher-state.js';
+import { toPublicationResponse, toPublishResponse } from './agent-publication-response.js';
 
 export class AgentReviewApiError extends Error {
 	constructor(
@@ -613,7 +615,8 @@ async function applyDeliveryEvent(input: {
 		detailJson: JSON.stringify({
 			error: input.event.error,
 			reason: input.event.reason,
-			putReplyAt: input.event.putReplyAt ?? undefined
+			putReplyAt: input.event.putReplyAt ?? undefined,
+			putAttempted: input.event.putAttempted || undefined
 		})
 	});
 	await input.db
@@ -675,7 +678,7 @@ export async function publishAgentReviewReply(input: {
 		)
 	});
 	if (!proposal) throw new AgentReviewApiError(404, 'proposal_not_found');
-	if (proposal.state === 'verified') return { result: { state: 'verified' } as const, idempotent: true };
+	if (proposal.state === 'verified') return toPublishResponse({ state: 'verified' }, { idempotent: true });
 	if (proposal.state === 'write_unknown') throw new AgentReviewApiError(409, 'reconciliation_required');
 	if (!['gated_pass', 'retry_eligible'].includes(proposal.state)) {
 		throw new AgentReviewApiError(409, 'proposal_not_publishable');
@@ -733,7 +736,7 @@ export async function publishAgentReviewReply(input: {
 	}
 
 	const deliveryId = createId();
-	return runIdempotentReviewPublication({
+	const publication = await runIdempotentReviewPublication({
 		reserve: async () => {
 			const inserted = await input.db
 				.insert(reviewReplyDeliveries)
@@ -794,8 +797,13 @@ export async function publishAgentReviewReply(input: {
 			});
 		}
 	});
+	return toPublishResponse(publication.result, { idempotent: publication.idempotent });
 }
 
+/**
+ * Relecture GET-only : le type d'entrée ne porte AUCUN `putReply`, donc cette fonction
+ * ne peut pas écrire chez Google. Seul effet : au plus un événement d'audit local.
+ */
 export async function reconcileAgentReviewReply(input: {
 	db: AppDb;
 	projectSlug: string;
@@ -811,8 +819,20 @@ export async function reconcileAgentReviewReply(input: {
 		)
 	});
 	if (!proposal) throw new AgentReviewApiError(404, 'proposal_not_found');
-	if (proposal.state === 'verified' || proposal.state === 'conflict') {
-		return { state: proposal.state, idempotent: true };
+	if (proposal.state === 'verified') return toPublicationResponse({ state: 'verified' }, { idempotent: true });
+	if (proposal.state === 'conflict') {
+		const last = await input.db.query.reviewReplyDeliveries.findFirst({
+			where: and(
+				eq(reviewReplyDeliveries.projectId, project.id),
+				eq(reviewReplyDeliveries.proposalId, proposal.id)
+			),
+			orderBy: desc(reviewReplyDeliveries.createdAt)
+		});
+		const outcome = last ? publishResultFromDelivery(last) : null;
+		return toPublicationResponse(
+			outcome?.state === 'conflict' ? outcome : { state: 'conflict', reason: 'remote_reply_differs' },
+			{ idempotent: true }
+		);
 	}
 	// `retry_eligible` est relisible : une réponse arrivée après coup (latence Google)
 	// doit pouvoir se conclure `verified` sans second POST ni second PUT.
@@ -827,31 +847,37 @@ export async function reconcileAgentReviewReply(input: {
 		orderBy: desc(reviewReplyDeliveries.createdAt)
 	});
 	if (!delivery) throw new AgentReviewApiError(409, 'delivery_missing');
-	const sent = await input.db.query.reviewReplyDeliveryEvents.findFirst({
+	// Un PUT au résultat inconnu (timeout) compte comme un PUT peut-être accepté : la
+	// fenêtre de propagation s'applique aussi à lui, sinon `retry_eligible` ouvrirait un
+	// second PUT sur une réponse déjà en ligne.
+	const putEvents = await input.db.query.reviewReplyDeliveryEvents.findMany({
 		where: and(
 			eq(reviewReplyDeliveryEvents.deliveryId, delivery.id),
-			eq(reviewReplyDeliveryEvents.state, 'sent')
-		),
-		orderBy: desc(reviewReplyDeliveryEvents.createdAt)
+			inArray(reviewReplyDeliveryEvents.state, ['sent', 'write_unknown'])
+		)
 	});
 	const remote = await input.loadRemote();
 	const decision = decideReviewReplyReconciliation({
 		proposal,
 		remote,
-		putAcceptedAtMs: sent ? dbTimestampToMs(sent.createdAt) : null,
+		putAcceptedAtMs: putAttemptAnchorMs(
+			putEvents.map((event) => ({
+				state: event.state,
+				detailJson: event.detailJson,
+				createdAtMs: dbTimestampToMs(event.createdAt)
+			}))
+		),
 		nowMs: (input.now ?? new Date()).getTime()
 	});
 	if (decision.action === 'pending') {
-		// PUT accepté par Google, réponse pas encore visible : rien n'est conclu, rien n'est écrit.
-		return {
-			state: 'write_unknown' as const,
-			reason: 'awaiting_remote_propagation' as const,
-			retryAfterSeconds: decision.retryAfterSeconds,
-			idempotent: false
-		};
+		// PUT peut-être accepté par Google, réponse pas encore visible : rien n'est conclu, rien n'est écrit.
+		return toPublicationResponse(
+			{ state: 'write_unknown', reason: 'awaiting_remote_propagation', retryAfterSeconds: decision.retryAfterSeconds },
+			{ idempotent: false }
+		);
 	}
 	if (decision.action === 'retry_eligible' && proposal.state === 'retry_eligible') {
-		return { state: 'retry_eligible' as const, idempotent: true };
+		return toPublicationResponse({ state: 'retry_eligible' }, { idempotent: true });
 	}
 	const state = decision.action;
 	await applyDeliveryEvent({
@@ -868,5 +894,8 @@ export async function reconcileAgentReviewReply(input: {
 			remote
 		}
 	});
-	return { state, idempotent: false };
+	return toPublicationResponse(
+		decision.action === 'conflict' ? { state: 'conflict', reason: decision.reason } : { state: decision.action },
+		{ idempotent: false }
+	);
 }

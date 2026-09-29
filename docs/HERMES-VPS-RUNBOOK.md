@@ -215,6 +215,17 @@ relancer `/reconcile` après `retryAfterSeconds` (fenêtre de 15 min). `retry_el
 toujours relancer `/reconcile` d'abord (il peut conclure `verified`), et ne republier qu'après
 relecture, nouvelle décision et nouvelle clé.
 
+Le résultat se lit dans `data.state` sur les deux endpoints (contrat commun :
+[`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md#contrat-de-resultat-commun-publish-et-reconcile)).
+Le worker `google_reviews_daily.py` applique cette règle depuis le 2026-09-29 :
+
+- un seul `/publish`, puis en cas d'ambiguïté des GET `/reconcile` à +5, +15 et +30 s ;
+- toujours ambigu : l'effet local reste `write_unknown`, une alerte « confirmation différée » part
+  une seule fois par proposition, le checkpoint n'avance pas, le résultat porte
+  `pendingConfirmationIds` et le processus sort en code `2` ;
+- au passage suivant, cette proposition n'est **que** relue (GET), même si le hub la redonne
+  `eligible_auto`.
+
 ## Mentions d'équipe
 
 Les mentions envoyées par Hermes restent des candidates :

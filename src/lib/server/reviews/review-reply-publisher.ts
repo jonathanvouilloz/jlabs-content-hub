@@ -24,6 +24,8 @@ export type ReviewReplyDeliveryEvent = {
 	remote?: RemoteReviewSnapshot;
 	/** Heure de la réponse renvoyée par Google dans le corps du PUT 2xx (preuve d'acceptation). */
 	putReplyAt?: string | null;
+	/** Le PUT est parti sans réponse exploitable (timeout, 5xx) : Google l'a peut-être accepté. */
+	putAttempted?: boolean;
 };
 
 export type ReviewReplyPublishResult =
@@ -111,7 +113,7 @@ export async function publishReviewReply(input: {
 		await record({ state: 'sent', putReplyAt: accepted?.replyAt ?? null });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		await record({ state: 'write_unknown', error: message });
+		await record({ state: 'write_unknown', error: message, putAttempted: true });
 	}
 
 	let after: RemoteReviewSnapshot | null = null;
