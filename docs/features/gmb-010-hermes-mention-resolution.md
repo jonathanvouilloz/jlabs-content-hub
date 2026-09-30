@@ -42,7 +42,7 @@ jamais une supposition du système (le roster sert au calcul des primes).
 
 ### Lot 1 — Roster `2026-09-28.1`
 
-1. `scripts/promote-barberconcept-review-projection.ts` : `giuseppe.aliases = ['Guiseppe', 'Gueppe']`,
+1. `scripts/promote-barberconcept-review-projection.ts` : `giuseppe.aliases = ['Guiseppe', 'Gueppe']`, `oums.aliases = ['Oumss', 'Ooums']`, `wesley.aliases = ['Wisley']` (validés le 2026-09-30),
    `henok-josief = { locations: ['rive'], aliases: ['Joseph', 'Josief'], trackMentions: false }`,
    `employeeMentions.version = '2026-09-28.1'`.
    Code : `trackMentions?: boolean` (optionnel, défaut `true`) dans `EmployeeMentionsRosterEntry` et
