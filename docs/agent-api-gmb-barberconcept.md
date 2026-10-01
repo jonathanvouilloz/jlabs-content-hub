@@ -37,10 +37,12 @@ Scopes initiaux :
 
 | Scope | Routes |
 |---|---|
-| `review:read` | liste et etat des avis |
-| `review:propose` | proposition de reponse, mentions candidates, cloture mensuelle |
+| `review:read` | liste et etat des avis, roster courant, mentions par statut |
+| `review:propose` | proposition de reponse, mentions jugees, cloture mensuelle |
 | `review:publish` | publication bornee et reconciliation GET-only |
 | `review:report:read` | lecture du recap mensuel |
+| `review:mention:resolve` | decision humaine sur une mention en attente (GMB-010) |
+| `roster:write` | modification du roster d'equipe (GMB-010) |
 
 Un scope absent ou un slug hors allowlist renvoie `403`. Un bearer absent, inconnu, expire, pas
 encore actif ou revoque renvoie `401`. Les routes n'acceptent ni token admin ni token client.
@@ -52,7 +54,7 @@ Exemple de configuration cote hub, sans secret en clair :
   {
     "id": "hermes-barberconcept-2026-09",
     "tokenHash": "<sha256-hex-du-secret>",
-    "scopes": ["review:read", "review:propose", "review:publish", "review:report:read"],
+    "scopes": ["review:read", "review:propose", "review:publish", "review:report:read", "review:mention:resolve", "roster:write"],
     "projects": ["barberconcept"],
     "notBefore": "<ISO-8601>",
     "expiresAt": "<ISO-8601>"
@@ -228,7 +230,34 @@ la reponse est `{state: "retry_eligible", idempotent: true}` et rien n'est ecrit
 `retry_eligible` n'envoie rien. Une nouvelle tentative exige un appel de publication explicite
 avec une nouvelle cle d'idempotence, apres une nouvelle relecture/policy check.
 
-## Mentions equipe
+## Mentions equipe (GMB-010)
+
+Principe : **l'agent juge, le hub decide, l'humain tranche le doute.** L'agent rattache chaque
+prenom cite a un membre du roster au moment ou il redige la reponse. Le hub ne valide d'office que
+le match **exact** (casse, accents, ponctuation pres) a un nom ou un alias d'un membre actif **du
+salon de l'avis**. Tout le reste attend une decision humaine. La reponse a l'avis, elle, n'attend
+jamais : seule la mention douteuse est mise a jour apres coup.
+
+### `GET /roster`
+
+Scope : `review:read`. Roster courant de la projection `current`.
+
+```json
+{
+  "version": "2026-10-01.1",
+  "extraction": "agent",
+  "locations": [{ "id": "locations/4735391311439608561", "label": "Lausanne" }],
+  "employees": [{
+    "id": "giuseppe", "displayName": "Giuseppe", "aliases": ["Guiseppe"],
+    "locations": ["locations/4735391311439608561"],
+    "active": true, "publicReplyAllowed": true, "trackMentions": true
+  }]
+}
+```
+
+`extraction: "agent"` = l'agent est la seule source d'extraction ; le detecteur LLM du hub
+(`detect:employee_mentions`) se met en retrait (`skippedReason: employee_mentions_delegated`).
+Aucun champ de prime n'est expose.
 
 ### `POST /reviews/{reviewId}/mentions`
 
@@ -238,20 +267,95 @@ Scope : `review:propose`. Header `Idempotency-Key` obligatoire.
 {
   "candidates": [
     {
-      "token": "Noe",
+      "token": "Guiseppe",
       "sentiment": "positive",
-      "evidence": "Merci Noe pour la coupe",
-      "confidence": 0.93,
-      "rosterVersion": "<version-optionnelle>"
+      "evidence": "Merci Guiseppe pour la coupe",
+      "confidence": 0.9,
+      "employeeId": "giuseppe",
+      "matchKind": "variant",
+      "rosterVersion": "2026-10-01.1"
     }
   ]
 }
 ```
 
-Bornes : 1 a 20 candidats, token 80 caracteres, preuve 240 caracteres, confiance entre 0 et 1.
-Chaque ligne est creee en statut `candidate`. L'API ne valide pas une identite, ne cree pas un
-employe, ne calcule pas de prime et n'expose aucun montant. Les mentions validees du recap sont
-derivees de la source canonique par avis ; les candidates restent separees jusqu'a resolution.
+Bornes : 0 a 20 candidats, token 80 caracteres, preuve 240 caracteres, confiance entre 0 et 1,
+`employeeId` (optionnel) = l'id du roster que l'agent vise, `matchKind` (optionnel, information) :
+`exact | alias | variant | unknown | ambiguous`. **`candidates: []` est valide** : avis analyse,
+personne de cite (l'avis est marque traite).
+
+Le hub juge chaque ligne a la reception et rend son verdict dans la reponse :
+
+| `status` | `reason` | Sens | Geste de l'agent |
+|---|---|---|---|
+| `validated` | — | match exact au salon ; ajoute a `mentioned_employees` | rien |
+| `resolved` | `not_tracked` | membre reconnu mais non suivi (ex. cofondateur) | rien |
+| `candidate` | `unknown_token` | orthographe absente du roster | demander a Jon |
+| `candidate` | `wrong_location` | prenom du roster, mais d'un autre salon | demander a Jon |
+| `candidate` | `suggestion_conflict` | match exact, mais l'agent vise quelqu'un d'autre | demander a Jon |
+| `candidate` | `ambiguous` / `inactive` / `roster_unavailable` | indecidable | demander a Jon |
+
+Chaque ligne porte `id`, `employeeId`/`displayName` (si valide), `suggestedEmployeeId` (la
+suggestion de l'agent, ou le seul membre plausible). Le meme couple (avis, token normalise) deja
+recu renvoie la ligne existante avec `idempotent: true`, quelle que soit la cle.
+
+### `GET /mention-candidates?status=candidate&limit=100`
+
+Scope : `review:read`. Mentions par statut (`candidate` par defaut, `validated`, `rejected`,
+`resolved`), dans l'ordre de reception, 200 au plus.
+
+### `POST /mention-candidates/{candidateId}/resolve`
+
+Scope : `review:mention:resolve`. Header `Idempotency-Key` obligatoire.
+
+```json
+{ "decision": "validate", "employeeId": "giuseppe", "rememberAlias": true, "note": "Jon, Telegram" }
+```
+
+- `validate` : `employeeId` optionnel (defaut : `suggestedEmployeeId`). La mention passe
+  `validated` et rejoint `mentioned_employees` (ou `resolved` si le membre est non suivi).
+- `rememberAlias: true` : l'orthographe du token devient un alias du membre → nouvelle version du
+  roster, et **toutes** les candidates en attente sont re-jugees (les autres « Guiseppe » passent
+  `validated` d'elles-memes). Un echec de l'alias n'annule pas la decision (`alias.error`).
+- `reject` : la mention passe `rejected`, rien n'est attribue.
+
+Une decision posee ne se reecrit pas : rejouer la meme cle renvoie le meme resultat, une autre
+cle renvoie `409 candidate_already_resolved`.
+
+### `POST /roster/changes`
+
+Scope : `roster:write`. Header `Idempotency-Key` obligatoire.
+
+```json
+{
+  "baseVersion": "2026-10-01.1",
+  "reason": "Mohammed a quitte Jonction (Jon, Telegram)",
+  "changes": [{ "op": "deactivate", "employeeId": "mohammed" }]
+}
+```
+
+Operations (1 a 20 par appel, **tout ou rien**) :
+
+| `op` | Champs |
+|---|---|
+| `add_alias` / `remove_alias` | `employeeId`, `alias` |
+| `add_employee` | `employeeId` (`a-z0-9-`), `displayName`, `locations[]`, `aliases?`, `publicReplyAllowed?`, `trackMentions?` |
+| `deactivate` / `reactivate` | `employeeId` |
+| `set_locations` | `employeeId`, `locations[]` |
+| `set_public_reply` | `employeeId`, `allowed` |
+| `set_track_mentions` | `employeeId`, `tracked` |
+| `set_extraction` | `owner` : `hub` ou `agent` |
+
+Chaque changement effectif promeut une **nouvelle projection hashee** (version `AAAA-MM-JJ.n`,
+l'ancienne passe `stale`) puis re-juge les candidates en attente. Reponse : `version`,
+`previousVersion`, `changed`, `reassessed`. Un employe ajoute par l'API n'est jamais eligible a une
+prime. Erreurs : `409 roster_version_conflict` (relire `GET /roster` puis rejouer avec la nouvelle
+`baseVersion`), `409 token_conflict` (l'alias rendrait deux membres d'un meme salon
+indiscernables), `employee_not_found`, `employee_exists`, `alias_not_found`, `unknown_location`.
+
+⚠️ Une proposition de reponse redigee sous l'ancien roster est refusee au `/publish`
+(`409 projection_changed`) : la relire et la re-proposer. Eviter de modifier le roster pendant le
+passage quotidien.
 
 ## Recap mensuel Europe/Zurich
 

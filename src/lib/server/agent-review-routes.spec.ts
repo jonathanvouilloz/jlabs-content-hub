@@ -12,7 +12,11 @@ describe('API agent avis v1', () => {
 			['src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/mentions/+server.ts', 'review:propose'],
 			['src/routes/api/agent/v1/projects/[slug]/proposals/[proposalId]/publish/+server.ts', 'review:publish'],
 			['src/routes/api/agent/v1/projects/[slug]/proposals/[proposalId]/reconcile/+server.ts', 'review:publish'],
-			['src/routes/api/agent/v1/projects/[slug]/monthly-reports/[period]/+server.ts', 'review:report:read']
+			['src/routes/api/agent/v1/projects/[slug]/monthly-reports/[period]/+server.ts', 'review:report:read'],
+			['src/routes/api/agent/v1/projects/[slug]/roster/+server.ts', 'review:read'],
+			['src/routes/api/agent/v1/projects/[slug]/roster/changes/+server.ts', 'roster:write'],
+			['src/routes/api/agent/v1/projects/[slug]/mention-candidates/+server.ts', 'review:read'],
+			['src/routes/api/agent/v1/projects/[slug]/mention-candidates/[candidateId]/resolve/+server.ts', 'review:mention:resolve']
 		] as const;
 		for (const [path, scope] of routes) {
 			const source = read(path);
@@ -32,7 +36,9 @@ describe('API agent avis v1', () => {
 		for (const path of [
 			'src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/proposals/+server.ts',
 			'src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/mentions/+server.ts',
-			'src/routes/api/agent/v1/projects/[slug]/proposals/[proposalId]/publish/+server.ts'
+			'src/routes/api/agent/v1/projects/[slug]/proposals/[proposalId]/publish/+server.ts',
+			'src/routes/api/agent/v1/projects/[slug]/roster/changes/+server.ts',
+			'src/routes/api/agent/v1/projects/[slug]/mention-candidates/[candidateId]/resolve/+server.ts'
 		]) {
 			expect(read(path)).toContain('requireIdempotencyKey(event.request)');
 		}

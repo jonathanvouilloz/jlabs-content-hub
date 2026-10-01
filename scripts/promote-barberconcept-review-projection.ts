@@ -6,6 +6,9 @@
  * - projets/barberconcept/docs/identity.md
  * - projets/barberconcept/docs/channels/gmb.md
  *
+ * Roster (GMB-010) : la liste ci-dessous n'est qu'une AMORCE. Si la projection courante porte
+ * deja un roster, il est repris tel quel — il s'edite par l'API agent (`/roster/changes`).
+ *
  * Dry-run par defaut. `--apply` promeut uniquement la projection ; ce script ne cree ni ne
  * modifie aucune policy et ne peut donc pas autoriser une publication Google.
  */
@@ -20,6 +23,7 @@ import { createId } from '../src/lib/server/utils.js';
 import { toDbTimestamp } from '../src/lib/server/timestamps.js';
 import { assertNoInlineSecret } from '../src/lib/server/projection-state.js';
 import { parseReviewReplyContext } from '../src/lib/server/reviews/review-reply-context-state.js';
+import { parseEmployeeMentionsCapability } from '../src/lib/server/reviews/employee-mentions-state.js';
 
 neonConfig.webSocketConstructor = ws;
 
@@ -152,6 +156,22 @@ try {
 		}
 	};
 
+	// GMB-010 : depuis que l'agent édite le roster par l'API, la projection courante en est la
+	// source. Ce script ne sert plus qu'à amorcer un roster absent ; il ne l'écrase jamais.
+	const current = await db.query.projectProjections.findFirst({
+		where: and(
+			eq(schema.projectProjections.projectId, project.id),
+			eq(schema.projectProjections.status, 'current')
+		)
+	});
+	let currentPayload: unknown = null;
+	try { currentPayload = current ? JSON.parse(current.payload) : null; } catch { currentPayload = null; }
+	const inherited = parseEmployeeMentionsCapability(currentPayload).roster;
+	const rosterSource = inherited ? 'projection_courante' : 'amorce_du_script';
+	if (inherited) (payload.gmb as Record<string, unknown>).employeeMentions = inherited;
+	const effectiveRoster = parseEmployeeMentionsCapability(payload).roster;
+	if (!effectiveRoster) throw new Error('employeeMentions invalide');
+
 	for (const id of expectedIds) {
 		const parsed = parseReviewReplyContext(payload, id);
 		if (!parsed.ok) throw new Error(`projection invalid for ${id}: ${parsed.reason}`);
@@ -160,21 +180,16 @@ try {
 	const serialized = JSON.stringify(payload);
 	assertNoInlineSecret(serialized, 'barberconcept review projection');
 	const sourceHash = createHash('sha256').update(serialized).digest('hex');
-	const current = await db.query.projectProjections.findFirst({
-		where: and(
-			eq(schema.projectProjections.projectId, project.id),
-			eq(schema.projectProjections.status, 'current')
-		)
-	});
-
 	const summary = {
 		mode: apply ? 'apply' : 'dry-run',
 		project: project.slug,
 		sourceHash,
 		duplicate: current?.sourceHash === sourceHash,
 		locations: expectedIds.length,
-		activeEmployees: roster.filter((employee) => employee.active !== false).length,
-		publicEmployees: roster.filter((employee) => employee.publicReplyAllowed !== false).length
+		rosterSource,
+		rosterVersion: effectiveRoster.version,
+		activeEmployees: effectiveRoster.employees.filter((employee) => employee.active).length,
+		publicEmployees: effectiveRoster.employees.filter((employee) => employee.publicReplyAllowed).length
 	};
 
 	if (!apply || current?.sourceHash === sourceHash) {

@@ -27,7 +27,7 @@ export interface EmployeeMentionsDetectorResult {
 	unknownFindingsCreated: number;
 	capped: number;
 	aborted: boolean;
-	skippedReason: 'employee_mentions_disabled' | null;
+	skippedReason: 'employee_mentions_disabled' | 'employee_mentions_delegated' | null;
 }
 
 export async function runEmployeeMentionsDetector(input: EmployeeMentionsDetectorInput): Promise<EmployeeMentionsDetectorResult> {
@@ -42,6 +42,10 @@ export async function runEmployeeMentionsDetector(input: EmployeeMentionsDetecto
 		return { detectorVersion: DETECTOR_EMPLOYEE_MENTIONS, projectId: input.projectId, rosterVersion: null, processed: 0, persisted: 0, unknownFindingsCreated: 0, capped: 0, aborted: input.signal.aborted, skippedReason: 'employee_mentions_disabled' };
 	}
 	const roster = capability.roster;
+	// GMB-010 : l'agent qui rédige les réponses juge aussi les noms. Une seule source d'extraction.
+	if (roster.extraction === 'agent') {
+		return { detectorVersion: DETECTOR_EMPLOYEE_MENTIONS, projectId: input.projectId, rosterVersion: roster.version, processed: 0, persisted: 0, unknownFindingsCreated: 0, capped: 0, aborted: input.signal.aborted, skippedReason: 'employee_mentions_delegated' };
+	}
 	const reviews = await input.db.select({
 		id: gmbReviews.id, reviewId: gmbReviews.reviewId, locationId: gmbReviews.locationId, comment: gmbReviews.comment
 	}).from(gmbReviews).where(and(eq(gmbReviews.projectId, input.projectId), isNull(gmbReviews.mentionedEmployees))).limit(Math.max(0, Math.floor(input.maxReviews ?? EMPLOYEE_MENTION_MAX_REVIEWS)));

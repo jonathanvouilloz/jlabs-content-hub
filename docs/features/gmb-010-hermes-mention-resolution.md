@@ -1,8 +1,46 @@
 # Feature — GMB-010 : résolution des mentions candidates envoyées par Hermes
 
-> Epic E08 · statut : **PLANNED** · 2026-09-28 · dépend de GMB-009 (roster versionné) et de l'API agent v1
+> Epic E08 · statut : **IN_REVIEW** · livré en local le 2026-10-01 (non déployé) · plan initial du 2026-09-28 révisé
 
-## Constat (production, lecture seule, 2026-09-28)
+## Livré (2026-10-01) — révision du plan : Hermes juge, le hub décide, Jon tranche
+
+Décision de Jonathan (2026-10-01) : Hermes juge les noms **au moment où il rédige la réponse**, et
+pilote le roster par l'API ; la réponse n'attend jamais, seule la mention douteuse est tranchée
+après coup sur Telegram. Le roster reste dans la projection `current` (une seule source, dont dérive
+aussi le roster publiable) : pas de base côté Hermes.
+
+- **Zéro DDL.** Les statuts `validated` / `rejected` / `resolved` existaient déjà dans le CHECK de
+  `manual-data-010.sql` ; `resolution_json` porte le verdict (raison, suggestion, auteur, version).
+- `mention-resolution-state.ts` (pur) : `assessSubmittedMention` — exact au salon ⇒ `validated` ;
+  non-suivi ⇒ `resolved` partout ; sinon `candidate` avec `unknown_token` / `wrong_location` /
+  `suggestion_conflict` / `ambiguous` / `inactive` / `roster_unavailable`. ⭐ Un match exact que
+  l'agent rattache à **quelqu'un d'autre** reste un doute. `applyRosterChanges` (tout ou rien) refuse
+  un alias qui rendrait deux membres d'un même salon indiscernables (`token_conflict`).
+- `agent-mention-service.ts` : soumission jugée à la réception (dédoublonnage par couple avis/token,
+  `candidates: []` marque l'avis traité), résolution humaine, changements de roster = **nouvelle
+  projection hashée** (`AAAA-MM-JJ.n`, `baseVersion` obligatoire, idempotence par `lastChange` dans
+  la projection), puis **re-jugement de toutes les candidates en attente**.
+- Routes : `GET /roster`, `POST /roster/changes` (`roster:write`), `GET /mention-candidates`,
+  `POST /mention-candidates/{id}/resolve` (`review:mention:resolve`), `POST /mentions` enrichi
+  (`employeeId`, `matchKind`, 0–20 lignes).
+- `trackMentions: false` (non suivi) et `extraction: 'hub' | 'agent'` dans le roster ;
+  `detect:employee_mentions` se retire (`employee_mentions_delegated`) quand `extraction = agent`,
+  ce qui supprime aussi ses 429 → `dead` quotidiens.
+- `promote-barberconcept-review-projection.ts` reprend le roster de la projection courante : il ne
+  peut plus écraser les modifications faites par l'API (dry-run prod : `duplicate: true`).
+
+Simulation en lecture seule sur la prod (2026-10-01, 67 candidates, 60 couples) : **42 passeraient
+`validated`** d'office au premier re-jugement, **11** restent en `unknown_token` (N2, guiseppe,
+Gueppe, Guiseppe, Joseph, Wisley, Ooums, Mouss, Tedi, « emanuel n2 », Jess) et **7** en
+`wrong_location` (Oums ×6 et Moha ×1 cités hors de leur salon au roster).
+
+Décisions plus récentes que le tableau ci-dessous (relayées par Hermes, 2026-09-30) : `Joseph` est
+**rejeté**, pas d'alias vers Henok ; `N2` sera ajouté plus tard par Jon (via Hermes).
+
+Reste : déploiement, ajout des deux scopes au credential Hermes, mise à jour du worker Hermes
+(runbook § Mentions d'équipe), puis `set_extraction: agent` qui déclenche le re-jugement.
+
+## Constat initial (production, lecture seule, 2026-09-28)
 
 - `review_mention_candidates` (barberconcept) : **24 lignes, toutes `candidate`**, toutes écrites par
   `hermes-barberconcept-2026-09-r2` entre le 26/09 18:45 et le 27/09 07:45.
@@ -38,7 +76,7 @@ puisque rien ne se compte à tort.
 Principe maintenu : **aucun rapprochement flou**. Une variante devient un alias validé par un humain,
 jamais une supposition du système (le roster sert au calcul des primes).
 
-## Plan
+## Plan initial (2026-09-28, remplacé par la section Livré)
 
 ### Lot 1 — Roster `2026-09-28.1`
 

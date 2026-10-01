@@ -15,7 +15,6 @@ import {
 } from '../db/schema.js';
 import { createId } from '../utils.js';
 import { dbTimestampToMs, toDbTimestamp } from '../timestamps.js';
-import { buildAgentMentionCandidate } from './agent-mention-state.js';
 import { classifyAutoReply } from './auto-reply-state.js';
 import {
 	buildReviewReplyCandidate,
@@ -335,72 +334,6 @@ export async function proposeAgentReviewReply(input: {
 		return { proposal: existingByKey, idempotent: true, decision };
 	}
 	throw new AgentReviewApiError(409, 'review_has_live_proposal');
-}
-
-export async function submitAgentMentionCandidates(input: {
-	db: AppDb;
-	projectSlug: string;
-	reviewId: string;
-	idempotencyKey: string;
-	actor: string;
-	candidates: Array<{
-		token: string;
-		sentiment: 'positive' | 'neutral' | 'negative';
-		evidence: string;
-		confidence: number;
-		rosterVersion?: string | null;
-	}>;
-}) {
-	const project = await requireProject(input.db, input.projectSlug);
-	const review = await input.db.query.gmbReviews.findFirst({
-		where: and(eq(gmbReviews.projectId, project.id), eq(gmbReviews.reviewId, input.reviewId))
-	});
-	if (!review) throw new AgentReviewApiError(404, 'review_not_found');
-	const created: Array<typeof reviewMentionCandidates.$inferSelect> = [];
-	for (const [index, candidate] of input.candidates.entries()) {
-		const key = `${input.idempotencyKey}:${index}`;
-		const record = buildAgentMentionCandidate(candidate);
-		const inserted = await input.db
-			.insert(reviewMentionCandidates)
-			.values({
-				id: createId(),
-				projectId: project.id,
-				reviewId: review.reviewId,
-				locationId: review.locationId,
-				detectedToken: record.detectedToken,
-				normalizedToken: record.normalizedToken,
-				sentiment: record.sentiment,
-				evidence: record.evidence,
-				confidence: record.confidence,
-				rosterVersion: record.rosterVersion,
-				status: record.status,
-				idempotencyKey: key,
-				createdBy: input.actor
-			})
-			.onConflictDoNothing()
-			.returning();
-		if (inserted[0]) {
-			created.push(inserted[0]);
-			continue;
-		}
-		const existing = await input.db.query.reviewMentionCandidates.findFirst({
-			where: and(
-				eq(reviewMentionCandidates.projectId, project.id),
-				eq(reviewMentionCandidates.idempotencyKey, key)
-			)
-		});
-		if (existing) created.push(existing);
-	}
-	return created.map((row) => ({
-		id: row.id,
-		reviewId: row.reviewId,
-		token: row.detectedToken,
-		sentiment: row.sentiment,
-		evidence: row.evidence,
-		confidence: row.confidence,
-		status: row.status,
-		createdAt: row.createdAt
-	}));
 }
 
 function parseValidatedMentions(raw: string | null): Array<{ name: string; sentiment: string }> {

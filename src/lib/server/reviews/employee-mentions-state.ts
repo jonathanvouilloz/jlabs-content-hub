@@ -9,11 +9,23 @@ export interface EmployeeMentionsRosterEntry {
 	active: boolean;
 	eligibleForBonus: boolean;
 	publicReplyAllowed: boolean;
+	/**
+	 * `false` = reconnu puis écarté (cofondateur, pas un barbier au compteur). Absent = suivi.
+	 * Un non-suivi reste au roster, sinon chacune de ses citations lèverait une alerte.
+	 */
+	trackMentions?: boolean;
 }
+
+/**
+ * Qui juge les noms cités : le détecteur LLM du hub (`hub`, défaut) ou l'agent qui
+ * rédige les réponses (`agent`). Une seule source d'extraction par projet.
+ */
+export type MentionExtractionOwner = 'hub' | 'agent';
 
 export interface EmployeeMentionsRoster {
 	enabled: boolean;
 	version: string;
+	extraction?: MentionExtractionOwner;
 	employees: EmployeeMentionsRosterEntry[];
 }
 
@@ -35,6 +47,7 @@ export function parseEmployeeMentionsCapability(payload: unknown): EmployeeMenti
 		roster.enabled !== true ||
 		typeof roster.version !== 'string' ||
 		roster.version.trim() === '' ||
+		(roster.extraction !== undefined && roster.extraction !== 'hub' && roster.extraction !== 'agent') ||
 		!Array.isArray(roster.employees) ||
 		!roster.employees.every(isValidRosterEntry)
 	) {
@@ -53,7 +66,8 @@ function isValidRosterEntry(value: unknown): value is EmployeeMentionsRosterEntr
 		Array.isArray(entry.locations) && entry.locations.every((location) => typeof location === 'string') &&
 		typeof entry.active === 'boolean' &&
 		typeof entry.eligibleForBonus === 'boolean' &&
-		typeof entry.publicReplyAllowed === 'boolean'
+		typeof entry.publicReplyAllowed === 'boolean' &&
+		(entry.trackMentions === undefined || typeof entry.trackMentions === 'boolean')
 	);
 }
 
@@ -90,20 +104,27 @@ export function matchRosterMentions(input: {
 	if (!input.roster.enabled) return { mentions: [], unknownTokens: [] };
 
 	const byToken = new Map<string, EmployeeMentionsRosterEntry>();
+	// Un non-suivi n'est jamais attribué : il peut donc être reconnu dans tous les salons.
+	const notTracked = new Set<string>();
 	for (const employee of input.roster.employees) {
-		if (!employee.active || !employee.locations.includes(input.locationId)) continue;
-		for (const raw of [employee.displayName, ...employee.aliases]) {
-			const token = normalizeRosterToken(raw);
-			if (token) byToken.set(token, employee);
+		if (!employee.active) continue;
+		const tokens = [employee.displayName, ...employee.aliases].map(normalizeRosterToken).filter(Boolean);
+		if (employee.trackMentions === false) {
+			for (const token of tokens) notTracked.add(token);
+			continue;
 		}
+		if (!employee.locations.includes(input.locationId)) continue;
+		for (const token of tokens) byToken.set(token, employee);
 	}
 
 	const mentions = new Map<string, Mention>();
 	const unknownTokens = new Set<string>();
 	for (const candidate of input.candidates) {
 		const raw = candidate.name.trim();
-		const employee = byToken.get(normalizeRosterToken(raw));
+		const normalized = normalizeRosterToken(raw);
+		const employee = byToken.get(normalized);
 		if (!employee) {
+			if (notTracked.has(normalized)) continue;
 			if (raw) unknownTokens.add(raw);
 			continue;
 		}

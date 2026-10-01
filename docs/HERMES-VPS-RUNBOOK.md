@@ -120,7 +120,11 @@ autorisé `200`. Un `401` ou `403` est une erreur de configuration : ne pas rete
 | `GET` | `/api/agent/projects/{slug}/insights` | `agent:insights:read` | Insights SEO en lecture seule |
 | `GET` | `/api/agent/v1/projects/{slug}/reviews` | `review:read` | Avis, fraîcheur et décision du hub |
 | `POST` | `/api/agent/v1/projects/{slug}/reviews/{reviewId}/proposals` | `review:propose` | Persiste une proposition |
-| `POST` | `/api/agent/v1/projects/{slug}/reviews/{reviewId}/mentions` | `review:propose` | Persiste des mentions candidates |
+| `POST` | `/api/agent/v1/projects/{slug}/reviews/{reviewId}/mentions` | `review:propose` | Mentions jugées : exact validé d'office, doute en attente |
+| `GET` | `/api/agent/v1/projects/{slug}/roster` | `review:read` | Roster courant et sa version |
+| `POST` | `/api/agent/v1/projects/{slug}/roster/changes` | `roster:write` | Modifie le roster (nouvelle version) |
+| `GET` | `/api/agent/v1/projects/{slug}/mention-candidates` | `review:read` | Mentions par statut (`candidate` = en attente) |
+| `POST` | `/api/agent/v1/projects/{slug}/mention-candidates/{id}/resolve` | `review:mention:resolve` | Décision de Jon : valider, retenir l'alias, rejeter |
 | `POST` | `/api/agent/v1/projects/{slug}/proposals/{proposalId}/publish` | `review:publish` | Publication bornée et auditée |
 | `GET` | `/api/agent/v1/projects/{slug}/proposals/{proposalId}/reconcile` | `review:publish` | Relecture Google, sans écriture |
 | `GET` | `/api/agent/v1/projects/{slug}/monthly-reports/{YYYY-MM}` | `review:report:read` | Récap mensuel Europe/Zurich |
@@ -226,30 +230,63 @@ Le worker `google_reviews_daily.py` applique cette règle depuis le 2026-09-29 :
 - au passage suivant, cette proposition n'est **que** relue (GET), même si le hub la redonne
   `eligible_auto`.
 
+Le rattrapage historique `google_reviews_backfill.py` suit la même règle depuis le 2026-09-29
+(incident cron `b93f0d8ff407` : un seul GET immédiat concluait `write_unknown` et stoppait les
+14 avis suivants) :
+
+- après un `/publish` ambigu, GET `/reconcile` à +5, +15 et +30 s, **bornés au budget restant**
+  sous le garde-fou de 170 s (marge 20 s) — au-delà, un seul GET et la suite au passage suivant ;
+- une confirmation différée n'est plus une erreur : les autres avis continuent, le rapport
+  (`state/google-reviews-backfill/last-report.json`) porte `pendingConfirmationIds`, sortie code `2` ;
+- `proposal_not_reconcilable`, `conflict` et les erreurs HTTP restent des échecs (code `1`).
+
 ## Mentions d'équipe
 
-Les mentions envoyées par Hermes restent des candidates :
+Depuis GMB-010, **Hermes juge les noms, le hub décide, Jon tranche le doute**. Contrat détaillé :
+[`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md#mentions-equipe-gmb-010).
+
+Mise en route, une seule fois (après ajout des scopes `review:mention:resolve` et `roster:write`
+au credential) : `GET /roster`, puis `POST /roster/changes` avec
+`{"op":"set_extraction","owner":"agent"}`. Le détecteur LLM du hub se met en retrait, et toutes les
+candidates en attente sont re-jugées sur le roster.
+
+Dans le passage quotidien, pour chaque avis :
+
+1. Lire le roster (`GET /roster`) une fois par passage ; ne garder que les membres actifs du salon.
+2. Rédiger la réponse et, dans la même passe, rattacher chaque prénom cité à un `employeeId`
+   (ou `null`) avec un `matchKind`. Ne citer dans la réponse que des membres
+   `publicReplyAllowed` du salon, sous leur `displayName`.
+3. Proposer/publier la réponse **sans attendre** le sort des mentions.
+4. `POST /reviews/{reviewId}/mentions`, **y compris `candidates: []`** quand personne n'est cité.
 
 ```bash
-curl --fail-with-body --silent --show-error \
-  --request POST \
-  --header "Authorization: Bearer ${SEO_STATS_BEARER}" \
-  --header "Content-Type: application/json" \
-  --header "Idempotency-Key: review-mentions:<uuid-persisté>" \
-  --data '{
+curl --fail-with-body --silent --show-error   --request POST   --header "Authorization: Bearer ${SEO_STATS_BEARER}"   --header "Content-Type: application/json"   --header "Idempotency-Key: review-mentions:<uuid-persisté>"   --data '{
     "candidates": [{
-      "token": "Noe",
+      "token": "Guiseppe",
       "sentiment": "positive",
-      "evidence": "Merci Noe pour la coupe",
-      "confidence": 0.93,
-      "rosterVersion": "<version-si-connue>"
+      "evidence": "Merci Guiseppe pour la coupe",
+      "confidence": 0.9,
+      "employeeId": "giuseppe",
+      "matchKind": "variant",
+      "rosterVersion": "<version-lue>"
     }]
-  }' \
-  "${SEO_STATS_BASE_URL}/api/agent/v1/projects/${SEO_STATS_PROJECT_SLUG}/reviews/<reviewId>/mentions"
+  }'   "${SEO_STATS_BASE_URL}/api/agent/v1/projects/${SEO_STATS_PROJECT_SLUG}/reviews/<reviewId>/mentions"
 ```
 
-Hermes ne valide pas une identité, ne crée pas un employé et ne calcule aucune prime. Une candidate
-ambiguë, inconnue ou incompatible avec l'établissement est escaladée.
+5. Pour chaque ligne revenue en `status: "candidate"` : message Telegram (thread avis) avec salon,
+   note, token, extrait, `reason` et suggestion ; trois choix : ✅ valider · ✅ + retenir
+   l'orthographe · ❌ rejeter. Dédup : `gmb-mention:<candidateId>`.
+6. À la réponse de Jon : `POST /mention-candidates/{id}/resolve` avec
+   `{"decision":"validate","employeeId":"…","rememberAlias":true}` ou `{"decision":"reject"}`.
+
+Changements d'équipe dictés par Jon (« Mohammed n'est plus là », « ajoute N2 comme surnom
+d'Emanuel ») : `GET /roster` → `POST /roster/changes` avec la `version` lue en `baseVersion` et une
+`reason` qui cite la demande. Sur `409 roster_version_conflict` : relire et rejouer une fois. Jamais
+pendant le passage quotidien : un roster modifié invalide les propositions en vol
+(`projection_changed`).
+
+Hermes ne crée jamais de lui-même un employé, un alias ou une décision : chaque `resolve` et chaque
+`roster/changes` découle d'une instruction explicite de Jon.
 
 ## Rapports mensuels
 
