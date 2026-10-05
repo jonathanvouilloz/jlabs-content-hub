@@ -31,6 +31,12 @@ import {
 } from './agent-review-state.js';
 import { parseReviewReplyContext, type ProjectionStatus } from './review-reply-context-state.js';
 import {
+	OPEN_LOOKBACK_DAYS,
+	PENDING_CONFIRMATION_STATES,
+	summarizePolicy,
+	summarizeReviewStatus
+} from './agent-review-status-state.js';
+import {
 	publishReviewReply,
 	runIdempotentReviewPublication,
 	type ReviewReplyDeliveryEvent,
@@ -105,6 +111,46 @@ function projectionFailure(
 	return result.ok ? null : result.reason;
 }
 
+type DecisionContext = {
+	policyRows: Array<typeof reviewAutomationPolicies.$inferSelect>;
+	projection: typeof projectProjections.$inferSelect | null | undefined;
+};
+
+async function loadDecisionContext(db: AppDb, projectId: string): Promise<DecisionContext> {
+	const [policyRows, projection] = await Promise.all([
+		db
+			.select()
+			.from(reviewAutomationPolicies)
+			.where(and(eq(reviewAutomationPolicies.projectId, projectId), eq(reviewAutomationPolicies.status, 'current'))),
+		db.query.projectProjections.findFirst({
+			where: and(eq(projectProjections.projectId, projectId), eq(projectProjections.status, 'current'))
+		})
+	]);
+	return { policyRows, projection };
+}
+
+/** La décision de `GET /reviews`, et la seule : `review-status` la compte, il ne la refait pas. */
+function decideReview(input: {
+	review: Pick<typeof gmbReviews.$inferSelect, 'rating' | 'comment' | 'remoteReplyText' | 'lastSeenAt' | 'locationId'>;
+	location: Pick<typeof projectGmbLocations.$inferSelect, 'lastSyncAt' | 'lastSyncStatus'> | null;
+	proposalState: string | null | undefined;
+	context: DecisionContext;
+	now?: Date;
+}) {
+	const policy = effectivePolicy(input.context.policyRows, input.review.locationId);
+	return applyProjectionGate(classifyAgentReview({
+		rating: input.review.rating,
+		comment: input.review.comment,
+		remoteReplyText: input.review.remoteReplyText,
+		lastSeenAt: input.review.lastSeenAt,
+		locationLastSyncAt: input.location?.lastSyncAt ?? null,
+		locationLastSyncStatus: input.location?.lastSyncStatus ?? null,
+		proposalState: input.proposalState,
+		policy: policy?.policy,
+		now: input.now
+	}), projectionFailure(input.context.projection, input.review.locationId));
+}
+
 export async function listAgentReviews(input: {
 	db: AppDb;
 	projectSlug: string;
@@ -140,7 +186,7 @@ export async function listAgentReviews(input: {
 
 	const page = rows.slice(0, limit);
 	const reviewIds = page.map(({ review }) => review.reviewId);
-	const [proposalRows, policyRows, projection] = await Promise.all([
+	const [proposalRows, context] = await Promise.all([
 		reviewIds.length === 0
 			? Promise.resolve([])
 			: input.db
@@ -148,13 +194,7 @@ export async function listAgentReviews(input: {
 					.from(reviewReplyProposals)
 					.where(and(eq(reviewReplyProposals.projectId, project.id), inArray(reviewReplyProposals.reviewId, reviewIds)))
 					.orderBy(desc(reviewReplyProposals.createdAt), desc(reviewReplyProposals.id)),
-		input.db
-			.select()
-			.from(reviewAutomationPolicies)
-			.where(and(eq(reviewAutomationPolicies.projectId, project.id), eq(reviewAutomationPolicies.status, 'current'))),
-		input.db.query.projectProjections.findFirst({
-			where: and(eq(projectProjections.projectId, project.id), eq(projectProjections.status, 'current'))
-		})
+		loadDecisionContext(input.db, project.id)
 	]);
 	const latestProposal = new Map<string, typeof reviewReplyProposals.$inferSelect>();
 	for (const proposal of proposalRows) {
@@ -163,18 +203,7 @@ export async function listAgentReviews(input: {
 
 	const data = page.map(({ review, location }) => {
 		const proposal = latestProposal.get(review.reviewId) ?? null;
-		const policy = effectivePolicy(policyRows, review.locationId);
-		const decision = applyProjectionGate(classifyAgentReview({
-			rating: review.rating,
-			comment: review.comment,
-			remoteReplyText: review.remoteReplyText,
-			lastSeenAt: review.lastSeenAt,
-			locationLastSyncAt: location?.lastSyncAt ?? null,
-			locationLastSyncStatus: location?.lastSyncStatus ?? null,
-			proposalState: proposal?.state,
-			policy: policy?.policy,
-			now: input.now
-		}), projectionFailure(projection, review.locationId));
+		const decision = decideReview({ review, location, proposalState: proposal?.state, context, now: input.now });
 		return {
 			reviewId: review.reviewId,
 			/** URL Google officielle (Review.reviewReplyUrl), null avant le prochain sync/backfill. */
@@ -216,6 +245,115 @@ export async function listAgentReviews(input: {
 				? encodeReviewCursor({ createTime: last.createTime, reviewId: last.reviewId })
 				: null
 		}
+	};
+}
+
+/**
+ * GMB-011 — `GET /review-status` : quatre lectures, aucune écriture, aucun appel Google.
+ * Lecture seule et jamais autoritaire : voir `agent-review-status-state.ts`.
+ */
+export async function buildAgentReviewStatus(input: { db: AppDb; projectSlug: string; now?: Date }) {
+	const project = await requireProject(input.db, input.projectSlug);
+	const now = input.now ?? new Date();
+	// `create_time` est en ISO : le SQL ne pré-filtre que sur une date nue (un jour de marge),
+	// la borne exacte est appliquée en JS par le module pur.
+	const cutoffDay = new Date(now.getTime() - (OPEN_LOOKBACK_DAYS + 1) * 86_400_000).toISOString().slice(0, 10);
+	const [reviews, locations, proposals, context] = await Promise.all([
+		input.db
+			.select({
+				reviewId: gmbReviews.reviewId,
+				locationId: gmbReviews.locationId,
+				locationLabel: gmbReviews.locationLabel,
+				rating: gmbReviews.rating,
+				comment: gmbReviews.comment,
+				createTime: gmbReviews.createTime,
+				remoteReplyText: gmbReviews.remoteReplyText,
+				lastSeenAt: gmbReviews.lastSeenAt
+			})
+			.from(gmbReviews)
+			.where(and(eq(gmbReviews.projectId, project.id), gte(gmbReviews.createTime, cutoffDay))),
+		input.db
+			.select({
+				gmbLocationId: projectGmbLocations.gmbLocationId,
+				label: projectGmbLocations.label,
+				lastSyncAt: projectGmbLocations.lastSyncAt,
+				lastSyncStatus: projectGmbLocations.lastSyncStatus
+			})
+			.from(projectGmbLocations)
+			.where(eq(projectGmbLocations.projectId, project.id)),
+		input.db
+			.select({
+				reviewId: reviewReplyProposals.reviewId,
+				locationId: reviewReplyProposals.locationId,
+				state: reviewReplyProposals.state
+			})
+			.from(reviewReplyProposals)
+			.where(eq(reviewReplyProposals.projectId, project.id))
+			.orderBy(desc(reviewReplyProposals.createdAt), desc(reviewReplyProposals.id)),
+		loadDecisionContext(input.db, project.id)
+	]);
+
+	const latestProposal = new Map<string, { locationId: string; state: string }>();
+	const verified = new Set<string>();
+	for (const proposal of proposals) {
+		if (!latestProposal.has(proposal.reviewId)) latestProposal.set(proposal.reviewId, proposal);
+		if (proposal.state === 'verified') verified.add(proposal.reviewId);
+	}
+	const pendingConfirmationsByLocation = new Map<string, number>();
+	for (const proposal of latestProposal.values()) {
+		if (!(PENDING_CONFIRMATION_STATES as readonly string[]).includes(proposal.state)) continue;
+		pendingConfirmationsByLocation.set(proposal.locationId, (pendingConfirmationsByLocation.get(proposal.locationId) ?? 0) + 1);
+	}
+	const locationById = new Map(locations.map((location) => [location.gmbLocationId, location]));
+	const globalPolicy = context.policyRows.find((row) => row.scopeKey === '*') ?? null;
+
+	return summarizeReviewStatus({
+		projectSlug: project.slug,
+		now,
+		reviews: reviews.map((review) => {
+			const proposalState = latestProposal.get(review.reviewId)?.state ?? null;
+			return {
+				locationId: review.locationId,
+				locationLabel: review.locationLabel,
+				rating: review.rating,
+				createTime: review.createTime,
+				status: decideReview({
+					review,
+					location: locationById.get(review.locationId) ?? null,
+					proposalState,
+					context,
+					now
+				}).status,
+				latestProposalState: proposalState,
+				hasVerifiedReply: verified.has(review.reviewId)
+			};
+		}),
+		locations: locations.map((location) => ({
+			locationId: location.gmbLocationId,
+			label: location.label,
+			lastSyncAt: location.lastSyncAt,
+			lastSyncStatus: location.lastSyncStatus,
+			autoPublishingEnabled: summarizePolicy(
+				effectivePolicyRow(context.policyRows, location.gmbLocationId)
+			).autoPublishingEnabled
+		})),
+		policy: globalPolicy ? policyRowSummary(globalPolicy) : null,
+		pendingConfirmationsByLocation
+	});
+}
+
+/** Le kill switch global l'emporte sur une policy locale, comme dans `effectivePolicy`. */
+function effectivePolicyRow(rows: Array<typeof reviewAutomationPolicies.$inferSelect>, locationId: string) {
+	const effective = effectivePolicy(rows, locationId);
+	return effective ? { ...policyRowSummary(effective.row), killSwitch: Boolean(effective.policy.killSwitch) } : null;
+}
+
+function policyRowSummary(row: typeof reviewAutomationPolicies.$inferSelect) {
+	return {
+		mode: row.mode,
+		killSwitch: row.killSwitch,
+		autoGenerationEnabled: row.autoGenerationEnabled,
+		minRatingForAutoSend: row.minRatingForAutoSend
 	};
 }
 

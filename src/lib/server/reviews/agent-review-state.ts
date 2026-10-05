@@ -56,7 +56,8 @@ export function applyProjectionGate(
 	};
 }
 
-function parseTimestamp(value: string | null): number | null {
+/** Format DB (`YYYY-MM-DD HH:MM:SS`, UTC) ou ISO → ms epoch ; `null` si absent ou illisible. */
+export function parseTimestamp(value: string | null): number | null {
 	if (!value) return null;
 	const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
 		? `${value.replace(' ', 'T')}Z`
@@ -164,12 +165,40 @@ function timeZoneOffsetMs(date: Date, timeZone: string): number {
 	return asUtc - date.getTime();
 }
 
-function zonedMidnightUtc(year: number, month: number, timeZone: string): Date {
-	const guess = new Date(Date.UTC(year, month - 1, 1));
+function zonedMidnightUtc(year: number, month: number, timeZone: string, day = 1): Date {
+	const guess = new Date(Date.UTC(year, month - 1, day));
 	let utcMs = guess.getTime() - timeZoneOffsetMs(guess, timeZone);
 	const refined = new Date(utcMs);
 	utcMs = guess.getTime() - timeZoneOffsetMs(refined, timeZone);
 	return new Date(utcMs);
+}
+
+/** Minuit local `Europe/Zurich` du jour civil qui contient `now`, et le minuit suivant (DST compris). */
+export function europeZurichDayWindow(now: Date): { fromInclusive: string; toExclusive: string } {
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat('en-CA', {
+			timeZone: 'Europe/Zurich',
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		})
+			.formatToParts(now)
+			.map((part) => [part.type, part.value])
+	);
+	const year = Number(parts.year);
+	const month = Number(parts.month);
+	const day = Number(parts.day);
+	// Date.UTC normalise le débordement (31 + 1 → 1er du mois suivant).
+	const next = new Date(Date.UTC(year, month - 1, day + 1));
+	return {
+		fromInclusive: zonedMidnightUtc(year, month, 'Europe/Zurich', day).toISOString(),
+		toExclusive: zonedMidnightUtc(
+			next.getUTCFullYear(),
+			next.getUTCMonth() + 1,
+			'Europe/Zurich',
+			next.getUTCDate()
+		).toISOString()
+	};
 }
 
 export interface MonthlyWindow {

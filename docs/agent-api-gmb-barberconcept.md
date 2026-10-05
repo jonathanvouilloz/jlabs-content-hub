@@ -120,6 +120,109 @@ Etats de decision :
 La colonne historique `replied_at` n'est jamais utilisee seule comme preuve. Seule une relecture
 Google et `remoteReply` peuvent etablir l'etat distant.
 
+## Resume lecture rapide (GMB-011)
+
+### `GET /review-status`
+
+```http
+GET /api/agent/v1/projects/barberconcept/review-status
+If-None-Match: "<etag precedent>"   (optionnel)
+```
+
+Scope : `review:read`. Sans bearer : 401 · slug hors credential : 403 · projet archive : 404.
+
+Repond en un seul GET aux questions Telegram recurrentes (nouveaux avis, volume du jour / de la
+semaine, salons en panne, confirmations en attente, policy). **Lecture seule et jamais une
+autorite** : aucune ecriture, aucun appel Google, aucune decision. Toute proposition, publication,
+reconciliation ou modification de roster **ignore ce resume** et relit `GET /reviews` puis
+`decision.status` au moment du geste.
+
+Garanties :
+
+- les compteurs de statut sont **exactement** les `decision.status` de `GET /reviews` (meme
+  classification, meme porte de projection, meme policy effective), et ils **partitionnent**
+  `reviews` dans chaque fenetre ;
+- aucun texte d'avis, nom de client, `reviewId`, URL Google ni texte de reponse ;
+- une fiche jamais synchronisee est `unknown`, en erreur `degraded`, agee de plus de 48 h `stale` :
+  jamais `healthy` par defaut. `overallStatus` = le pire (`degraded` > `stale` > `unknown` > `healthy`).
+- `lastSuccessfulSyncAt` n'est renseigne que si le dernier sync a reussi : le collecteur ecrit
+  `last_sync_at` aussi en echec, et aucune colonne ne garde le dernier succes d'une fiche en panne.
+
+Fenetres, toutes `[fromInclusive, toExclusive[` en ISO-8601 UTC et renvoyees dans `windows` :
+
+| Fenetre | Bornes |
+|---|---|
+| `last24Hours` | glissante, `now − 24 h` → `now` |
+| `last7Days` | glissante, `now − 7 j` → `now` |
+| `today` | jour civil `Europe/Zurich` (minuit local → minuit suivant, DST compris) |
+
+Les compteurs « ouverts » par salon (`requiresHumanOpen`, `sensitiveOpen`) portent sur les avis
+crees dans les `openLookbackDays` (180) derniers jours, la fenetre SLA du detecteur d'avis.
+`pendingConfirmations` = propositions dont la derniere est `write_unknown` ou `retry_eligible`,
+**quel que soit l'age de l'avis** : elles se lisent ici et se concluent par `GET /reconcile`,
+jamais par un second publish.
+
+```json
+{
+  "ok": true,
+  "data": {
+    "schemaVersion": "1",
+    "generatedAt": "2026-10-05T16:05:12.000Z",
+    "project": "barberconcept",
+    "freshness": {
+      "overallStatus": "healthy",
+      "maxLocationAgeHours": 48,
+      "lastSuccessfulCollectionAt": "2026-10-05T05:00:19.000Z",
+      "oldestLocationSyncAt": "2026-10-05T05:00:19.000Z"
+    },
+    "windows": {
+      "last24Hours": { "fromInclusive": "2026-10-04T16:05:12.000Z", "toExclusive": "2026-10-05T16:05:12.000Z" },
+      "last7Days": { "fromInclusive": "2026-09-28T16:05:12.000Z", "toExclusive": "2026-10-05T16:05:12.000Z" },
+      "today": { "fromInclusive": "2026-10-04T22:00:00.000Z", "toExclusive": "2026-10-05T22:00:00.000Z", "timezone": "Europe/Zurich" }
+    },
+    "openLookbackDays": 180,
+    "periods": {
+      "last24Hours": { "reviews": 0, "ratings": { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }, "eligibleAuto": 0, "requiresHuman": 0, "sensitiveOrBlocked": 0, "alreadyReplied": 0, "writeUnknown": 0, "staleOrUnhealthyLocation": 0, "verifiedReplies": 0, "pendingConfirmations": 0 },
+      "last7Days": { "reviews": 47, "ratings": { "1": 0, "2": 1, "3": 0, "4": 0, "5": 46 }, "eligibleAuto": 0, "requiresHuman": 0, "sensitiveOrBlocked": 0, "alreadyReplied": 47, "writeUnknown": 0, "staleOrUnhealthyLocation": 0, "verifiedReplies": 37, "pendingConfirmations": 0 },
+      "today": { "reviews": 0, "ratings": { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }, "eligibleAuto": 0, "requiresHuman": 0, "sensitiveOrBlocked": 0, "alreadyReplied": 0, "writeUnknown": 0, "staleOrUnhealthyLocation": 0, "verifiedReplies": 0, "pendingConfirmations": 0 }
+    },
+    "pendingConfirmationsTotal": 3,
+    "locations": [
+      {
+        "locationId": "locations/12743724963296165280",
+        "label": "Barber Concept Jonction Genève",
+        "freshnessStatus": "healthy",
+        "lastSyncAt": "2026-10-05T05:00:19.000Z",
+        "lastSuccessfulSyncAt": "2026-10-05T05:00:19.000Z",
+        "autoPublishingEnabled": true,
+        "reviewsLast24Hours": 0,
+        "reviewsLast7Days": 4,
+        "requiresHumanOpen": 0,
+        "sensitiveOpen": 0,
+        "pendingConfirmations": 3
+      }
+    ],
+    "policy": { "status": "active", "mode": "guarded_auto", "autoPublishingEnabled": true, "minimumAutoRating": 4 }
+  }
+}
+```
+
+`locations` est trie par `label` puis `locationId` (ordre stable). `policy` resume la policy
+projet (`*`) ; `status` vaut `unknown` sans policy courante, `disabled` si le mode n'est pas
+`guarded_auto`, la generation coupee ou le kill switch actif. `autoPublishingEnabled` par salon
+tient compte d'une policy locale et du kill switch global.
+
+Cache :
+
+- `Cache-Control: private, max-age=30` — aucun cache partage.
+- `ETag` fort, calcule sur le **contenu** (compteurs, fraicheur, policy), hors `generatedAt` et
+  bornes des fenetres glissantes ; `If-None-Match` egal → `304` sans corps.
+- Hermes peut garder une reponse au plus 30 s pour une question de lecture. Une mutation ne lit
+  jamais ce cache.
+
+Latence mesuree le 2026-10-05 contre Neon prod (`npx tsx scripts/review-status-preview.ts`,
+service seul, hors reseau Vercel) : mediane ~150 ms, ~3 s a froid (connexion).
+
 ## Proposer une reponse
 
 ### `POST /reviews/{reviewId}/proposals`

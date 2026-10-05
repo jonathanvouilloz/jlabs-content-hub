@@ -8,6 +8,7 @@ describe('API agent avis v1', () => {
 	it('borne chaque route au slug du credential et au scope minimal', () => {
 		const routes = [
 			['src/routes/api/agent/v1/projects/[slug]/reviews/+server.ts', 'review:read'],
+			['src/routes/api/agent/v1/projects/[slug]/review-status/+server.ts', 'review:read'],
 			['src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/proposals/+server.ts', 'review:propose'],
 			['src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/mentions/+server.ts', 'review:propose'],
 			['src/routes/api/agent/v1/projects/[slug]/proposals/[proposalId]/publish/+server.ts', 'review:publish'],
@@ -30,6 +31,15 @@ describe('API agent avis v1', () => {
 		expect(source).toContain('export const GET');
 		expect(source).not.toContain('export const POST');
 		expect(source).not.toContain('putReply:');
+	});
+
+	it('review-status est GET-only et ne touche ni Google ni une mutation', () => {
+		const source = read('src/routes/api/agent/v1/projects/[slug]/review-status/+server.ts');
+		expect(source).toContain('export const GET');
+		for (const forbidden of ['export const POST', 'export const PUT', 'export const PATCH', 'export const DELETE',
+			'createAgentGoogleReplyDeps', 'gmb-review-reply-api', 'requireIdempotencyKey', 'gmb-auth']) {
+			expect(source).not.toContain(forbidden);
+		}
 	});
 
 	it('les mutations exigent une cle d idempotence', () => {

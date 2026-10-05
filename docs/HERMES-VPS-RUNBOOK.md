@@ -119,6 +119,7 @@ autorisé `200`. Un `401` ou `403` est une erreur de configuration : ne pas rete
 |---|---|---|---|
 | `GET` | `/api/agent/projects/{slug}/insights` | `agent:insights:read` | Insights SEO en lecture seule |
 | `GET` | `/api/agent/v1/projects/{slug}/reviews` | `review:read` | Avis, fraîcheur et décision du hub |
+| `GET` | `/api/agent/v1/projects/{slug}/review-status` | `review:read` | Résumé lecture rapide (compteurs, fraîcheur, policy) — jamais pour décider |
 | `POST` | `/api/agent/v1/projects/{slug}/reviews/{reviewId}/proposals` | `review:propose` | Persiste une proposition |
 | `POST` | `/api/agent/v1/projects/{slug}/reviews/{reviewId}/mentions` | `review:propose` | Mentions jugées : exact validé d'office, doute en attente |
 | `GET` | `/api/agent/v1/projects/{slug}/roster` | `review:read` | Roster courant et sa version |
