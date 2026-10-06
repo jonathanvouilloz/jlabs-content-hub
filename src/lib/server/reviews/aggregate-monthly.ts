@@ -196,8 +196,10 @@ export async function aggregateMonthly(
 /**
  * `gmb_reviews.mentioned_employees` est la source canonique. Le GROUP BY rend
  * l'écran recalculable et idempotent, sans table d'agrégat à réparer.
+ * Aucun antislash dans ce SQL : `'^\\s*\\['` partait à Postgres en `'^s*['` (regex
+ * invalide), donc toute lecture plantait.
  */
-async function loadEmployeeMentionReadModel(projectId: string, from: string, to: string): Promise<EmployeeStats[]> {
+export async function loadEmployeeMentionReadModel(projectId: string, from: string, to: string): Promise<EmployeeStats[]> {
 	const result = await db.execute(sql`
 		select
 			mention->>'name' as name,
@@ -207,7 +209,7 @@ async function loadEmployeeMentionReadModel(projectId: string, from: string, to:
 			count(*) filter (where mention->>'sentiment' = 'negative')::int as "negativeCount"
 		from seostats.gmb_reviews,
 		lateral jsonb_array_elements(
-			case when mentioned_employees ~ '^\\s*\\[' then mentioned_employees::jsonb else '[]'::jsonb end
+			case when ltrim(mentioned_employees) like '[%' then mentioned_employees::jsonb else '[]'::jsonb end
 		) as mention
 		where project_id = ${projectId} and create_time >= ${from} and create_time < ${to}
 		group by mention->>'name'

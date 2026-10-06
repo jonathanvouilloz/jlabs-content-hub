@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { projects, gmbReviews, employeeMentions } from '$lib/server/db/schema.js';
+import { projects, gmbReviews } from '$lib/server/db/schema.js';
 import { validateApiKey } from '$lib/server/api-auth.js';
 import { persistMentionsForReview, type Mention } from '$lib/server/reviews/mentions.js';
+import { loadEmployeeMentionReadModel } from '$lib/server/reviews/aggregate-monthly.js';
 import { eq, and, gte, lt, ilike, sql } from 'drizzle-orm';
 
 interface ItemInput { reviewId: string; mentions: Mention[] }
@@ -70,18 +71,12 @@ export const GET: RequestHandler = async (event) => {
 		return json({ error: 'Invalid year/month' }, { status: 400 });
 	}
 
-	const rows = await db
-		.select()
-		.from(employeeMentions)
-		.where(and(
-			eq(employeeMentions.projectId, project.id),
-			eq(employeeMentions.year, year),
-			eq(employeeMentions.month, month)
-		));
-
-	const employees = rows
+	// Lu par GROUP BY sur `gmb_reviews.mentioned_employees` (source canonique) : plus rien
+	// n'écrit dans `employee_mentions` depuis GMB-010, la table est figée au 2026-08-25.
+	const { start, end } = monthRange(year, month);
+	const employees = (await loadEmployeeMentionReadModel(project.id, start, end))
 		.map((r) => ({
-			name: r.employeeName,
+			name: r.name,
 			mention_count: r.mentionCount,
 			positive_count: r.positiveCount,
 			neutral_count: r.neutralCount,
@@ -90,7 +85,6 @@ export const GET: RequestHandler = async (event) => {
 		.sort((a, b) => b.mention_count - a.mention_count);
 
 	// Sample reviews per employee (max 5 chacun)
-	const { start, end } = monthRange(year, month);
 	const sampleReviews: Record<string, Array<{ reviewId: string; authorName: string; rating: number; comment: string; createTime: string }>> = {};
 
 	for (const emp of employees) {
