@@ -2,6 +2,35 @@
 
 > Epic E08 · statut : **IN_REVIEW** · livré en local le 2026-10-01 (non déployé) · plan initial du 2026-09-28 révisé
 
+## Etat session 2026-10-01
+
+**Fait :** roster éditable par l'API agent (`GET /roster`, `POST /roster/changes`) · mentions jugées à la réception (exact au salon ⇒ `validated`, doute ⇒ `candidate` + suggestion) · résolution humaine relayée par Hermes (`POST /mention-candidates/{id}/resolve`, `rememberAlias` re-juge toutes les candidates) · `detect:employee_mentions` en retrait quand `extraction = agent` · doc API + runbook Hermes à jour, 1 706 tests verts.
+**Prochain :** le projet Vercel est lié (`.vercel/`, CLI dispo) → ajouter `review:mention:resolve` et `roster:write` au credential `hermes-barberconcept-2026-09-r2` dans `HERMES_MACHINE_CREDENTIALS_JSON` (Production) via `vercel env`, redéployer, vérifier `GET /roster` = 200 côté Hermes ; puis Hermes appelle `set_extraction: agent` (re-jugement : ~42 des 67 candidates validées attendues).
+**Pieges :** le JSON de credentials invalide = **tous** les jetons machine refusés · modifier le roster invalide les propositions en vol (`projection_changed`) → jamais pendant le passage 09:45 · le mode auto a refusé de générer un nouveau secret (r3) : garder r2 et n'ajouter que les scopes · Joseph = rejeté (pas d'alias Henok), N2 ajouté plus tard par Jon.
+**Commit :** 07d185b [barberconcept] add: mentions pilotées par Hermes — roster éditable par API, jugement à la réception, résolution humaine (GMB-010)
+
+---
+
+## Carte du code
+> Mise a jour : 2026-10-01
+
+| Fichier | Role |
+|---------|------|
+| `src/lib/server/reviews/mention-resolution-state.ts` | Pur : jugement d'une mention, fusion dans `mentioned_employees`, validation/application des changements de roster, version `AAAA-MM-JJ.n` |
+| `src/lib/server/reviews/agent-mention-service.ts` | DB : lecture roster, soumission jugée, résolution humaine, promotion d'une nouvelle projection + re-jugement des candidates |
+| `src/lib/server/reviews/employee-mentions-state.ts` | Type roster : `trackMentions`, `extraction` ; `matchRosterMentions` écarte les non-suivis |
+| `src/routes/api/agent/v1/projects/[slug]/roster/` | `GET` roster (`review:read`) · `POST changes` (`roster:write`) |
+| `src/routes/api/agent/v1/projects/[slug]/mention-candidates/` | `GET` par statut · `POST [id]/resolve` (`review:mention:resolve`) |
+| `src/routes/api/agent/v1/projects/[slug]/reviews/[reviewId]/mentions/+server.ts` | Soumission enrichie (`employeeId`, `matchKind`, 0–20 lignes) |
+| `src/lib/server/detectors/employee-mentions.ts` | Retrait `employee_mentions_delegated` si `extraction = agent` |
+| `scripts/promote-barberconcept-review-projection.ts` | Reprend le roster courant, ne l'écrase plus (amorce seulement) |
+
+### Decisions cles
+- Le roster reste dans la projection `current` (pas de base côté Hermes) : une seule source, dont dérive aussi le roster publiable des réponses.
+- Le hub ne valide d'office que l'exact au salon ; un exact que l'agent rattache à quelqu'un d'autre reste un doute. Une variante ne devient alias que par décision humaine.
+- La réponse à l'avis n'attend jamais la mention.
+- Zéro DDL : statuts déjà dans le CHECK de DATA-010, verdict dans `resolution_json`, idempotence du roster via `lastChange` dans la projection.
+
 ## Livré (2026-10-01) — révision du plan : Hermes juge, le hub décide, Jon tranche
 
 Décision de Jonathan (2026-10-01) : Hermes juge les noms **au moment où il rédige la réponse**, et

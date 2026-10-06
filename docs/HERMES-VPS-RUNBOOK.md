@@ -247,8 +247,8 @@ Depuis GMB-010, **Hermes juge les noms, le hub décide, Jon tranche le doute**. 
 [`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md#mentions-equipe-gmb-010).
 
 Mise en route, une seule fois (après ajout des scopes `review:mention:resolve` et `roster:write`
-au credential) : `GET /roster`, puis `POST /roster/changes` avec
-`{"op":"set_extraction","owner":"agent"}`. Le détecteur LLM du hub se met en retrait, et toutes les
+au credential) : `GET /roster`, puis `POST /roster/changes` (header `Idempotency-Key`) avec
+`{"baseVersion":"<version lue>","reason":"…","changes":[{"op":"set_extraction","owner":"agent"}]}`. Le détecteur LLM du hub se met en retrait, et toutes les
 candidates en attente sont re-jugées sur le roster.
 
 Dans le passage quotidien, pour chaque avis :

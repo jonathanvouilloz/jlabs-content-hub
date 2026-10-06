@@ -1,4 +1,16 @@
-# HANDOFF — 2026-07-31
+# HANDOFF — 2026-10-01
+
+## Reprendre ici
+**GMB-010** (mentions pilotées par Hermes) — [features/gmb-010-hermes-mention-resolution.md](features/gmb-010-hermes-mention-resolution.md), **IN_REVIEW** : ajouter `review:mention:resolve` + `roster:write` au credential Hermes via `vercel env` (projet lié), redéployer, puis bascule `set_extraction: agent` côté Hermes.
+Commit : 07d185b [barberconcept] add: mentions pilotées par Hermes (GMB-010)
+
+**2026-10-06** : bascule GMB-010 constatée en prod (`extraction: agent`, roster `2026-10-06.7`, Adam ajouté à Jonction, Henok Josief à Rive non comptabilisé). **0 candidate en attente** (20 tranchées avec Jon, `scripts/mention-candidates-2026-10-06*.ts`). `6134abc` : l'encart mentions de la page Avis relit `gmb_reviews` (la table `employee_mentions` est figée au 25/08) et le read model partagé ne plante plus (regex `'^\\s*\\['` reçue `'^s*['` par Postgres). Reste : 3 `write_unknown` Jonction (30/09) à réconcilier par Hermes.
+
+**GMB-011** (résumé lecture rapide `GET /review-status`) — [features/gmb-011-review-status.md](features/gmb-011-review-status.md), **IN_REVIEW** : déployé (`b0b6c80`, route en prod : 401 sans bearer, 404 pour une route inconnue). Reste la vérif 200/304/403 avec le bearer Hermes. Aucun nouveau scope (`review:read`).
+
+---
+
+## Historique (2026-07-31)
 
 ## Client Ops / Task 17 — état local au 2026-08-01
 

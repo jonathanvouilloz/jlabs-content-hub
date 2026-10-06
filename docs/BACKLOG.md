@@ -1485,7 +1485,7 @@ Acceptation :
 
 ## GMB-010 — Résolution des mentions candidates envoyées par Hermes
 
-**Priorité :** P0 · **Taille :** M · **État :** READY (créé le 2026-09-28) · **Dépendances :** GMB-009, API agent v1
+**Priorité :** P0 · **Taille :** M · **État :** IN_REVIEW (livré le 2026-10-01, `07d185b` — reste scopes du credential + bascule Hermes) · **Dépendances :** GMB-009, API agent v1
 
 **Pourquoi.** Hermes extrait les prénoms et les dépose dans `review_mention_candidates`, mais aucun
 code ne les résout contre le roster : 24/24 restent `candidate`, dont des doublons et des mentions
