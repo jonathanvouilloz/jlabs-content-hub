@@ -30,7 +30,7 @@ Une collision d'identifiant entre les deux maps échoue fermée. Le credential d
 Au 24 septembre 2026, Barber Concept utilise le credential combiné
 `hermes-barberconcept-2026-09-r2`, borné à `projects: ["barberconcept"]`, qui porte également les
 quatre scopes d'avis. Le détail d'installation et de rotation se trouve dans
-[`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK.md).
+`HERMES-VPS-RUNBOOK.md` *(supprimé le 2026-10-19)*.
 
 Le bearer brut n'est jamais committé, loggé ou envoyé dans le chat. Il appartient exclusivement à l'environnement du profil Hermes. Une requête sur un slug absent de `projects` reçoit `403`.
 

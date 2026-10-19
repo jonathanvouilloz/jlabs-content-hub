@@ -504,7 +504,7 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   ⚠️ **Une preuve doit tourner sur un projet vierge sur TROIS points** — appris en polluant six
   fiches de production au lot 1 (restaurées).
   ⚠️ **E08 reste à 1 ticket sur 8** : GMB-003 à GMB-008 sont intouchés.
-  Détail → [features/gmb-002-reviews.md](features/gmb-002-reviews.md).
+  Détail → `features/gmb-002-reviews.md` *(supprimé le 2026-10-19)*.
 - **GMB / LinkedIn — retrait (coupure + archive)** (2026-10-19) · **DONE**, commit `62dfe48`. Plus gérés depuis le hub ;
   E08 (GMB-003 à GMB-008) n'est plus poursuivi. Code conservé jusqu'à la migration OpenSEO.
   Détail → [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md).

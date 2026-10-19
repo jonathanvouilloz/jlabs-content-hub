@@ -1,12 +1,7 @@
 # HANDOFF — 2026-10-01
 
 ## Reprendre ici
-**GMB-010** (mentions pilotées par Hermes) — [features/gmb-010-hermes-mention-resolution.md](features/gmb-010-hermes-mention-resolution.md), **IN_REVIEW** : ajouter `review:mention:resolve` + `roster:write` au credential Hermes via `vercel env` (projet lié), redéployer, puis bascule `set_extraction: agent` côté Hermes.
-Commit : 07d185b [barberconcept] add: mentions pilotées par Hermes (GMB-010)
-
-**2026-10-06** : bascule GMB-010 constatée en prod (`extraction: agent`, roster `2026-10-06.7`, Adam ajouté à Jonction, Henok Josief à Rive non comptabilisé). **0 candidate en attente** (20 tranchées avec Jon, `scripts/mention-candidates-2026-10-06*.ts`). `6134abc` : l'encart mentions de la page Avis relit `gmb_reviews` (la table `employee_mentions` est figée au 25/08) et le read model partagé ne plante plus (regex `'^\\s*\\['` reçue `'^s*['` par Postgres). Reste : 3 `write_unknown` Jonction (30/09) à réconcilier par Hermes.
-
-**GMB-011** (résumé lecture rapide `GET /review-status`) — [features/gmb-011-review-status.md](features/gmb-011-review-status.md), **IN_REVIEW** : déployé (`b0b6c80`, route en prod : 401 sans bearer, 404 pour une route inconnue). Reste la vérif 200/304/403 avec le bearer Hermes. Aucun nouveau scope (`review:read`).
+**2026-10-19** — GMB et LinkedIn coupés (`62dfe48`, [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md)) ; anciennes docs GMB (gmb-002/009/010/011, runbooks Hermes Barber, contrat agent-api-gmb) supprimées. GMB-010/011 caducs. Prochain chantier : migration vers OpenSEO.
 
 ---
 
@@ -34,9 +29,9 @@ Commit : 07d185b [barberconcept] add: mentions pilotées par Hermes (GMB-010)
 | Décommissionnement Turso + rotation password (Phase 6) | [NEON-MIGRATION.md](NEON-MIGRATION.md) § Phase 6 | EN ATTENTE (Jonathan, infra) |
 
 > Clôturé le 2026-07-28 : **Avis GMB (E08/GMB-002)**, lots 1 et 2 — recap dans
-> [features/gmb-002-reviews.md](features/gmb-002-reviews.md). **E08 reste à 1 ticket sur 8.**
+> `features/gmb-002-reviews.md` *(supprimé le 2026-10-19)*. **E08 reste à 1 ticket sur 8.**
 
-🆕 **2026-08-01 — E08 a une carte : [`gmb-avis-pipeline.md`](gmb-avis-pipeline.md).** État réel,
+🆕 **2026-08-01 — E08 a une carte : `gmb-avis-pipeline.md` *(supprimé le 2026-10-19)*.** État réel,
 cible validée, reste à faire côté hub et côté skills. À lire avant de toucher aux avis GMB.
 **Deux choses à savoir tout de suite :** ⭐ **rien ne répond automatiquement** — `replyToReview` a
 un seul appelant, la route API qui exige une session admin ; le hub collecte et détecte, il
@@ -158,7 +153,7 @@ doit réapparaître avec un `review_id` contenant un `/`.
 produit `review_pending_sla` et `negative_review` : un avis sans réponse cesse d'être un fait
 interrogeable et devient un **finding décidable**. **Zéro DDL** (types et `entity_type` déjà au
 vocabulaire). Au catalogue **quotidien**, arête **obligatoire** depuis `collect:gmb_reviews`,
-provider `none`. Détail, pièges et mesures → `docs/features/gmb-002-reviews.md`.
+provider `none`. Détail, pièges et mesures → `docs/features/gmb-002-reviews.md` *(supprimé le 2026-10-19)*.
 
 ✅ **Premier run réel sur `barberconcept` : 17 findings** (13 SLA + 4 négatifs, dont **3
 notifiables** §14.3), tous `open`. Répartition : Eaux Vives 6 · Jonction 5 · Cornavin 4 · Sion 2

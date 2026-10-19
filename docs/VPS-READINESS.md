@@ -2,7 +2,7 @@
 
 > **Plan maître :** [`../../cerveau/_system/VPS-MIGRATION-PLAN.md`](../../cerveau/_system/VPS-MIGRATION-PLAN.md)  
 > **Backlog produit canonique :** [`BACKLOG.md`](BACKLOG.md)  
-> **État GMB :** [`gmb-avis-pipeline.md`](gmb-avis-pipeline.md)
+> **État GMB :** `gmb-avis-pipeline.md` *(supprimé le 2026-10-19)*
 
 ## Objectif
 
@@ -10,7 +10,7 @@ Faire de SEO Stats la frontière métier sécurisée entre Hermes et les donnée
 reste scheduler, propriétaire de Neon, des jobs, findings, policies et audits. Hermes ne reçoit ni
 `DATABASE_URL` ni accès SQL.
 
-Runbook opérateur Barber Concept : [`HERMES-VPS-RUNBOOK.md`](HERMES-VPS-RUNBOOK.md).
+Runbook opérateur Barber Concept : `HERMES-VPS-RUNBOOK.md` *(supprimé le 2026-10-19)*.
 
 ## État de déploiement au 24 septembre 2026
 
@@ -91,7 +91,7 @@ Scopes initiaux recommandés :
 **Slice Barber Concept locale (2026-09-24).** La surface versionnée
 `/api/agent/v1/projects/{slug}/...` est implémentée avec allowlist projet, curseur stable,
 idempotence, audit de livraison et réconciliation GET-only. Documentation :
-[`agent-api-gmb-barberconcept.md`](agent-api-gmb-barberconcept.md). Cette livraison ne ferme pas
+`agent-api-gmb-barberconcept.md` *(supprimé le 2026-10-19)*. Cette livraison ne ferme pas
 le Lot S1 général (jobs/findings/retry/cancel restent à exposer), mais la slice Barber Concept est
 déployée en production.
 
