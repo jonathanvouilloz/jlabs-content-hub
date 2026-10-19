@@ -505,6 +505,9 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   fiches de production au lot 1 (restaurées).
   ⚠️ **E08 reste à 1 ticket sur 8** : GMB-003 à GMB-008 sont intouchés.
   Détail → [features/gmb-002-reviews.md](features/gmb-002-reviews.md).
+- **GMB / LinkedIn — retrait (coupure + archive)** (2026-10-19) · **DONE**, commit `62dfe48`. Plus gérés depuis le hub ;
+  E08 (GMB-003 à GMB-008) n'est plus poursuivi. Code conservé jusqu'à la migration OpenSEO.
+  Détail → [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont
   reprises et élargies dans E04/E05/E08 du BACKLOG. L'epic 23 (positions GSC) reste livré en prod.
 
