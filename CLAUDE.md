@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **seo-stats** — cockpit agentique de monitoring SEO & présence locale (web app SvelteKit). Surveille, diagnostique et pilote le SEO/GMB de tous les projets clients, avec délégation aux agents IA + validation humaine des actions sensibles. Vision : `docs/SPEC.md`. Exécution : `docs/BACKLOG.md`.
 
+> ⛔ **GMB et LinkedIn retirés le 2026-10-19** (coupure sans suppression du code). Crons `gmb-publish`,
+> `gmb-weekly-digest` et `linkedin-publish` retirés de `vercel.json` ; `collect:gmb_reviews`,
+> `detect:review_pending` et `detect:employee_mentions` sortis du cadran quotidien ; onglets masqués.
+> Les routes, handlers et tables restent jusqu'à la migration vers OpenSEO — **ne rien y réactiver**.
+> Données archivées : `noyau/backups/neon/seo-stats-gmb-linkedin-2026-10-19.json.enc`. Les sections GMB
+> plus bas sont **historiques**.
+
 Source de vérité DB = **Neon (Postgres)**, schéma `seostats` d'une base partagée avec `invoices` (voir `docs/NEON-MIGRATION.md`). Ex "Content Hub" / "jokiSEO". La sync GitHub a été retirée en 2026-05 (le repo `content/` reste une archive figée).
 
 > ✅ **En production depuis le 2026-07-26 14:35 UTC.** Cutover fait : `main` porte `e5efc83` (fast-forward de `feat/neon`), Vercel a déployé avec `DATABASE_URL` = Neon, et la prod l'annonce elle-même (`/api/whoami` → `version: e5efc83`, 6 projets). **Turso n'est plus lu ni écrit** (figé au 2026-07-26 09:00 UTC). Reste la **Phase 6** : rotation du password, décommissionnement de Turso. Voir `docs/NEON-MIGRATION.md`.
@@ -157,9 +164,7 @@ sont pas lus du tout. ⚠️ **Une preuve doit tourner sur un projet vierge sur 
 
 Crons (vercel.json) :
 - `/api/cron/tick` — **horaire** (JOB-005) — planifie les cadences dues en heure métier `Europe/Zurich` (DST comprise), **draine la file de jobs** (worker borné + reaper + **passe de dépendances**, JOB-004), **puis tente la publication du rapport hebdo** (REP-003 : publie si les steps du créneau sont conclus, ou à l'échéance). C'est le seul chemin par lequel la queue avance en production : sans lui, un job relancé depuis `/jobs` ne repartirait jamais. Idempotent par créneau local — rejouer un tick, redémarrer, ou rattraper un créneau manqué sont la même opération.
-- `/api/cron/gmb-publish` — quotidien 9h00 — publie les posts GMB dus + envoie le digest admin (idempotent via `gmb_settings.last_daily_digest_date`)
-- `/api/cron/gmb-weekly-digest` — lundi 8h00 — récap hebdo aux clients opt-in (`projects.weekly_digest_enabled = true` + `client_email` renseigné)
-- `/api/cron/linkedin-publish` — quotidien 9h00
+- ~~`gmb-publish`, `gmb-weekly-digest`, `linkedin-publish`~~ — **retirés le 2026-10-19** (GMB/LinkedIn abandonnés).
 
 > ⚠️ **`/api/cron/gmb-reviews` n'est plus planifié** (GMB-002). La collecte passe par la file :
 > `collect:gmb_reviews`, au catalogue **quotidien** (07:00 `Europe/Zurich`), drainé par le tick.
@@ -283,16 +288,15 @@ Compléments : `/programmatic-seo` (pages à l'échelle) · `/seo-audit` (audit 
 | `@article-producer` | Worker : 1 slug → 1 article complet (write→humanizer→sources→enrich→review→cover→publish) | l'exécution manuelle §3 |
 | `@brief-critic` | Relecteur adversarial d'un brief (`/seo-brief`), verdict PASS/FAIL | le checkpoint humain de validation de brief |
 
-`@content-creator` spawn les deux autres en boucle (brief-critic valide, article-producer produit en parallèle). Les agents `@epic-*` / `@plan-critic` sont **dev**, hors domaine SEO.
+`@content-creator` spawn les deux autres en boucle (brief-critic valide, article-producer produit en parallèle). Le dev passe par Superpowers + `@doc-keeper`, hors domaine SEO.
 
-### 4. Présence locale (GMB) — l'autre pilier du cockpit
+### 4. ~~Présence locale (GMB)~~ — retirée le 2026-10-19
 
-**Ordre :** `/gmb-generate` → `/gmb-generate-images` → **`/publish-hub`** *(GMB auto-approve, cron 9h)*
-Avis : `/gmb-review-responder` · Déclinaison sociale d'un article : `/linkedin-weekly-posts`.
+Plus de skill GMB ni LinkedIn. Le VPS de Barber Concept gère ses avis lui-même.
 
 ### 5. Les ponts avec les autres partitions
 
-- **Écrit ici** : `/publish-hub` (contenu produit → `contents`/GMB). Orchestré par `/content-pipeline` (publish + linkedin + gmb).
+- **Écrit ici** : `/publish-hub` (articles produits → `contents`).
 - **Lit ici** : tous les skills du bloc 1 (KPI/GSC) — jamais de copie markdown (loi n°4).
 - **Monte au cerveau** : `/seo-archive` (snapshots → `cerveau/20-Knowledge/`), puis distillation wiki **consciente** (`/brain-sync` / INGEST), jamais auto (loi n°5).
 

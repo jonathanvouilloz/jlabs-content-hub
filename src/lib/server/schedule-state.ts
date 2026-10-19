@@ -465,29 +465,8 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// périmée est exactement le bug que GSC-002 a fermé côté Search Analytics. Un « toujours
 	// pas indexé à J+3 » devient donc un finding le jour même, au lieu d'attendre le run hebdo.
 	//
-	// GMB-002 — la synchronisation des avis rejoint la cadence quotidienne, et cesse d'être
-	// un cron autonome. Ce qu'elle y gagne : les pauses (`automation_pauses`), les plafonds et
-	// le refroidissement provider (JOB-006, cohorte `gmb`), le retry classé (JOB-003), un
-	// `monitoring_runs` qui la compte, et une console (`/jobs`) qui la montre. Ce que la
-	// bascule ÉVITE : deux chemins de collecte sur un compte Google unique, dont
-	// `refreshAccountToken` réécrit les jetons sans verrou — le précédent `gsc-snapshot`
-	// interdit déjà ce doublon pour le quota, ici s'y ajoute une course en écriture.
-	//
-	// ⚠️ AUCUN prérequis : les avis ne dépendent d'aucune autre collecte, et lier ce job à
-	// l'inspection d'URLs le ferait sauter sur un quota Search Console qui n'a rien à voir
-	// avec l'API Business Profile.
-	//
-	// GMB-002 lot 2 — le détecteur d'avis rejoint la collecte qu'il relit, ici et pas en hebdo :
-	// un avis négatif découvert six jours après coup est le défaut que ce lot ferme (le 2★ de
-	// Sion, dix jours de silence). L'arête est OBLIGATOIRE — si la collecte meurt avant d'écrire,
-	// `last_sync_at` reste à hier, donc encore frais à 48 h, et le détecteur se croirait
-	// autoritaire sur un état périmé.
-	//
-	// Coût mesuré : le cadran passe de 4 à 5 entrées, soit 36 → 45 jobs/jour pour
-	// `MAX_JOBS_PER_TICK = 25`. L'occurrence se drainait déjà en 2 ticks, elle continue (45 ≤ 50)
-	// — le coût marginal en ticks est NUL. Les 9 nouveaux jobs sont `provider: 'none'` : ils ne
-	// retardent aucune collecte payante. ⚠️ Le PROCHAIN ajout au cadran quotidien fera basculer à
-	// 3 ticks.
+	// GMB retiré le 2026-10-19 : la collecte des avis, leur détecteur et l'extraction des mentions
+	// sortent du cadran. Le code des handlers reste jusqu'à la migration OpenSEO, plus rien ne le planifie.
 	daily: [
 		{ jobType: 'findings:lifecycle', priority: 5 },
 		{
@@ -495,24 +474,10 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 			priority: 9,
 			payload: { mode: 'policy', scope: 'due' }
 		},
-		{ jobType: 'collect:gmb_reviews', priority: 9 },
 		{
 			jobType: 'detect:index_transition',
 			priority: 8,
 			dependsOn: [{ jobType: 'collect:url_inspection' }]
-		},
-		{
-			jobType: 'detect:review_pending',
-			priority: 8,
-			dependsOn: [{ jobType: 'collect:gmb_reviews' }]
-		},
-		{
-			// GMB-009 — extraction LLM des mentions : elle ne peut juger que les avis que
-			// la collecte du jour vient de réconcilier. Prérequis obligatoire : un échec de
-			// collecte rend le run partial plutôt que d'analyser silencieusement l'état d'hier.
-			jobType: 'detect:employee_mentions',
-			priority: 8,
-			dependsOn: [{ jobType: 'collect:gmb_reviews' }]
 		}
 	],
 	// Le run hebdo de référence (SPEC §8.1). La détection PUIS la production de

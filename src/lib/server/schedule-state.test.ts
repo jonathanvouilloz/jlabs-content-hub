@@ -370,59 +370,22 @@ describe('SCHEDULE_CATALOG', () => {
 			'propose:actions'
 		]);
 		// IDX-004 lot 2 — la passe quotidienne des échéances rejoint le quotidien.
-		// GMB-002 — la synchronisation des avis aussi, et cesse d'être un cron autonome.
-		// GMB-002 lot 2 — son détecteur la suit, en quotidien lui aussi : un avis négatif
-		// découvert six jours après coup est le défaut que ce lot ferme.
+		// GMB retiré le 2026-10-19 : avis, détecteur d'avis et mentions sortent du cadran.
 		expect(catalogFor('daily').map((e) => e.jobType)).toEqual([
 		'findings:lifecycle',
 		'collect:url_inspection',
-		'collect:gmb_reviews',
-		'detect:index_transition',
-		'detect:review_pending',
-		'detect:employee_mentions'
+		'detect:index_transition'
 		]);
 		});
 
-		it('GMB-009 — les mentions employés dépendent obligatoirement de la collecte des avis', () => {
-		const detector = catalogFor('daily').find((e) => e.jobType === 'detect:employee_mentions')!;
-		expect(detector.dependsOn).toEqual([{ jobType: 'collect:gmb_reviews' }]);
-		});
-
-	it('GMB-002 lot 2 — la détection d’avis dépend OBLIGATOIREMENT de sa collecte', () => {
-		const collect = catalogFor('daily').find((e) => e.jobType === 'collect:gmb_reviews')!;
-		const detector = catalogFor('daily').find((e) => e.jobType === 'detect:review_pending')!;
-
-		// `required` absent ⇒ true. Le mode de défaillance est asymétrique : une collecte qui
-		// meurt AVANT d'écrire laisse `last_sync_at` à hier, donc encore frais à 48 h — le
-		// détecteur se croirait autoritaire et ne verrait pas l'avis arrivé aujourd'hui.
-		expect(detector.dependsOn).toEqual([{ jobType: 'collect:gmb_reviews' }]);
-		expect(detector.dependsOn?.[0].required).toBeUndefined();
-		// L'ordre de service accompagne l'ordre de dépendance.
-		expect(detector.priority).toBeLessThan(collect.priority);
-		// Et le prérequis est déclaré STRICTEMENT avant (exigence de `validateCatalogGraph`).
-		const types = catalogFor('daily').map((e) => e.jobType);
-		expect(types.indexOf('collect:gmb_reviews')).toBeLessThan(
-			types.indexOf('detect:review_pending')
-		);
-	});
-
-	it('GMB-002 — la synchro des avis est QUOTIDIENNE, sans prérequis, et l’horaire reste vide', () => {
-		const reviews = catalogFor('daily').find((e) => e.jobType === 'collect:gmb_reviews')!;
-		expect(reviews).toBeDefined();
-		// Aucun prérequis : l'API Business Profile n'a rien à voir avec Search Console. Lier
-		// ce job à l'inspection d'URLs le ferait sauter sur un quota qui ne le concerne pas.
-		expect(reviews.dependsOn).toBeUndefined();
-		// Aucun payload : la collecte est totale, il n'y a rien à paramétrer par créneau.
-		expect(reviews.payload).toBeUndefined();
-		// Même rang que l'autre collecteur quotidien : les collectes servent ensemble.
-		const inspection = catalogFor('daily').find((e) => e.jobType === 'collect:url_inspection')!;
-		expect(reviews.priority).toBe(inspection.priority);
-
-		// ⚠️ SPEC §8.1 prescrit une synchro HORAIRE et §17.3 un SLO de 2 h : la cadence
-		// quotidienne les casse, délibérément (docs/DECISIONS.md). Ce test verrouille le
-		// choix pour qu'un futur lecteur ne « répare » pas vers `hourly` en citant la SPEC.
+	it('GMB retiré — plus aucun job d’avis ni de mentions dans aucun cadran', () => {
+		for (const cadence of ['hourly', 'daily'] as const) {
+			const types = catalogFor(cadence).map((e) => e.jobType);
+			expect(types).not.toContain('collect:gmb_reviews');
+			expect(types).not.toContain('detect:review_pending');
+			expect(types).not.toContain('detect:employee_mentions');
+		}
 		expect(catalogFor('hourly')).toEqual([]);
-		expect(catalogFor('hourly').map((e) => e.jobType)).not.toContain('collect:gmb_reviews');
 	});
 
 	it('IDX-004 lot 2 — la passe quotidienne n’inspecte QUE les échéances', () => {

@@ -18,8 +18,6 @@
 		{ href: `/projects/${data.project.slug}/windows`, label: 'Performance', exact: false },
 		{ href: `/projects/${data.project.slug}/positions`, label: 'Positions', exact: false },
 		{ href: `/projects/${data.project.slug}/indexing`, label: 'Indexation', exact: false },
-		{ href: `/projects/${data.project.slug}/reviews`, label: 'Avis', exact: false },
-		{ href: `/projects/${data.project.slug}/gmb-profile`, label: 'Présence locale', exact: false },
 		{ href: `/projects/${data.project.slug}/content`, label: 'Contenus', exact: false },
 		{ href: `/projects/${data.project.slug}/settings`, label: 'Paramètres', exact: false }
 	]);

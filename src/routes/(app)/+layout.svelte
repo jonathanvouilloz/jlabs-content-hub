@@ -11,13 +11,9 @@
 		ChevronDown,
 		ChevronRight,
 		FileText,
-		MapPin,
-		Star,
 		Settings,
 		BarChart3,
-		ScrollText,
 		TrendingUp,
-		Building2,
 		LineChart,
 		CalendarRange,
 		Search,
@@ -67,17 +63,13 @@
 
 	// Project sub-nav items
 	function projectNav(slug: string) {
+		// GMB et LinkedIn retirés de la navigation le 2026-10-19 (routes conservées jusqu'à la migration OpenSEO).
 		return [
 			{ href: `/projects/${slug}`, label: 'Vue d\'ensemble', icon: BarChart3, exact: true, linkedin: false },
 			// DASH-003 — « Vue d'ensemble » pointe désormais le cockpit ; le calendrier de
 			// contenus qui occupait cette route a son entrée à lui, au même endroit qu'avant.
 			{ href: `/projects/${slug}/content`, label: 'Contenus', icon: CalendarRange, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/articles`, label: 'Articles', icon: FileText, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/linkedin`, label: 'LinkedIn', icon: null, exact: false, linkedin: true },
-			{ href: `/projects/${slug}/gmb`, label: 'GMB', icon: MapPin, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/gmb-profile`, label: 'Fiche Google', icon: Building2, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/gmb-logs`, label: 'Logs GMB', icon: ScrollText, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/reviews`, label: 'Avis Google', icon: Star, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/seo-data`, label: 'SEO data', icon: TrendingUp, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/windows`, label: 'Fenêtres', icon: CalendarRange, exact: false, linkedin: false },
 			{ href: `/projects/${slug}/positions`, label: 'Positions', icon: LineChart, exact: false, linkedin: false },
