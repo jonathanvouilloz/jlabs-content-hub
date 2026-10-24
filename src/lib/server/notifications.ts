@@ -1,19 +1,13 @@
 import { Resend } from 'resend';
 import { env } from '$env/dynamic/private';
 import { db } from './db/index.js';
-import { gmbSettings } from './db/schema.js';
+import { systemSettings } from './db/schema.js';
 import { eq } from 'drizzle-orm';
-import {
-	adminDailyHtml,
-	clientWeeklyHtml,
-	criticalErrorHtml,
-	type AdminDailyData,
-	type ClientWeeklyData
-} from './email-templates.js';
+import { criticalErrorHtml } from './email-templates.js';
+import { toDbTimestamp } from './timestamps.js';
 
 const FROM = env.FROM_EMAIL ?? 'hub@jonlabs.ch';
 const ADMIN = env.ADMIN_EMAIL ?? 'contact@jonlabs.ch';
-const APP_URL = env.PUBLIC_APP_URL ?? 'https://hubseo.jonlabs.ch';
 
 let resendClient: Resend | null = null;
 function getResend(): Resend | null {
@@ -22,133 +16,27 @@ function getResend(): Resend | null {
 	return resendClient;
 }
 
-// ── Settings helpers (idempotence) ─────────────────────────────────
+// ── Dédup des alertes (idempotence) ────────────────────────────────
+// Vivait dans `gmb_settings` jusqu'au retrait de GMB (2026-10-24) ; `system_settings` est le
+// KV d'exploitation du hub, lu par clé exacte uniquement.
 
 async function getSetting(key: string): Promise<string | null> {
-	const row = await db.select().from(gmbSettings).where(eq(gmbSettings.key, key)).then((r) => r[0]);
+	const row = await db.select().from(systemSettings).where(eq(systemSettings.key, key)).then((r) => r[0]);
 	return row?.value ?? null;
 }
 
 async function setSetting(key: string, value: string): Promise<void> {
+	const updatedAt = toDbTimestamp(new Date());
 	await db
-		.insert(gmbSettings)
-		.values({ key, value })
-		.onConflictDoUpdate({ target: gmbSettings.key, set: { value } });
-}
-
-function todayIso(): string {
-	return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+		.insert(systemSettings)
+		.values({ key, value, description: 'dédup alerte critique (1 h)', updatedAt })
+		.onConflictDoUpdate({ target: systemSettings.key, set: { value, updatedAt } });
 }
 
 function hashContext(s: string): string {
 	let h = 0;
 	for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
 	return Math.abs(h).toString(36);
-}
-
-// ── Admin daily digest ────────────────────────────────────────────
-
-export interface BuildAdminDigestInput {
-	date: string;
-	logs: Array<{
-		contentId: string;
-		success: boolean;
-		locationLabel: string | null;
-		errorMessage: string | null;
-		project: { name: string; slug: string };
-		contentTitle: string;
-	}>;
-}
-
-export function buildAdminDigestData(input: BuildAdminDigestInput): AdminDailyData {
-	const successes = input.logs.filter((l) => l.success);
-	const errors = input.logs.filter((l) => !l.success);
-
-	const successMap = new Map<string, { projectName: string; contentIds: Set<string>; locations: Set<string> }>();
-	for (const l of successes) {
-		const key = l.project.slug;
-		if (!successMap.has(key)) {
-			successMap.set(key, { projectName: l.project.name, contentIds: new Set(), locations: new Set() });
-		}
-		const entry = successMap.get(key)!;
-		entry.contentIds.add(l.contentId);
-		if (l.locationLabel) entry.locations.add(l.locationLabel);
-	}
-
-	return {
-		date: input.date,
-		successCount: successes.length,
-		errorCount: errors.length,
-		successesByProject: [...successMap.values()].map((s) => ({
-			projectName: s.projectName,
-			count: s.contentIds.size,
-			locations: [...s.locations]
-		})),
-		errors: errors.map((e) => ({
-			projectName: e.project.name,
-			contentTitle: e.contentTitle,
-			locationLabel: e.locationLabel ?? '—',
-			errorMessage: e.errorMessage ?? 'Erreur inconnue',
-			contentUrl: `${APP_URL}/projects/${e.project.slug}/content/${e.contentId}`
-		}))
-	};
-}
-
-export async function sendAdminDailyDigest(data: AdminDailyData): Promise<{ sent: boolean; reason?: string }> {
-	if (data.successCount === 0 && data.errorCount === 0) {
-		return { sent: false, reason: 'empty' };
-	}
-
-	const today = todayIso();
-	const lastSent = await getSetting('last_daily_digest_date');
-	if (lastSent === today) return { sent: false, reason: 'already_sent_today' };
-
-	const resend = getResend();
-	if (!resend) return { sent: false, reason: 'no_api_key' };
-
-	const subject = `[hub] GMB ${data.date} — ${data.successCount} OK, ${data.errorCount} erreur${data.errorCount !== 1 ? 's' : ''}`;
-
-	try {
-		await resend.emails.send({
-			from: FROM,
-			to: ADMIN,
-			subject,
-			html: adminDailyHtml(data)
-		});
-		await setSetting('last_daily_digest_date', today);
-		return { sent: true };
-	} catch (e) {
-		return { sent: false, reason: `send_failed: ${(e as Error).message}` };
-	}
-}
-
-// ── Client weekly digest ──────────────────────────────────────────
-
-export async function sendClientWeeklyDigest(
-	project: { id: string; name: string; slug: string; color: string; clientEmail: string | null; weeklyDigestEnabled: boolean },
-	data: Omit<ClientWeeklyData, 'projectName' | 'projectColor'>
-): Promise<{ sent: boolean; reason?: string }> {
-	if (!project.weeklyDigestEnabled) return { sent: false, reason: 'disabled' };
-	if (!project.clientEmail) return { sent: false, reason: 'no_email' };
-	if (data.posts.length === 0) return { sent: false, reason: 'no_posts' };
-
-	const resend = getResend();
-	if (!resend) return { sent: false, reason: 'no_api_key' };
-
-	const periodLabel = new Date(data.periodEnd).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long' });
-	const subject = `Récap GMB ${project.name} — ${data.posts.length} post${data.posts.length > 1 ? 's' : ''} (${periodLabel})`;
-
-	try {
-		await resend.emails.send({
-			from: FROM,
-			to: project.clientEmail,
-			subject,
-			html: clientWeeklyHtml({ ...data, projectName: project.name, projectColor: project.color })
-		});
-		return { sent: true };
-	} catch (e) {
-		return { sent: false, reason: `send_failed: ${(e as Error).message}` };
-	}
 }
 
 // ── Critical error ────────────────────────────────────────────────
@@ -159,7 +47,7 @@ export async function sendCriticalError(context: string, error: string): Promise
 	const resend = getResend();
 	if (!resend) return { sent: false, reason: 'no_api_key' };
 
-	const key = `critical_sent_${hashContext(context)}`;
+	const key = `notify.critical_sent.${hashContext(context)}`;
 	const lastSentIso = await getSetting(key);
 	if (lastSentIso) {
 		const elapsed = Date.now() - new Date(lastSentIso).getTime();
@@ -171,7 +59,7 @@ export async function sendCriticalError(context: string, error: string): Promise
 		await resend.emails.send({
 			from: FROM,
 			to: ADMIN,
-			subject: `🚨 [hub] Erreur critique GMB — ${context.slice(0, 60)}`,
+			subject: `🚨 [hub] Erreur critique — ${context.slice(0, 60)}`,
 			html: criticalErrorHtml({ context, error, timestamp: now })
 		});
 		await setSetting(key, now);

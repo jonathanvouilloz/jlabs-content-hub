@@ -9,9 +9,7 @@
 
 	const TYPES = [
 		{ value: '', label: 'Tous types' },
-		{ value: 'article', label: 'Articles' },
-		{ value: 'linkedin', label: 'LinkedIn' },
-		{ value: 'gmb', label: 'GMB' }
+		{ value: 'article', label: 'Articles' }
 	];
 
 	const STATUSES = [

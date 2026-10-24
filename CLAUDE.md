@@ -4,14 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project
 
-**seo-stats** — cockpit agentique de monitoring SEO & présence locale (web app SvelteKit). Surveille, diagnostique et pilote le SEO/GMB de tous les projets clients, avec délégation aux agents IA + validation humaine des actions sensibles. Vision : `docs/SPEC.md`. Exécution : `docs/BACKLOG.md`.
+**seo-stats** — cockpit agentique de monitoring SEO (web app SvelteKit). Surveille, diagnostique et pilote le SEO de tous les projets clients, avec délégation aux agents IA + validation humaine des actions sensibles. Vision : `docs/SPEC.md`. Exécution : `docs/BACKLOG.md`.
 
-> ⛔ **GMB et LinkedIn retirés le 2026-10-19** (coupure sans suppression du code). Crons `gmb-publish`,
-> `gmb-weekly-digest` et `linkedin-publish` retirés de `vercel.json` ; `collect:gmb_reviews`,
-> `detect:review_pending` et `detect:employee_mentions` sortis du cadran quotidien ; onglets masqués.
-> Les routes, handlers et tables restent jusqu'à la migration vers OpenSEO — **ne rien y réactiver**.
-> Données archivées : `noyau/backups/neon/seo-stats-gmb-linkedin-2026-10-19.json.enc`. Les sections GMB
-> plus bas sont **historiques**.
+> ⛔ **GMB et LinkedIn retirés.** Coupés le 2026-10-19 (`62dfe48`), **code supprimé le 2026-10-24**
+> (branche `chore/retrait-gmb-linkedin`) : routes, handlers, jobs, section avis du rapport hebdo,
+> compteur d'accueil, contenus `gmb`/`linkedin`, Blob et OAuth Google/LinkedIn. Les 19 tables et 2
+> colonnes tombent via `scripts/apply-drop-gmb-linkedin.ts` (dry-run par défaut ; `--apply` exige une
+> branche Neon de sauvegarde) **après** le déploiement du code. ⚠️ D'ici là, `npm run db:push` proposerait
+> les mêmes DROP sans garde-fou : ne pas l'utiliser. Données d'origine archivées :
+> `noyau/backups/neon/seo-stats-gmb-linkedin-2026-10-19.json.enc`. Les mentions GMB qui restent plus bas
+> dans « État actuel » sont **historiques**.
 
 Source de vérité DB = **Neon (Postgres)**, schéma `seostats` d'une base partagée avec `invoices` (voir `docs/NEON-MIGRATION.md`). Ex "Content Hub" / "jokiSEO". La sync GitHub a été retirée en 2026-05 (le repo `content/` reste une archive figée).
 
@@ -79,23 +81,11 @@ Tables application :
 - `projects.slug` porte une **FK cross-schéma → `core.entities.slug`** (registre canonique des slugs, possédé par `invoices`). C'est la liaison client↔projet SEO : un client facturé et un projet SEO se rejoignent par le même slug. `core` est déclaré en miroir lecture-seule dans `schema.ts` — ne jamais le modifier depuis seo-stats.
 - `contents` : id, project_id (FK), type, title, slug, body, status, planned_date, published_at, tags, meta — unique (project_id, type, slug). **Pas de sync GitHub** : Neon `seostats` est l'unique source de vérité.
 - `comments` : id, content_id (FK), author_name, author_email, body
-- `content_types` : id, slug (unique), label, icon — seed: article, linkedin, gmb
+- `content_types` : id, slug (unique), label, icon — seed: article
 - `status_history` : id, content_id (FK), from_status, to_status, changed_by, changed_at
-- `publish_logs` : id, content_id (FK), project_id (FK), channel, location_id, location_label, success, gmb_post_id, error_message, attempted_at, duration_ms, source — 1 row par tentative de publication par location (cron ou manual). Lu par /projects/[slug]/gmb-logs et le digest quotidien.
-- `gmb_location_profiles` : snapshot complet d'une fiche GMB par (project_id, gmb_location_id). Colonnes scalaires (title, phone, websiteUri, primaryCategory, openStatus, latlng) + JSON blobs (storefrontAddress, regularHours, specialHours, serviceItems, additionalCategories, attributes) + raw_payload pour debug. Sync lazy (>1h) ou via bouton "Resynchroniser".
-- `gmb_insights_daily` : metrique journaliere Performance API. 1 row par (gmb_location_id, date, metric). Metrics : BUSINESS_IMPRESSIONS_{DESKTOP,MOBILE}_{MAPS,SEARCH}, WEBSITE_CLICKS, CALL_CLICKS, BUSINESS_DIRECTION_REQUESTS. Agreges en 30j / mois / annee sur la page Fiche Google > Stats.
-- `gmb_profile_edits` : audit log des editions de fiche depuis le hub (section=basic|hours, update_mask, payload, success, error_message).
 - `weekly_reports` (REP-003 + REP-004) : le rapport hebdo **publié**, 1 ligne par (créneau, révision) — `period_slot` est un créneau LOCAL (`2026-07-27T09:00`), l'unique porte **`(period_slot, revision)`**. **Aucun `project_id`** — première table du schéma dans ce cas, parce que le rapport est cross-projet. Porte `slot_at`/`due_at`/`published_at` (le SLO se **dérive** de la **première** publication, jamais de colonne de verdict), `readiness_json`, `payload_json` (le JSON REP-001 tel quel), `revision`/`revision_reason`/`supersedes_id`, et depuis REP-004 lot 2 cinq colonnes de rétention (`payload_bytes`/`payload_digest`/`payload_archived_at`/`payload_archive_ref`/`payload_purged_at`). **Jamais d'UPDATE de contenu ni de DELETE** : le tick n'écrit que `revision = 1` (republier = no-op), une révision délibérée **ajoute** une ligne avec sa raison obligatoire (CHECK), et la rétention retire le **détail** sans jamais retirer la **ligne** (CHECK `weekly_reports_payload_presence_check` : pas de payload ⇒ adresse d'archive, date de purge et empreinte obligatoires).
 
 Statuts : draft → review → approved → published
-
-**GMB auto-approve (epic 18) :** POST /api/content avec type=gmb insère directement en `status='approved'` (au lieu de draft). Le cron /api/cron/gmb-publish (9h00) prend tous les posts approved + plannedDate<=now et publie sur Google API. → Pipeline full-auto : `/publish-hub` GMB → posts publiés aux dates prévues sans validation manuelle. **À garder en tête : checker /projects/{slug}/gmb après chaque /publish-hub** (un calendrier mal calibré sera publié sans relecture).
-
-**Tracking employes mentionnes dans les avis :**
-- `gmb_reviews.mentioned_employees` (JSON `[{name, sentiment}]`) — rempli par /gmb-review-responder via POST /api/projects/{slug}/employee-mentions (idempotent par reviewId).
-- `employee_mentions` (project_id, employee_name, year, month, mention_count, positive_count, neutral_count, negative_count) — agregat mensuel pour le rapport UI sur la page Avis du projet.
-
-**Format GMB canonique :** `POST /api/content` avec `type=gmb` accepte soit un post unique JSON, soit un tableau de posts (calendrier mensuel). Si c'est un tableau, le hub crée automatiquement 1 row par post (meme logique que le split LinkedIn). C'est le format produit par le skill `/gmb-generate`.
 
 ## API Auth (3 mecanismes)
 
@@ -113,65 +103,17 @@ npm run db:generate  # generer migrations
 npm run db:studio    # Drizzle Studio
 ```
 
-## Notifications email + Vercel Blob (epic 18)
+## Notifications email
 
 Variables d'env requises (voir `.env.example`) :
 
 - `RESEND_API_KEY` — Resend (domaine `jonlabs.ch` à vérifier dans le dashboard, DKIM/SPF/DMARC)
 - `ADMIN_EMAIL`, `FROM_EMAIL` — destinataire admin / expéditeur
-- `BLOB_READ_WRITE_TOKEN` — Vercel Blob store (auto-injecté si lié au projet via dashboard)
 - `CRON_SECRET` — bearer attendu par les routes `/api/cron/*`
-
-**Avis GMB (E08/GMB-002 lot 1, 2026-07-28) :** la synchro est un **job de la file**
-(`collect:gmb_reviews`, catalogue **quotidien**, provider `gmb` — cohorte séparée de `gsc`), et
-non plus un cron autonome : `/api/cron/gmb-reviews` est **retiré de `vercel.json`** et
-conservé pour rattrapage manuel (précédent `gsc-snapshot` — le hub n'a qu'UNE ligne de
-credential, que le rafraîchissement réécrit sans verrou). ⭐ **`replied_at` (local) et
-`remote_reply_at` (distant) ne fusionnent jamais** : une colonne unique ne pourrait jamais se
-contredire, donc jamais révéler une divergence. `pendingReviewFilter()` interroge les deux et
-est **la** définition de « en attente » (11 copies avant). ⭐ La réconciliation ne coûte
-**aucun appel Google de plus** (la pagination était déjà totale, le filtre venait après) ; le
-vrai verrou était `onConflictDoNothing`. ⭐ `GmbApiError` rend la classification JOB-003
-**délibérée** au lieu d'accidentelle, **sans modifier `job-retry.ts`**. Santé par
-établissement (`last_sync_*`). ⚠️ **L'auth vit dans `gmb-auth.ts` (`process.env`), jamais
-derrière `$env`** — un handler qui importe `gmb.ts` marche sur Vercel et meurt en dead-letter
-sous un worker local. ⚠️ **382 → 3 189 avis, 502 en attente (vrai) contre 11 (faux)** : le
-filtre `!reply && <30 j` mentait par omission.
-
-**Avis GMB (E08/GMB-002 lot 2, 2026-07-28) — GMB-002 est CLOS :** `detect:review_pending`
-produit `review_pending_sla` et `negative_review`. **Zéro DDL** (les deux types étaient déjà dans
-`FINDING_TYPES`, `'review'` dans `FINDING_ENTITY_TYPES`). Au catalogue **quotidien**, arête
-**obligatoire** depuis `collect:gmb_reviews`, provider `none`. ⭐ **Les deux types COEXISTENT**
-sur un même avis : §10.4 leur donne deux gestes (SLA → skill `gmb-review-responder` ; négatif →
-escalade **humaine**, aucun skill), et l'absorption rendrait « avis négatif EN RETARD »
-indiscernable de « avis négatif frais ». Corollaire : `negative_review` vise un avis 1–3★ **non
-traité**, faute de quoi rien ne pourrait jamais le résoudre. ⭐ **Le glissement de fenêtre ne
-peut PAS auto-résoudre** : la borne des 180 j vit dans la closure **et** dans le scope — sans
-cette symétrie, 332 avis toujours sans réponse seraient auto-résolus. ⭐ **Le plafond se répartit
-par FICHE** (tour d'équité, une première dans le parc) : un plafond global aurait donné les 30
-places à Eaux Vives et Jonction (74 % de l'arriéré) et **tronqué le 2★ de Sion**. ⭐ **Le scope
-vient de la santé de synchro, statut ET fraîcheur** — le collecteur écrit `last_sync_at` aussi en
-cas d'échec, donc la date seule dirait « synchronisée » d'une fiche en panne. ⚠️ **`create_time`
-est en ISO** quand tout le reste est au format DB : le SQL ne pré-filtre que sur une **date nue**
-et tout l'âge passe par `parseReviewCreateTime`. ⚠️ **Aucune PII dans les preuves** —
-`finding_events.payload_json` est append-only. ⚠️ **Premier run réel : 17 findings sur
-`barberconcept`** (13 SLA + 4 négatifs, 3 notifiables §14.3) — Eaux Vives 6 · Jonction 5 ·
-Cornavin 4 · Sion 2 · **Lausanne 0**, la contre-épreuve. ⚠️ **`outOfWindow` vaut
-structurellement 0** : la borne de lecture est le max des deux fenêtres (365 j), ~1 700 avis ne
-sont pas lus du tout. ⚠️ **Une preuve doit tourner sur un projet vierge sur TROIS points**
-(aucune fiche, aucun finding d'avis, aucun finding en veille) : `reconcileDetectionRun` et
-`expireSnoozes` travaillent à l'échelle du projet.
 
 Crons (vercel.json) :
 - `/api/cron/tick` — **horaire** (JOB-005) — planifie les cadences dues en heure métier `Europe/Zurich` (DST comprise), **draine la file de jobs** (worker borné + reaper + **passe de dépendances**, JOB-004), **puis tente la publication du rapport hebdo** (REP-003 : publie si les steps du créneau sont conclus, ou à l'échéance). C'est le seul chemin par lequel la queue avance en production : sans lui, un job relancé depuis `/jobs` ne repartirait jamais. Idempotent par créneau local — rejouer un tick, redémarrer, ou rattraper un créneau manqué sont la même opération.
-- ~~`gmb-publish`, `gmb-weekly-digest`, `linkedin-publish`~~ — **retirés le 2026-10-19** (GMB/LinkedIn abandonnés).
-
-> ⚠️ **`/api/cron/gmb-reviews` n'est plus planifié** (GMB-002). La collecte passe par la file :
-> `collect:gmb_reviews`, au catalogue **quotidien** (07:00 `Europe/Zurich`), drainé par le tick.
-> La route reste appelable **à la main** pour un rattrapage. **Ne pas la replanifier** : le hub
-> n'a qu'une ligne de credential Google (`gmb_settings.account_tokens`) que le rafraîchissement
-> réécrit **sans verrou** — deux chemins concurrents ne doublent pas seulement le quota, ils
-> font une course en écriture dont le perdant garde un jeton invalidé.
+- ~~`gmb-publish`, `gmb-weekly-digest`, `linkedin-publish`~~ — **retirés le 2026-10-19**, routes supprimées le 2026-10-24.
 
 > ⚠️ **`/api/cron/gsc-snapshot` n'est plus planifié** (GSC-002). La collecte GSC passe par la file :
 > `collect:gsc_query_page`, enfilé par la cadence hebdo (lundi 09:00 `Europe/Zurich`) et drainé par
@@ -179,16 +121,8 @@ Crons (vercel.json) :
 > 6 projets partagent un seul service account, donc un seul pool de quota — deux chemins de collecte
 > le consommeraient deux fois pour la même donnée.
 
-Critical errors (email immédiat à `ADMIN_EMAIL`, dedup 1h via `gmb_settings.critical_sent_*`) :
-- Refresh token Google échoué
-- Une location GMB échoue 3x de suite
-
-## Skill /publish-hub + Vercel Blob
-
-Pour les images GMB, le skill `/publish-hub` doit :
-1. Pour chaque image locale référencée dans le calendrier GMB JSON, POST multipart vers `/api/blob/upload` (champs `file`, `project_slug`, `filename`, max 4 MB)
-2. Substituer `image_url` dans le JSON par l'URL Blob retournée
-3. POST le calendrier enrichi vers `/api/content`
+Erreur critique (email immédiat à `ADMIN_EMAIL`, dédup 1 h via `system_settings` clé `notify.critical_sent.*`) :
+seul `/api/cron/gsc-snapshot` (rattrapage manuel) l'émet aujourd'hui.
 
 ## Conventions de commit
 

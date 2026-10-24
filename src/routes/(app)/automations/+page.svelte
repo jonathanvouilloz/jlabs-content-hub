@@ -71,7 +71,7 @@
 	 * mais son absence — le suspendre couperait détecteurs, veilles et producteur sous un
 	 * libellé qui promet le contraire (l'endpoint le refuse aussi).
 	 */
-	const PAUSABLE_PROVIDERS = ['gsc', 'dataforseo', 'gmb', 'llm'] as const;
+	const PAUSABLE_PROVIDERS = ['gsc', 'dataforseo', 'llm'] as const;
 
 	/** Cible du formulaire ouvert, ou null. Une seule à la fois : le geste est délibéré. */
 	let pauseForm = $state<{
@@ -835,31 +835,6 @@
 						Valeurs GLOBALES (variables d'env). Les overrides par projet n'ont pas encore de table
 						(GOV-005) : aucun n'est appliqué, donc aucun n'est affiché.
 					</p>
-				</div>
-
-				<!-- Politiques d'avis -->
-				<div>
-					<div class="mb-1 text-[11px] font-semibold text-surface-900">Politiques d'avis</div>
-					{#each data.rules.reviewPolicies as policy (policy.projectId + (policy.locationId ?? ''))}
-						<div class="flex items-baseline justify-between gap-2 text-[11px]">
-							<span class="text-surface-600">
-								{policy.projectSlug ?? policy.projectId}
-								{#if policy.locationId}<span class="text-surface-300">· {policy.locationId}</span
-									>{/if}
-							</span>
-							<span class="text-surface-500">
-								{policy.mode}
-								{#if policy.killSwitch}
-									<span class="font-medium text-red-700">· kill switch</span>
-								{/if}
-							</span>
-						</div>
-					{:else}
-						<p class="text-[11px] text-surface-400">
-							Aucune politique promue : les envois automatiques d'avis restent à leur défaut sûr
-							(<span class="font-medium">draft_only</span>).
-						</p>
-					{/each}
 				</div>
 			</div>
 		</section>

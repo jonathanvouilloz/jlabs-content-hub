@@ -23,14 +23,14 @@ describe("POST /api/content — checkpoint humain obligatoire", () => {
     expect(code).toContain("authorizeMachine(event, 'content:read')");
   });
 
-  it("crée chaque contenu API en draft, y compris GMB et les calendriers", () => {
+  it("crée chaque contenu API en draft", () => {
     const code = source();
     expect(code).not.toMatch(/api-auto-approve/);
     expect(code).not.toMatch(/status:\s*'approved'/);
     expect(code).toMatch(/status:\s*'draft'/);
   });
 
-  it("ne déclenche aucun effet de publication GMB ou LinkedIn", () => {
+  it("ne déclenche aucun effet de publication externe (GMB et LinkedIn retirés)", () => {
     const code = source();
     expect(code).not.toMatch(
       /publishToGmb|createLocalPost|publishLinkedIn|fetch\([^)]*(google|linkedin)/i,

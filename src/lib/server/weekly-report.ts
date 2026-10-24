@@ -13,18 +13,17 @@
  *
  * Ce que ce module AJOUTE, c'est ce que l'accueil n'a pas la place de porter : les listes
  * elles-mêmes (findings nouveaux/aggravés/résolus, opportunités, propositions), l'indexation
- * par projet, les avis de la période, et le gate analytics — qui, aujourd'hui, dit « non
+ * par projet, et le gate analytics — qui, aujourd'hui, dit « non
  * branché » et surtout pas « zéro ».
  *
  * Une lecture par DOMAINE, groupée par projet — jamais une requête par projet dans une boucle.
  */
-import { eq, gte, isNull, lte, sql } from 'drizzle-orm';
-import { gmbReviews, projectIntegrations } from './db/schema.js';
+import { eq } from 'drizzle-orm';
+import { projectIntegrations } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { loadHomeCockpit, GSC_STALE_AFTER_HOURS } from './home.js';
 import { DEFAULT_WINDOW_DAYS } from './home-state.js';
 import { ACTIVE_STATUSES, FINDING_STATUSES } from './finding-state.js';
-import { pendingReviewFilter } from './reviews/pending-filter.js';
 import { countFindings, listFindings, type FindingListRow } from './findings.js';
 import { countProposals, listProposals, type ProposalRow } from './proposals.js';
 import { countIndexClassesByProject } from './indexing-read.js';
@@ -37,7 +36,6 @@ import {
 	type ReportFindingInput,
 	type ReportIndexationInput,
 	type ReportProposalInput,
-	type ReportReviewsInput,
 	type ReportSet,
 	type ReportTrafficInput,
 	type WeeklyReport
@@ -64,8 +62,6 @@ export const OPPORTUNITY_MIN_PRIORITY = 50;
 
 /** Le provider qui, s'il était branché, remplirait la section trafic/conversions. */
 const ANALYTICS_PROVIDER = 'plausible';
-/** Le provider qui nourrit la section avis. */
-const REVIEWS_PROVIDER = 'gmb';
 /** Le provider qui nourrit la section indexation. */
 const INDEXING_PROVIDER = 'indexing';
 
@@ -132,47 +128,6 @@ async function proposalSet(
 	return { total, rows: rows.map(toProposalInput) };
 }
 
-/**
- * Les avis de la PÉRIODE et l'arriéré, par projet.
- *
- * `create_time` (l'horodatage Google) et non `created_at` (la date d'import) : un import de
- * rattrapage ferait sinon apparaître trois ans d'avis comme « reçus cette semaine ». Les
- * négatifs sont les 1–2 étoiles, seuil de §14.3.
- *
- * ⚠️ GMB-002 — DEUX défauts corrigés ici, tous deux silencieux :
- *
- *  1. **`unanswered` ne lisait que `replied_at`**, un marqueur LOCAL : une réponse écrite
- *     directement dans l'application Google n'y laisse aucune trace, donc le rapport
- *     comptait des avis traités comme un arriéré. Le prédicat vient maintenant de
- *     `pendingReviewFilter()`, comme partout ailleurs.
- *
- *  2. **`create_time` était comparé LEXICALEMENT à un horodatage au format DB**, alors que
- *     Google l'envoie en ISO 8601 (`2026-07-18T10:52:48.406099Z`). À l'index 10, `'T'`
- *     (0x54) contre `' '` (0x20) : tout avis du MÊME JOUR que la borne comparait donc plus
- *     grand, quelle que soit son heure. Un créneau de lundi 07:00 comptait ainsi tous les
- *     avis du lundi, y compris ceux de 3 h du matin — le piège exact que `timestamps.ts`
- *     documente, appliqué à la seule colonne du schéma qui n'est pas au format DB.
- *     La borne est convertie en ISO pour comparer deux valeurs de MÊME forme.
- */
-async function loadReviewStats(
-	db: AppDb,
-	sinceDb: string
-): Promise<Map<string, { unanswered: number; received: number; negative: number }>> {
-	// `create_time` reste tel que Google l'envoie (colonne historique, jamais réécrite) :
-	// c'est donc la BORNE qui doit rejoindre sa forme, pas l'inverse.
-	const sinceIso = new Date(`${sinceDb.replace(' ', 'T')}Z`).toISOString();
-	const rows = await db
-		.select({
-			projectId: gmbReviews.projectId,
-			unanswered: sql<number>`count(*) filter (where ${pendingReviewFilter()})::int`,
-			received: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceIso)})::int`,
-			negative: sql<number>`count(*) filter (where ${gte(gmbReviews.createTime, sinceIso)} and ${lte(gmbReviews.rating, 2)})::int`
-		})
-		.from(gmbReviews)
-		.groupBy(gmbReviews.projectId);
-	return new Map(rows.map((r) => [r.projectId, r]));
-}
-
 /** Les providers DÉCLARÉS et activés, par projet — la seule source qui sache dire « non branché ». */
 async function loadWiredProviders(db: AppDb): Promise<Map<string, Set<string>>> {
 	const rows = await db
@@ -230,7 +185,6 @@ export async function loadWeeklyReport(input: {
 		proposalsPending,
 		indexClasses,
 		dueSelections,
-		reviewStats,
 		wiredProviders
 	] = await Promise.all([
 		findingSet(input.db, { ...activityFilter, activityEvents: ['created'] }),
@@ -248,7 +202,6 @@ export async function loadWeeklyReport(input: {
 		proposalSet(input.db, { statuses: OPEN_PROPOSAL_STATUSES }),
 		countIndexClassesByProject({ db: input.db }),
 		countDueSelectionsByProject({ db: input.db, today }),
-		loadReviewStats(input.db, sinceDb),
 		loadWiredProviders(input.db)
 	]);
 
@@ -282,17 +235,6 @@ export async function loadWeeklyReport(input: {
 		};
 	});
 
-	const reviews: ReportReviewsInput[] = home.projects.map((card) => {
-		const stats = reviewStats.get(card.projectId);
-		return {
-			projectSlug: card.slug,
-			unanswered: stats?.unanswered ?? 0,
-			received: stats?.received ?? 0,
-			negative: stats?.negative ?? 0,
-			wired: wiredProviders.get(card.projectId)?.has(REVIEWS_PROVIDER) ?? false
-		};
-	});
-
 	// ⭐ Trafic et conversions : AUCUNE lecture de `plausible_page_observations`, et c'est
 	// exact. E10 n'est pas livré, rien n'écrit dans cette table, et aucun projet ne déclare le
 	// provider. L'interroger pour en tirer des `0` serait la manière technique de mentir : le
@@ -321,7 +263,6 @@ export async function loadWeeklyReport(input: {
 		proposalsCreated,
 		proposalsPending,
 		indexation,
-		reviews,
 		traffic,
 		costs: home.costs,
 		runStatusCounts: home.runStatusCounts,

@@ -2,7 +2,7 @@
  * DATA-002 — Intégrations projet (SPEC §7.1).
  *
  * Une intégration = un provider branché sur un projet pour une ressource donnée
- * (propriété GSC, localisation GMB…). Unique par (project_id, provider, resource_key)
+ * (propriété GSC…). Unique par (project_id, provider, resource_key)
  * → plusieurs propriétés/localisations sans collision.
  * ⚠️ Aucun secret ici : `secret_ref` pointe vers l'emplacement du secret ;
  * `configuration_json` est vérifié par `assertNoInlineSecret`.

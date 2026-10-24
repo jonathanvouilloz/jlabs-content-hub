@@ -21,8 +21,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import {
 	monitoringRuns,
 	monitoringSteps,
-	projects,
-	reviewAutomationPolicies
+	projects
 } from './db/schema.js';
 import type { AppDb } from './db/types.js';
 import { loadProjectScheduleConfig } from './scheduler.js';
@@ -453,18 +452,6 @@ export interface EffectiveRules {
 	 * qui serait une affirmation qu'on n'a pas les moyens de faire.
 	 */
 	flags: Record<string, boolean> | null;
-	/** Politiques d'avis courantes, par projet — `kill_switch` compris (SPEC §13.4). */
-	reviewPolicies: Array<{
-		projectId: string;
-		projectSlug: string | null;
-		locationId: string | null;
-		mode: string;
-		syncEnabled: boolean;
-		autoGenerationEnabled: boolean;
-		killSwitch: boolean;
-		version: number;
-		promotedAt: string | null;
-	}>;
 	/**
 	 * DASH-006 lot 2 — les pauses PROVIDER en vigueur. Elles n'ont aucune ligne de
 	 * cadence où s'afficher (elles sont transverses à tous les projets), donc sans ce
@@ -498,25 +485,9 @@ export async function loadEffectiveRules(input: {
 	pauses?: PauseStates;
 }): Promise<EffectiveRules> {
 	const states = input.pauses ?? (await loadPauseStates(input.db, input.now));
-	const [capacity, flags, policies] = await Promise.all([
+	const [capacity, flags] = await Promise.all([
 		loadCapacitySnapshot({ db: input.db, now: input.now }),
-		loadFlagsSafely(),
-		input.db
-			.select({
-				projectId: reviewAutomationPolicies.projectId,
-				projectSlug: projects.slug,
-				locationId: reviewAutomationPolicies.locationId,
-				mode: reviewAutomationPolicies.mode,
-				syncEnabled: reviewAutomationPolicies.syncEnabled,
-				autoGenerationEnabled: reviewAutomationPolicies.autoGenerationEnabled,
-				killSwitch: reviewAutomationPolicies.killSwitch,
-				version: reviewAutomationPolicies.version,
-				promotedAt: reviewAutomationPolicies.promotedAt
-			})
-			.from(reviewAutomationPolicies)
-			.leftJoin(projects, eq(projects.id, reviewAutomationPolicies.projectId))
-			.where(eq(reviewAutomationPolicies.status, 'current'))
-			.orderBy(projects.slug)
+		loadFlagsSafely()
 	]);
 
 	return {
@@ -529,9 +500,6 @@ export async function loadEffectiveRules(input: {
 				: capacity.projects
 		},
 		flags,
-		reviewPolicies: input.projectSlug
-			? policies.filter((p) => p.projectSlug === input.projectSlug)
-			: policies,
 		// PAS filtrées par projet, à l'inverse du reste : une pause provider coupe TOUS
 		// les projets. La masquer en vue projet ferait chercher une panne locale là où il
 		// y a une décision globale.

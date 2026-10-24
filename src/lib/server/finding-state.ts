@@ -33,9 +33,6 @@ export const FINDING_TYPES = [
 	'soft_404',
 	'traffic_anomaly',
 	'conversion_drop',
-	'review_pending_sla',
-	'negative_review',
-	'unknown_employee_mention',
 	'integration_stale'
 ] as const;
 export type FindingType = (typeof FINDING_TYPES)[number];
@@ -65,7 +62,7 @@ export const FINDING_SEVERITIES = ['info', 'low', 'medium', 'high', 'critical'] 
 export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
 
 /** Types d'entité qu'un finding peut viser (SPEC §7.6). */
-export const FINDING_ENTITY_TYPES = ['project', 'query', 'page', 'review', 'integration'] as const;
+export const FINDING_ENTITY_TYPES = ['project', 'query', 'page', 'integration'] as const;
 export type FindingEntityType = (typeof FINDING_ENTITY_TYPES)[number];
 
 /**

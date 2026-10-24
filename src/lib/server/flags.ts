@@ -28,7 +28,6 @@ export const FEATURE_FLAGS = [
 	'findings', // moteur de findings + inbox (E05)
 	'indexnow', // interrupteur maître des soumissions auto aux moteurs : IndexNow (E04) ET Google Indexing API éligible (IDX-008). OFF => aucune soumission ne part.
 	'plausible', // provider analytics Plausible (E10)
-	'gmb_auto_send', // envoi automatique des réponses d'avis (E08)
 	'telegram', // notifications + validations Telegram (E09)
 	'agent_runner' // runner d'agents sur worktrees (E11)
 ] as const;

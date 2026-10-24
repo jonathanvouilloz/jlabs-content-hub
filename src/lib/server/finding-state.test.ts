@@ -26,9 +26,9 @@ import {
 } from './finding-state.js';
 
 describe('vocabulaire SPEC §7.6/§10.4', () => {
-	it('expose les 21 types du catalogue, sans doublon', () => {
-		expect(FINDING_TYPES).toHaveLength(21);
-		expect(new Set(FINDING_TYPES).size).toBe(21);
+	it('expose les 18 types du catalogue, sans doublon (les 3 types d’avis retirés avec GMB)', () => {
+		expect(FINDING_TYPES).toHaveLength(18);
+		expect(new Set(FINDING_TYPES).size).toBe(18);
 	});
 	it('statuts = 7 de §7.6 + reopened, sans doublon', () => {
 		expect(FINDING_STATUSES).toHaveLength(8);
@@ -40,7 +40,7 @@ describe('vocabulaire SPEC §7.6/§10.4', () => {
 		expect(FINDING_SEVERITIES).toEqual(['info', 'low', 'medium', 'high', 'critical']);
 	});
 	it('entités et acteurs couvrent la spec', () => {
-		expect(FINDING_ENTITY_TYPES).toEqual(['project', 'query', 'page', 'review', 'integration']);
+		expect(FINDING_ENTITY_TYPES).toEqual(['project', 'query', 'page', 'integration']);
 		expect(FINDING_ACTORS).toContain('agent');
 		expect(FINDING_ACTORS).toContain('detector');
 		expect(FINDING_EVENT_TYPES).toContain('created');

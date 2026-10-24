@@ -146,16 +146,6 @@ async function replayCounterHref(href: string): Promise<number> {
 		return Number((res.rows?.[0] as { n: number }).n);
 	}
 
-	if (url.pathname.startsWith('/projects/') && url.pathname.endsWith('/reviews')) {
-		const slug = url.pathname.split('/')[2];
-		const res = await db.execute(sql`
-			SELECT count(*)::int AS n FROM "seostats"."gmb_reviews" r
-			  JOIN "seostats"."projects" p ON p.id = r.project_id
-			 WHERE r.replied_at IS NULL AND p.slug = ${slug}
-		`);
-		return Number((res.rows?.[0] as { n: number }).n);
-	}
-
 	throw new Error(`URL de compteur non rejouable : ${href}`);
 }
 

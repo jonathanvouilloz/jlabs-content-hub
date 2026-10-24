@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { FileText, MapPin } from 'lucide-svelte';
-	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
+	import { FileText } from 'lucide-svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import { formatDate } from '$lib/utils/dates.js';
 
@@ -177,13 +176,7 @@
 						{/if}
 						{#if showType}
 							<td class="px-3 py-2.5">
-								{#if item.type === 'linkedin'}
-									<LinkedinIcon size={16} class="text-[#0A66C2]" />
-								{:else if item.type === 'gmb'}
-									<MapPin size={16} class="text-red-500" />
-								{:else}
-									<FileText size={16} class="text-surface-400" />
-								{/if}
+								<FileText size={16} class="text-surface-400" />
 							</td>
 						{/if}
 						<td class="px-4 py-2.5">

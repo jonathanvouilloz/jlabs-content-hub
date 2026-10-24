@@ -1,5 +1,5 @@
--- DATA-004 — Modèle d'observations, 10 tables (SPEC §7.5). Phase expand, additif, idempotent.
--- Miroir fidèle de src/lib/server/db/schema.ts (gsc_query_page_observations … gmb_insight_observations).
+-- DATA-004 — Modèle d'observations, 8 tables (SPEC §7.5 ; les 2 tables GMB retirées le 2026-10-24). Phase expand, additif, idempotent.
+-- Miroir fidèle de src/lib/server/db/schema.ts (gsc_query_page_observations … ai_visibility_observations).
 -- Appliqué par scripts/apply-data-004.ts. Aucune donnée touchée, aucun DROP.
 -- Contrat commun par table : project_id, run_id (nullable, traçabilité), provider,
 -- schema_version, période/date, dimensions, métriques, payload_json (brut borné),
@@ -236,56 +236,3 @@ CREATE INDEX IF NOT EXISTS "idx_ai_visibility_obs_project_date"
 	ON "seostats"."ai_visibility_observations" ("project_id", "observed_date");
 CREATE INDEX IF NOT EXISTS "idx_ai_visibility_obs_project_engine"
 	ON "seostats"."ai_visibility_observations" ("project_id", "engine");
-
--- 9. Avis GMB comme observation d'état ─────────────────────────────
-CREATE TABLE IF NOT EXISTS "seostats"."gmb_review_observations" (
-	"id" text PRIMARY KEY NOT NULL,
-	"project_id" text NOT NULL,
-	"run_id" text,
-	"provider" text NOT NULL DEFAULT 'gmb',
-	"schema_version" integer NOT NULL DEFAULT 1,
-	"observed_date" text NOT NULL,
-	"location_id" text NOT NULL,
-	"review_id" text NOT NULL,
-	"rating" integer,
-	"sentiment" text,
-	"has_reply" boolean NOT NULL DEFAULT false,
-	"reply_latency_hours" integer,
-	"payload_json" text,
-	"fetched_at" text NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
-	CONSTRAINT "gmb_review_observations_project_id_projects_id_fk"
-		FOREIGN KEY ("project_id") REFERENCES "seostats"."projects"("id"),
-	CONSTRAINT "gmb_review_observations_run_id_monitoring_runs_id_fk"
-		FOREIGN KEY ("run_id") REFERENCES "seostats"."monitoring_runs"("id")
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "gmb_review_obs_unique"
-	ON "seostats"."gmb_review_observations" ("project_id", "review_id", "observed_date");
-CREATE INDEX IF NOT EXISTS "idx_gmb_review_obs_project_date"
-	ON "seostats"."gmb_review_observations" ("project_id", "observed_date");
-CREATE INDEX IF NOT EXISTS "idx_gmb_review_obs_project_location"
-	ON "seostats"."gmb_review_observations" ("project_id", "location_id");
-
--- 10. Métriques Performance GMB ────────────────────────────────────
-CREATE TABLE IF NOT EXISTS "seostats"."gmb_insight_observations" (
-	"id" text PRIMARY KEY NOT NULL,
-	"project_id" text NOT NULL,
-	"run_id" text,
-	"provider" text NOT NULL DEFAULT 'gmb',
-	"schema_version" integer NOT NULL DEFAULT 1,
-	"observed_date" text NOT NULL,
-	"location_id" text NOT NULL,
-	"metric" text NOT NULL,
-	"value" integer NOT NULL DEFAULT 0,
-	"payload_json" text,
-	"fetched_at" text NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
-	CONSTRAINT "gmb_insight_observations_project_id_projects_id_fk"
-		FOREIGN KEY ("project_id") REFERENCES "seostats"."projects"("id"),
-	CONSTRAINT "gmb_insight_observations_run_id_monitoring_runs_id_fk"
-		FOREIGN KEY ("run_id") REFERENCES "seostats"."monitoring_runs"("id")
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "gmb_insight_obs_unique"
-	ON "seostats"."gmb_insight_observations" ("project_id", "location_id", "observed_date", "metric");
-CREATE INDEX IF NOT EXISTS "idx_gmb_insight_obs_project_date"
-	ON "seostats"."gmb_insight_observations" ("project_id", "observed_date");
-CREATE INDEX IF NOT EXISTS "idx_gmb_insight_obs_location_date"
-	ON "seostats"."gmb_insight_observations" ("location_id", "observed_date");

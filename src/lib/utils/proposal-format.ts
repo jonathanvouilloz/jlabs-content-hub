@@ -122,9 +122,6 @@ export const FINDING_TYPE_LABEL: Record<string, string> = {
 	soft_404: 'soft 404',
 	traffic_anomaly: 'anomalie de trafic',
 	conversion_drop: 'chute de conversion',
-	review_pending_sla: 'avis sans réponse (SLA)',
-	negative_review: 'avis négatif',
-	unknown_employee_mention: 'employé cité hors roster',
 	integration_stale: 'intégration périmée'
 };
 

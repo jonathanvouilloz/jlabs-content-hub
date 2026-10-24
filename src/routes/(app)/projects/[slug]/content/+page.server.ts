@@ -29,9 +29,7 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 
 	const typeCounts = {
 		all: allContents.length,
-		article: allContents.filter((c) => c.type === 'article').length,
-		linkedin: allContents.filter((c) => c.type === 'linkedin').length,
-		gmb: allContents.filter((c) => c.type === 'gmb').length
+		article: allContents.filter((c) => c.type === 'article').length
 	};
 
 	// Next 3 upcoming contents

@@ -82,13 +82,10 @@ import { runKeywordDeclineDetector } from './detectors/keyword-decline.js';
 import { runQueryTurnoverDetector } from './detectors/query-turnover.js';
 import { runCannibalizationDetector } from './detectors/cannibalization.js';
 import { runIndexTransitionDetector } from './detectors/index-transition.js';
-import { runReviewPendingDetector } from './detectors/review-pending.js';
 import { runFindingProposer } from './proposers/finding-proposer.js';
 import { collectGscQueryPage } from './collectors/gsc-query-page.js';
 import { collectSitemapInventory } from './collectors/sitemap-inventory.js';
 import { collectUrlInspection } from './collectors/url-inspection.js';
-import { collectGmbReviews } from './collectors/gmb-reviews.js';
-import { gmbReviewDeps } from './gmb-auth.js';
 import {
 	planInspectionSelection,
 	type SelectionPlan
@@ -142,24 +139,6 @@ export const JOB_TYPE_COLLECT_SITEMAP = 'collect:sitemap';
  * lui qu'utilisent les preuves et tout appelant qui sait déjà ce qu'il veut inspecter.
  */
 export const JOB_TYPE_COLLECT_URL_INSPECTION = 'collect:url_inspection';
-
-/**
- * GMB-002 — synchronisation des avis Google. **Premier type de job dont le provider est
- * `gmb`**, donc le premier à faire mordre `perProviderConcurrency.gmb` et le refroidissement
- * de cette cohorte (JOB-006 les avait déclarés d'avance).
- *
- * Il est au catalogue QUOTIDIEN, pas horaire, et c'est une décision assumée : SPEC §8.1
- * prescrit une synchro horaire et §17.3 un SLO de 2 h, que la cadence quotidienne casse par
- * construction (jusqu'à 24 h). Cf. `docs/DECISIONS.md`. Le passer en horaire est un geste
- * délibéré, pas une correction évidente.
- *
- * ⚠️ Il **remplace** l'appel direct que faisait `/api/cron/gmb-reviews` : la route reste
- * appelable à la main pour un rattrapage, mais n'est plus planifiée. Le hub n'a qu'UN compte
- * Google (`gmb_settings.account_tokens`), et `refreshAccountToken` réécrit cette ligne sans
- * verrou — deux chemins de collecte concurrents ne consommeraient pas seulement deux fois le
- * quota, ils feraient une course en écriture sur l'unique credential.
- */
-export const JOB_TYPE_COLLECT_GMB_REVIEWS = 'collect:gmb_reviews';
 
 /** Type de job du détecteur d'opportunités (miroir du `step_type` de `scripts/detect.ts`). */
 export const JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY = 'detect:keyword_opportunity';
@@ -220,30 +199,6 @@ export const JOB_TYPE_DETECT_CANNIBALIZATION = 'detect:cannibalization';
  * périmé ».
  */
 export const JOB_TYPE_DETECT_INDEX_TRANSITION = 'detect:index_transition';
-
-/**
- * GMB-002 lot 2 — détecteur des avis sans réponse (`review_pending_sla` + `negative_review`).
- *
- * Au catalogue **quotidien**, avec la collecte qu'il relit, en arête **obligatoire**
- * `collect:gmb_reviews → detect:review_pending`. Le mode de défaillance est asymétrique : si la
- * collecte meurt AVANT d'écrire (`invalid_grant`, 429 au premier appel), `last_sync_at` reste à
- * hier — donc encore frais à 48 h. Le détecteur se croirait autoritaire et tournerait sur l'état
- * d'hier, sans voir l'avis négatif arrivé aujourd'hui. C'est exactement le défaut mesuré au lot 1
- * (le 2★ de Sion, dix jours de silence), rejoué une journée à la fois. L'arête rend le trou
- * VISIBLE : détection `skipped`, run `partial`, `/jobs` le dit.
- *
- * ⚠️ Comme pour IDX-005, l'arête garantit l'ORDRE, pas la FRAÎCHEUR : une collecte qui rend
- * `no_gmb_location` RÉUSSIT, donc l'arête est satisfaite et le détecteur tourne — pour rendre à son
- * tour `no_gmb_location`. C'est cohérent, et c'est le cas de 5 projets sur 9.
- *
- * ⚠️ Aucune arête vers `propose:actions` : répondre à un avis est un geste L3/L4 (GMB-006), et
- * l'action prescrite pour un avis négatif est une escalade HUMAINE (§10.4). Même position que
- * FIND-005/006/008.
- */
-export const JOB_TYPE_DETECT_REVIEW_PENDING = 'detect:review_pending';
-
-/** GMB-009 — extraction LLM durable, bornée et dépendante de la collecte quotidienne. */
-export const JOB_TYPE_DETECT_EMPLOYEE_MENTIONS = 'detect:employee_mentions';
 
 /**
  * FIND-003 — expiration des veilles. Job À PART du détecteur : une veille doit
@@ -426,44 +381,6 @@ export function defaultHandlers(options?: {
 			}
 		],
 		[
-			JOB_TYPE_COLLECT_GMB_REVIEWS,
-			async ({ db, job, signal }) => {
-				const payload = parsePayload(job.payloadJson);
-				const res = await collectGmbReviews({
-					projectId: (payload.projectId as string) ?? job.projectId,
-					// `gmb-auth.ts` et non `gmb.ts` : ce dernier importe `$env/dynamic/private`,
-					// ce qui rendait ce job exécutable sur Vercel et mort en dead-letter dès
-					// qu'un worker local le réclamait. Un job qu'on ne peut pas drainer hors
-					// production est un job qu'on ne peut pas prouver.
-					deps: gmbReviewDeps(db),
-					runId: job.runId,
-					client: db,
-					// Le bail : on n'engage pas l'établissement suivant si on l'a perdu. Ce qui
-					// est déjà écrit reste, et `last_sync_at` porte le succès des précédents.
-					signal
-				});
-				logger.info('synchronisation des avis terminée', {
-					jobId: job.id,
-					projectId: job.projectId,
-					// Un projet sans fiche GMB (5 des 9) réussit avec un motif NOMMÉ : « 0 avis »
-					// se lirait sinon comme un parc propre plutôt que comme un parc hors sujet.
-					skippedReason: res.skippedReason,
-					locations: res.summary.locations,
-					succeeded: res.summary.succeeded,
-					// Un établissement en échec remonte ici ET reste écrit dans
-					// `project_gmb_locations.last_sync_error` — c'est la fin du `catch {}`.
-					failed: res.summary.failed,
-					seen: res.summary.seen,
-					inserted: res.summary.inserted,
-					updated: res.summary.updated,
-					unchanged: res.summary.unchanged,
-					unreadable: res.summary.unreadable,
-					truncated: res.summary.truncated,
-					draftsInvalidated: res.draftsInvalidated
-				});
-			}
-		],
-		[
 			JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
 			async ({ db, job }) => {
 				const payload = parsePayload(job.payloadJson);
@@ -618,64 +535,6 @@ export function defaultHandlers(options?: {
 					});
 				}
 			],
-			[
-				JOB_TYPE_DETECT_REVIEW_PENDING,
-				async ({ db, job }) => {
-					const payload = parsePayload(job.payloadJson);
-					const res = await runReviewPendingDetector({
-						db,
-						projectId: (payload.projectId as string) ?? job.projectId,
-						runId: job.runId
-					});
-					logger.info('détection des avis sans réponse terminée', {
-						jobId: job.id,
-						projectId: job.projectId,
-						detector: res.detectorVersion,
-						created: res.counts.created,
-						refreshed: res.counts.refreshed,
-						slaFindings: res.totalMatchedSla,
-						negativeFindings: res.totalMatchedNegative,
-						// §14.3 : le SIGNAL est écrit, le canal reste TEL-002 (BLOCKED).
-						notifiable: res.notifiable,
-						truncated: res.truncated,
-						// Hors portée = laissés INTACTS. Deux causes attendues et distinctes : une
-						// fiche dont la synchro est cassée, et un avis sorti de la fenêtre. Les taire
-						// ferait lire un run qui n'a rien pu juger comme un run qui n'a rien trouvé.
-						outOfScope: res.lifecycle.outOfScope,
-						// Une fiche en panne ne se lit jamais comme une fiche sans arriéré.
-						locationsStale: res.locationsStale,
-						// GMB-007 : le hub croit avoir répondu, Google ne le confirme pas. Compté,
-						// jamais transformé en finding — rouvrir la file produirait une SECONDE
-						// réponse au même client.
-						divergent: res.excluded.divergent,
-						// Les lignes héritées du backfill, dont l'état distant n'a jamais été lu.
-						neverSeen: res.excluded.neverSeen,
-						skippedReason: res.skippedReason
-					});
-				}
-			],
-			[
-						JOB_TYPE_DETECT_EMPLOYEE_MENTIONS,
-						async ({ db, job, signal }) => {
-							const payload = parsePayload(job.payloadJson);
-							// Import paresseux : le détecteur LLM dépend de `$env/dynamic/private`.
-							// Un worker qui ne le réclame pas (tests compris) reste chargeable sans
-							// runtime SvelteKit, comme le collecteur GMB via `gmb-auth.ts`.
-							const { runEmployeeMentionsDetector } = await import('./detectors/employee-mentions.js');
-							const res = await runEmployeeMentionsDetector({
-							db,
-							projectId: (payload.projectId as string) ?? job.projectId,
-							runId: job.runId,
-							signal,
-							maxReviews: typeof payload.maxReviews === 'number' ? payload.maxReviews : undefined
-						});
-						logger.info('extraction des employés mentionnés terminée', {
-							jobId: job.id, projectId: job.projectId, detector: res.detectorVersion,
-							processed: res.processed, persisted: res.persisted, unknownFindingsCreated: res.unknownFindingsCreated,
-							capped: res.capped, aborted: res.aborted, skippedReason: res.skippedReason
-						});
-					}
-				],
 				[
 					JOB_TYPE_FINDINGS_LIFECYCLE,
 			async ({ db, job }) => {

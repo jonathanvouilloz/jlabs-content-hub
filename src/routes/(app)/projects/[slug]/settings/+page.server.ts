@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations, projectContexts, indexingCredentials, indexingSubmissions } from '$lib/server/db/schema.js';
+import { cmsConnections, projectContexts, indexingCredentials, indexingSubmissions } from '$lib/server/db/schema.js';
 import { parseExcludePatterns } from '$lib/server/indexing.js';
 import { desc, eq, sql } from 'drizzle-orm';
 
@@ -8,16 +8,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { project } = await parent();
 
 	const cmsConnection = await db.select().from(cmsConnections).where(eq(cmsConnections.projectId, project.id)).then((r) => r[0]);
-
-	const gmbTokens = await db.select().from(gmbSettings).where(eq(gmbSettings.key, 'account_tokens')).then((r) => r[0]);
-
-	const assignedLocations = await db
-		.select()
-		.from(projectGmbLocations)
-		.where(eq(projectGmbLocations.projectId, project.id));
-
-	const linkedinTokens = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'account_tokens')).then((r) => r[0]);
-	const linkedinName = await db.select().from(linkedinSettings).where(eq(linkedinSettings.key, 'person_name')).then((r) => r[0]);
 
 	const projectContext = await db.select().from(projectContexts).where(eq(projectContexts.projectId, project.id)).then((r) => r[0]);
 
@@ -39,10 +29,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 	return {
 		cmsConnection: cmsConnection ? { id: cmsConnection.id, cmsType: cmsConnection.cmsType, config: JSON.parse(cmsConnection.config) } : null,
-		gmbConnected: !!gmbTokens,
-		assignedGmbLocations: assignedLocations,
-		linkedinConnected: !!linkedinTokens,
-		linkedinPersonName: linkedinName?.value ?? null,
 		projectContext: projectContext ? JSON.parse(projectContext.context) : null,
 		indexingCredentials: indexingCred
 			? {

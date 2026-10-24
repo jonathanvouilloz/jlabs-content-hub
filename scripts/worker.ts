@@ -9,7 +9,6 @@
  * Lancer (en continu)  : npx tsx scripts/worker.ts
  * Mettre un job en file: npx tsx scripts/worker.ts --enqueue=<slug> [--weeks=4]
  *                        npx tsx scripts/worker.ts --enqueue=<slug> --job=lifecycle
- *                        npx tsx scripts/worker.ts --enqueue=<slug> --job=reviews
  * Options              : --types=a,b  --lease-ms=300000  --poll-ms=2000  --max-jobs=N
  *
  * Ctrl-C = arrêt gracieux : plus aucune réclamation, le job en cours est terminé
@@ -25,9 +24,7 @@ import * as schema from '../src/lib/server/db/schema.js';
 import type { AppDb } from '../src/lib/server/db/types.js';
 import {
 	runWorker,
-	JOB_TYPE_COLLECT_GMB_REVIEWS,
 	JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY,
-	JOB_TYPE_DETECT_REVIEW_PENDING,
 	JOB_TYPE_FINDINGS_LIFECYCLE
 } from '../src/lib/server/job-runner.js';
 import { deriveWorkerId } from '../src/lib/server/job-state.js';
@@ -90,16 +87,10 @@ async function enqueueForProject(slug: string, jobType: string): Promise<void> {
 async function main() {
 	if (ENQUEUE) {
 		// --job=lifecycle       : expiration des veilles (FIND-003), sans détection.
-		// --job=reviews         : synchronisation des avis (GMB-002).
-		// --job=detect-reviews  : détection des avis sans réponse (GMB-002 lot 2).
 		const jobType =
 			JOB === 'lifecycle'
 				? JOB_TYPE_FINDINGS_LIFECYCLE
-				: JOB === 'reviews'
-					? JOB_TYPE_COLLECT_GMB_REVIEWS
-					: JOB === 'detect-reviews'
-						? JOB_TYPE_DETECT_REVIEW_PENDING
-						: JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY;
+				: JOB_TYPE_DETECT_KEYWORD_OPPORTUNITY;
 		await enqueueForProject(ENQUEUE, jobType);
 		await pool.end();
 		return;

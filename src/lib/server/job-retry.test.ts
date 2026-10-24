@@ -133,8 +133,8 @@ describe('classifyJobFailure — codes internes', () => {
 	});
 
 	it('conserve le code normalisé et le message', () => {
-		const c = classifyJobFailure({ code: 'GmbApiError', message: 'nope', status: 403 }, NOW);
-		expect(c.code).toBe('GmbApiError');
+		const c = classifyJobFailure({ code: 'ProviderApiError', message: 'nope', status: 403 }, NOW);
+		expect(c.code).toBe('ProviderApiError');
 		expect(c.message).toBe('nope');
 		expect(c.errorClass).toBe('permanent');
 	});

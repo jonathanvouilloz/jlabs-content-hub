@@ -427,8 +427,7 @@ const DETECTOR_LABELS: Record<string, string> = {
 	'detect:keyword_decline': 'baisses de mots-clés',
 	'detect:query_turnover': 'requêtes nouvelles et perdues',
 	'detect:cannibalization': 'conflits de cannibalisation',
-	'detect:index_transition': 'transitions d’indexation',
-	'detect:review_pending': 'avis sans réponse'
+	'detect:index_transition': 'transitions d’indexation'
 };
 
 export function detectorLabel(detector: string): string {
@@ -480,7 +479,6 @@ export type CounterFilter =
 	| { kind: 'findings_activity'; event: ActivityEvent; sinceDb: string; projectSlug?: string | null }
 	| { kind: 'findings_open'; severities?: readonly string[]; projectSlug?: string | null }
 	| { kind: 'proposals_pending'; projectSlug?: string | null }
-	| { kind: 'reviews_unanswered'; projectSlug?: string | null }
 	| { kind: 'jobs_failed'; projectSlug?: string | null }
 	| { kind: 'runs_period'; status: string; sinceDb: string; projectSlug?: string | null };
 
@@ -523,7 +521,6 @@ export function counterKey(filter: CounterFilter): string {
 			return `runs_period.${filter.status}`;
 		case 'findings_open':
 		case 'proposals_pending':
-		case 'reviews_unanswered':
 		case 'jobs_failed':
 			return filter.kind;
 	}
@@ -561,11 +558,6 @@ export function counterHref(filter: CounterFilter): string | null {
 			p.set('status', 'proposed');
 			return `/inbox?${p.toString()}`;
 		}
-		case 'reviews_unanswered':
-			// La liste des avis est PAR PROJET (`/projects/[slug]/reviews`) : il n'existe
-			// aucune vue cross-projet des avis. Sans slug, ce compteur n'a donc pas de
-			// liste cohérente à ouvrir — il reste un chiffre.
-			return filter.projectSlug ? `/projects/${filter.projectSlug}/reviews` : null;
 		case 'jobs_failed': {
 			const p = withProject(new URLSearchParams(), filter.projectSlug);
 			p.set('status', 'dead');
@@ -630,7 +622,6 @@ export interface ProjectCardInput {
 	openBySeverity: Record<string, number>;
 	activity: ActivityCounts;
 	proposalsPending: number;
-	reviewsUnanswered: number;
 	/** Jobs en dead-letter — un travail qui ne repartira pas tout seul. */
 	jobsDead: number;
 	/** Dernier succès de collecte GSC (canon), `null` si jamais collecté. */
@@ -670,7 +661,6 @@ export interface ProjectCard {
 	openTotal: number;
 	activity: ActivityCounts;
 	proposalsPending: number;
-	reviewsUnanswered: number;
 	jobsDead: number;
 	counters: Counter[];
 }
@@ -938,7 +928,6 @@ export function classifyProject(input: ProjectCardInput): ProjectCard {
 		openTotal: sumAll(input.openBySeverity),
 		activity: input.activity,
 		proposalsPending: input.proposalsPending,
-		reviewsUnanswered: input.reviewsUnanswered,
 		jobsDead: input.jobsDead,
 		counters: buildProjectCounters(input)
 	};
@@ -979,10 +968,6 @@ export function buildProjectCounters(input: ProjectCardInput): Counter[] {
 		}),
 		buildCounter('à valider', input.proposalsPending, {
 			kind: 'proposals_pending',
-			projectSlug: slug
-		}),
-		buildCounter('avis sans réponse', input.reviewsUnanswered, {
-			kind: 'reviews_unanswered',
 			projectSlug: slug
 		})
 	];

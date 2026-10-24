@@ -48,13 +48,6 @@ describe('providerForJobType', () => {
 		expect(providerForJobType('detect:index_transition')).toBe('none');
 	});
 
-	it('GMB-002 lot 2 — le détecteur d’avis relit `gmb_reviews`, donc `none` et non `gmb`', () => {
-		// Le classer `gmb` le mettrait au repos au premier 429 de l'API Business Profile, alors
-		// qu'il n'appelle personne : ce qu'il lit est déjà en base.
-		expect(providerForJobType('detect:review_pending')).toBe('none');
-		expect(jobTypesForProvider('gmb')).toEqual(['collect:gmb_reviews']);
-	});
-
 	it('`post_publish:check` est déjà déclaré GSC (E03 n’aura qu’un handler à poser)', () => {
 		expect(providerForJobType('post_publish:check')).toBe('gsc');
 	});
@@ -132,7 +125,7 @@ describe('resolveLimits — tolérance', () => {
 	it('ne mute jamais les défauts (les maps sont recopiées)', () => {
 		resolveLimits({ perProviderConcurrency: { gsc: 42 }, reservedTypes: ['x'] });
 		expect(LIMIT_DEFAULTS.perProviderConcurrency.gsc).toBe(2);
-		expect(LIMIT_DEFAULTS.reservedTypes).toContain('collect:gmb_reviews');
+		expect(LIMIT_DEFAULTS.reservedTypes).toEqual(['alerts:notify']);
 	});
 });
 
@@ -272,7 +265,6 @@ describe('planAdmission — quota', () => {
 				lastQuotaFailureMsByProvider: {
 					gsc: NOW - 60_000,
 					dataforseo: null,
-					gmb: null,
 					llm: null,
 					none: null
 				}
@@ -292,7 +284,6 @@ describe('planAdmission — quota', () => {
 				lastQuotaFailureMsByProvider: {
 					gsc: NOW - 900_001,
 					dataforseo: null,
-					gmb: null,
 					llm: null,
 					none: null
 				}
@@ -311,7 +302,6 @@ describe('planAdmission — quota', () => {
 				lastQuotaFailureMsByProvider: {
 					gsc: NOW,
 					dataforseo: null,
-					gmb: null,
 					llm: null,
 					none: null
 				}
@@ -545,7 +535,6 @@ describe('computeCapacity', () => {
 				lastQuotaFailureMsByProvider: {
 					gsc: NOW - 1000,
 					dataforseo: null,
-					gmb: null,
 					llm: null,
 					none: null
 				}
@@ -560,12 +549,12 @@ describe('computeCapacity', () => {
 
 	it('budget épuisé sans refroidissement vaut aussi `quota_limited`', () => {
 		const report = computeCapacity({
-			limits: limits({ providerWindowBudget: { ...LIMIT_DEFAULTS.providerWindowBudget, gmb: 5 } }),
-			snapshot: snapshot({ attemptsInWindowByProvider: { ...zeroByProvider(), gmb: 5 } }),
+			limits: limits({ providerWindowBudget: { ...LIMIT_DEFAULTS.providerWindowBudget, dataforseo: 5 } }),
+			snapshot: snapshot({ attemptsInWindowByProvider: { ...zeroByProvider(), dataforseo: 5 } }),
 			fairness: openFairness(),
 			now: NOW
 		});
-		expect(report.providers.find((p) => p.provider === 'gmb')?.state).toBe('quota_limited');
+		expect(report.providers.find((p) => p.provider === 'dataforseo')?.state).toBe('quota_limited');
 	});
 
 	it('les projets viennent des trois sources (en cours, tour, travail en attente)', () => {

@@ -99,7 +99,6 @@ export const projects = seostats.table(
 		image: text('image'),
 		accessToken: text('access_token').notNull().unique(),
 		archived: boolean('archived').notNull().default(false),
-		gmbLocationId: text('gmb_location_id'),
 		clientEmail: text('client_email'),
 		weeklyDigestEnabled: boolean('weekly_digest_enabled').notNull().default(false),
 		createdAt: text('created_at').notNull().default(nowText),
@@ -126,7 +125,6 @@ export const contents = seostats.table(
 		publishedAt: text('published_at'),
 		tags: text('tags'),
 		meta: text('meta'),
-		gmbPostId: text('gmb_post_id'),
 		cmsItemId: text('cms_item_id'),
 		createdAt: text('created_at').notNull().default(nowText),
 		updatedAt: text('updated_at').notNull().default(nowText)
@@ -179,233 +177,6 @@ export const cmsConnections = seostats.table('cms_connections', {
 	updatedAt: text('updated_at').notNull().default(nowText)
 });
 
-// ── GMB tables ─────────────────────────────────────────────────────
-
-export const projectGmbLocations = seostats.table(
-	'project_gmb_locations',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		gmbLocationId: text('gmb_location_id').notNull(),
-		label: text('label').notNull(),
-		address: text('address'),
-		// GMB-002 — la santé de la synchro, par établissement. Le cron avalait ses erreurs dans
-		// un `catch {}` anonyme : impossible de distinguer « mois calme » de « panne depuis
-		// avril ». Ces trois colonnes rendent la question décidable, et portent le `scope` du
-		// détecteur d'avis — un avis n'est jugeable que si SA location a été synchronisée avec
-		// succès ET récemment. Sans DEFAULT : NULL veut dire « jamais synchronisée », un état
-		// qui ne doit pas se lire comme sain.
-		lastSyncAt: text('last_sync_at'),
-		lastSyncStatus: text('last_sync_status'), // 'success' | 'error'
-		lastSyncError: text('last_sync_error'),
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [uniqueIndex('project_gmb_loc_unique').on(table.projectId, table.gmbLocationId)]
-);
-
-export const gmbReviews = seostats.table(
-	'gmb_reviews',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		locationId: text('location_id').notNull(),
-		locationLabel: text('location_label').notNull(),
-		reviewId: text('review_id').notNull().unique(),
-		/** URL officielle fournie par GBP pour ouvrir/repondre a cet avis. Jamais reconstruite. */
-		reviewReplyUrl: text('review_reply_url'),
-		authorName: text('author_name').notNull(),
-		rating: integer('rating').notNull(),
-		comment: text('comment').notNull().default(''),
-		createTime: text('create_time').notNull(),
-		// ── Colonnes LOCALES : ce que le hub propose et ce qu'il croit avoir fait. ──────────
-		draftReply: text('draft_reply'),
-		mentionedEmployees: text('mentioned_employees'),
-		/**
-		 * Marqueur d'écriture LOCALE (« le hub a envoyé »). ⚠️ Déjà contaminé sur les lignes
-		 * antérieures à GMB-002 : `reviews/backfill` y écrivait le `replyTime` de Google. La
-		 * divergence `repliedAt NOT NULL AND remoteReplyAt IS NULL` n'est donc fiable que pour
-		 * les lignes écrites APRÈS ce lot.
-		 */
-		repliedAt: text('replied_at'),
-		// ── Colonnes DISTANTES (GMB-002) : ce que Google dit. Jamais fusionnables avec les ──
-		// ── locales — une colonne unique répondrait « répondu » aux deux questions et ne    ──
-		// ── pourrait jamais se contredire, donc jamais révéler une divergence.              ──
-		/** Le TEXTE publié chez Google. Distinct de `draftReply`, notre proposition. */
-		remoteReplyText: text('remote_reply_text'),
-		/** `reviewReply.updateTime`, format DB. C'est LUI qui dit « cet avis a une réponse ». */
-		remoteReplyAt: text('remote_reply_at'),
-		/** `updateTime` de l'AVIS. L'ancrage de « avis modifié » (GMB-002, SPEC §9.6). */
-		remoteUpdateAt: text('remote_update_at'),
-		/**
-		 * Dernière fois que cette ligne a été VUE chez Google. NULL = état distant jamais lu
-		 * ⇒ hors scope ET hors closure du détecteur (la garde du premier run). Antérieur au
-		 * `lastSyncAt` réussi de sa location ⇒ l'avis a disparu chez Google, sans jamais
-		 * DELETE une ligne.
-		 */
-		lastSeenAt: text('last_seen_at'),
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [
-		index('idx_gmb_reviews_project_last_seen').on(table.projectId, table.lastSeenAt),
-		index('idx_gmb_reviews_project_rating_created').on(
-			table.projectId,
-			table.rating,
-			table.createTime
-		)
-	]
-);
-
-export const employeeMentions = seostats.table(
-	'employee_mentions',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		employeeName: text('employee_name').notNull(),
-		year: integer('year').notNull(),
-		month: integer('month').notNull(),
-		mentionCount: integer('mention_count').notNull().default(0),
-		positiveCount: integer('positive_count').notNull().default(0),
-		neutralCount: integer('neutral_count').notNull().default(0),
-		negativeCount: integer('negative_count').notNull().default(0),
-		updatedAt: text('updated_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('emp_mentions_unique').on(table.projectId, table.employeeName, table.year, table.month)
-	]
-);
-
-export const gmbSettings = seostats.table('gmb_settings', {
-	key: text('key').primaryKey(),
-	value: text('value').notNull()
-});
-
-export const gmbAiReports = seostats.table(
-	'gmb_ai_reports',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		period: text('period').notNull(),
-		model: text('model').notNull(),
-		summaryJson: text('summary_json').notNull(),
-		inputHash: text('input_hash').notNull(),
-		generatedAt: text('generated_at').notNull().default(nowText)
-	},
-	(table) => [uniqueIndex('gmb_ai_reports_unique').on(table.projectId, table.period)]
-);
-
-// Snapshot complet d'une fiche GMB par location.
-export const gmbLocationProfiles = seostats.table(
-	'gmb_location_profiles',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		gmbLocationId: text('gmb_location_id').notNull(),
-		title: text('title').notNull(),
-		phone: text('phone'),
-		websiteUri: text('website_uri'),
-		storeCode: text('store_code'),
-		primaryCategoryDisplay: text('primary_category_display'),
-		primaryCategoryId: text('primary_category_id'),
-		formattedAddress: text('formatted_address'),
-		latitude: doublePrecision('latitude'),
-		longitude: doublePrecision('longitude'),
-		openStatus: text('open_status'),
-		storefrontAddress: text('storefront_address'),
-		additionalPhones: text('additional_phones'),
-		additionalCategories: text('additional_categories'),
-		regularHours: text('regular_hours'),
-		specialHours: text('special_hours'),
-		serviceItems: text('service_items'),
-		profileDescription: text('profile_description'),
-		labels: text('labels'),
-		attributes: text('attributes'),
-		rawPayload: text('raw_payload'),
-		etag: text('etag'),
-		syncedAt: text('synced_at').notNull().default(nowText),
-		updatedAt: text('updated_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('gmb_loc_profile_unique').on(table.projectId, table.gmbLocationId),
-		index('idx_gmb_loc_profile_synced').on(table.syncedAt)
-	]
-);
-
-// Métriques journalières Business Profile Performance API.
-export const gmbInsightsDaily = seostats.table(
-	'gmb_insights_daily',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		gmbLocationId: text('gmb_location_id').notNull(),
-		date: text('date').notNull(),
-		metric: text('metric').notNull(),
-		value: integer('value').notNull().default(0),
-		fetchedAt: text('fetched_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('gmb_insights_unique').on(table.gmbLocationId, table.date, table.metric),
-		index('idx_gmb_insights_proj_date').on(table.projectId, table.date)
-	]
-);
-
-// Audit log des éditions de fiche GMB depuis le hub.
-export const gmbProfileEdits = seostats.table(
-	'gmb_profile_edits',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		gmbLocationId: text('gmb_location_id').notNull(),
-		section: text('section').notNull(),
-		updateMask: text('update_mask'),
-		payload: text('payload').notNull(),
-		success: boolean('success').notNull(),
-		errorMessage: text('error_message'),
-		changedBy: text('changed_by').notNull().default('admin'),
-		changedAt: text('changed_at').notNull().default(nowText)
-	},
-	(table) => [index('idx_gmb_edits_loc_date').on(table.gmbLocationId, table.changedAt)]
-);
-
-export const publishLogs = seostats.table(
-	'publish_logs',
-	{
-		id: text('id').primaryKey(),
-		contentId: text('content_id')
-			.notNull()
-			.references(() => contents.id),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		channel: text('channel').notNull().default('gmb'),
-		locationId: text('location_id'),
-		locationLabel: text('location_label'),
-		success: boolean('success').notNull(),
-		gmbPostId: text('gmb_post_id'),
-		errorMessage: text('error_message'),
-		attemptedAt: text('attempted_at').notNull().default(nowText),
-		durationMs: integer('duration_ms'),
-		source: text('source').notNull().default('cron')
-	},
-	(table) => [
-		index('idx_publish_logs_project_date').on(table.projectId, table.attemptedAt),
-		index('idx_publish_logs_content').on(table.contentId)
-	]
-);
-
 // ── Project contexts ──────────────────────────────────────────────
 
 export const projectContexts = seostats.table('project_contexts', {
@@ -417,13 +188,6 @@ export const projectContexts = seostats.table('project_contexts', {
 	context: text('context').notNull(),
 	createdAt: text('created_at').notNull().default(nowText),
 	updatedAt: text('updated_at').notNull().default(nowText)
-});
-
-// ── LinkedIn tables ───────────────────────────────────────────────
-
-export const linkedinSettings = seostats.table('linkedin_settings', {
-	key: text('key').primaryKey(),
-	value: text('value').notNull()
 });
 
 // ── Google Indexing API ────────────────────────────────────────────
@@ -586,9 +350,8 @@ export const seoReports = seostats.table(
 
 // ── DATA-002 — Intégrations & projections (socle agentique, SPEC §7.1/§7.2) ──
 
-// Unifie (à terme) les intégrations éparses (indexing_credentials, gmb_settings,
-// linkedin_settings, cms_connections). `resource_key` discrimine plusieurs
-// propriétés/localisations d'un même provider (propriété GSC, gmb_location_id…)
+// Unifie (à terme) les intégrations éparses (indexing_credentials, cms_connections). `resource_key` discrimine plusieurs
+// propriétés d'un même provider (propriété GSC…)
 // → unique (project_id, provider, resource_key), zéro collision.
 // ⚠️ Les SECRETS ne sont jamais ici : `secret_ref` pointe vers leur emplacement,
 // `configuration_json` ne porte que du non-secret (garde `assertNoInlineSecret`).
@@ -599,7 +362,7 @@ export const projectIntegrations = seostats.table(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => projects.id),
-		provider: text('provider').notNull(), // 'gsc' | 'gmb' | 'indexing' | 'linkedin' | 'cms' | 'plausible' | 'indexnow'
+		provider: text('provider').notNull(), // 'gsc' | 'indexing' | 'cms' | 'plausible' | 'indexnow'
 		resourceKey: text('resource_key').notNull().default(''), // propriété/localisation ; '' si singleton
 		enabled: boolean('enabled').notNull().default(false),
 		status: text('status').notNull().default('inactive'), // 'inactive' | 'active' | 'error' | 'revoked'
@@ -780,9 +543,10 @@ export const jobs = seostats.table(
 // (projet + dimensions + période) garantit que deux collectes identiques ne
 // dupliquent pas. Un index (projet, période/date) couvre les fenêtres 7/28/90 j.
 //
-// Cinq tables sont ancrées sur une source vivante à migrer (gsc_query_page,
-// gsc_page, gmb_insight, keyword_rank, index) ; cinq préfigurent un collecteur à
-// venir (sitemap, plausible, backlink, ai_visibility, gmb_review). expand étant
+// Quatre tables sont ancrées sur une source vivante à migrer (gsc_query_page,
+// gsc_page, keyword_rank, index) ; quatre préfigurent un collecteur à venir
+// (sitemap, plausible, backlink, ai_visibility). Les deux tables GMB ont été retirées
+// le 2026-10-24. expand étant
 // additif, les secondes s'élargiront sans rupture quand leur provider arrivera.
 
 // 1. GSC query×page×device (← gsc_query_page_data, 73k). Période hebdo.
@@ -1147,66 +911,6 @@ export const aiVisibilityObservations = seostats.table(
 	]
 );
 
-// 9. Avis GMB comme observation d'état (← gmb_reviews). Recouvre l'existant
-// `gmb_reviews` (conservé) : ici on capture l'état dérivé daté pour la série
-// temporelle réputation, sans dupliquer le texte de l'avis (→ payload/finding).
-export const gmbReviewObservations = seostats.table(
-	'gmb_review_observations',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		runId: text('run_id').references(() => monitoringRuns.id),
-		provider: text('provider').notNull().default('gmb'),
-		schemaVersion: integer('schema_version').notNull().default(1),
-		observedDate: text('observed_date').notNull(),
-		locationId: text('location_id').notNull(),
-		reviewId: text('review_id').notNull(),
-		rating: integer('rating'),
-		sentiment: text('sentiment'), // positive | neutral | negative
-		hasReply: boolean('has_reply').notNull().default(false),
-		replyLatencyHours: integer('reply_latency_hours'),
-		payloadJson: text('payload_json'),
-		fetchedAt: text('fetched_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('gmb_review_obs_unique').on(table.projectId, table.reviewId, table.observedDate),
-		index('idx_gmb_review_obs_project_date').on(table.projectId, table.observedDate),
-		index('idx_gmb_review_obs_project_location').on(table.projectId, table.locationId)
-	]
-);
-
-// 10. Métriques Performance GMB (← gmb_insights_daily). 1 row/(location,date,metric).
-export const gmbInsightObservations = seostats.table(
-	'gmb_insight_observations',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		runId: text('run_id').references(() => monitoringRuns.id),
-		provider: text('provider').notNull().default('gmb'),
-		schemaVersion: integer('schema_version').notNull().default(1),
-		observedDate: text('observed_date').notNull(),
-		locationId: text('location_id').notNull(),
-		metric: text('metric').notNull(), // BUSINESS_IMPRESSIONS_* | WEBSITE_CLICKS | CALL_CLICKS | …
-		value: integer('value').notNull().default(0),
-		payloadJson: text('payload_json'),
-		fetchedAt: text('fetched_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('gmb_insight_obs_unique').on(
-			table.projectId,
-			table.locationId,
-			table.observedDate,
-			table.metric
-		),
-		index('idx_gmb_insight_obs_project_date').on(table.projectId, table.observedDate),
-		index('idx_gmb_insight_obs_location_date').on(table.locationId, table.observedDate)
-	]
-);
-
 // ── DATA-005 — Findings & journal de décisions (SPEC §7.6/§7.7) ──────
 //
 // Un finding = une INTERPRÉTATION déterministe persistante (jamais un fait brut →
@@ -1429,100 +1133,6 @@ export const agentRuns = seostats.table(
 	]
 );
 
-// ── DATA-007 — Politiques d'avis & d'automatisation (SPEC §7.10) ─────
-//
-// Une policy gouverne le comportement d'automatisation des réponses aux avis (et
-// autres actions cadencées) pour un projet, éventuellement affiné par localisation.
-// Elle est VERSIONNÉE (même modèle que project_projections) : on ne modifie jamais
-// une policy en place — on en promeut une nouvelle version, l'ancienne passe
-// `superseded`. Cela garantit qu'« aucune ancienne proposition ne profite
-// silencieusement d'une nouvelle policy » : une proposition/approbation référence
-// la version effective au moment où elle a été évaluée.
-//
-// Invariants portés par le module pur policy-state.ts :
-//   - le `kill_switch` bloque les ENVOIS sans bloquer la synchronisation
-//     (evaluatePolicyGates : syncAllowed ignore le kill switch) ;
-//   - `draft_only`/`manual` n'autorisent jamais l'envoi autonome ; seul
-//     `guarded_auto` envoie, et uniquement les avis éligibles (canAutoSendReview).
-//
-// `scope_key` = `location_id ?? '*'` : rend le partial-unique « une seule policy
-// courante par scope » robuste face aux NULL (Postgres traite les NULL comme
-// distincts, ce qui casserait l'unicité de la policy projet-wide).
-export const reviewAutomationPolicies = seostats.table(
-	'review_automation_policies',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		locationId: text('location_id'), // nullable = policy projet-wide (toutes localisations)
-		scopeKey: text('scope_key').notNull(), // location_id ?? '*' (robustesse NULL du unique current)
-		version: integer('version').notNull().default(1),
-		policyHash: text('policy_hash').notNull(), // hash canonique de la config → dédup re-promotion identique
-		mode: text('mode').notNull().default('draft_only'), // draft_only|guarded_auto|manual (§7.10)
-		syncEnabled: boolean('sync_enabled').notNull().default(true), // sync des avis (indépendante du kill switch)
-		autoGenerationEnabled: boolean('auto_generation_enabled').notNull().default(false),
-		killSwitch: boolean('kill_switch').notNull().default(false), // bloque les ENVOIS, jamais la sync
-		minRatingForAutoSend: integer('min_rating_for_auto_send'), // note minimale pour envoi auto (ex. 5)
-		sendDelayMinutes: integer('send_delay_minutes'), // délai avant envoi
-		jitterMinutes: integer('jitter_minutes'), // jitter aléatoire ajouté au délai
-		sendWindowsJson: text('send_windows_json'), // plages horaires autorisées (JSON borné)
-		defaultLanguage: text('default_language'),
-		signature: text('signature'),
-		escalationCategoriesJson: text('escalation_categories_json'), // catégories nécessitant validation (JSON borné)
-		maxSendsPerRun: integer('max_sends_per_run'), // nombre max d'envois par run
-		status: text('status').notNull().default('current'), // current|superseded
-		promotedBy: text('promoted_by'), // dénormalisé ; le détail vit dans policy_promotions
-		promotedAt: text('promoted_at'),
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [
-		// Chaque version d'un scope est unique ; l'historique se lit par version croissante.
-		uniqueIndex('review_automation_policies_version_unique').on(
-			table.projectId,
-			table.scopeKey,
-			table.version
-		),
-		// Une seule policy courante par scope (projet + localisation ou projet-wide).
-		uniqueIndex('review_automation_policies_one_current')
-			.on(table.projectId, table.scopeKey)
-			.where(sql`status = 'current'`),
-		index('idx_review_automation_policies_project_status').on(table.projectId, table.status)
-	]
-);
-
-// Journal APPEND-ONLY des promotions de policy (BACKLOG DATA-007 « tracer toute
-// promotion »). Une ligne par transition de version : ancienne→nouvelle version,
-// ancien→nouveau mode, nature (create|mode_change|kill_switch|config_change),
-// auteur et cause. Jamais d'update/delete → la policy effective à toute date se
-// reconstruit depuis ce journal (« la policy effective est visible dans l'audit »).
-export const policyPromotions = seostats.table(
-	'policy_promotions',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id')
-			.notNull()
-			.references(() => projects.id),
-		policyId: text('policy_id') // la nouvelle version créée
-			.notNull()
-			.references(() => reviewAutomationPolicies.id),
-		fromPolicyId: text('from_policy_id').references(() => reviewAutomationPolicies.id), // version précédente (nullable = 1re)
-		scopeKey: text('scope_key').notNull(),
-		fromVersion: integer('from_version'), // nullable = création
-		toVersion: integer('to_version').notNull(),
-		fromMode: text('from_mode'),
-		toMode: text('to_mode').notNull(),
-		kind: text('kind').notNull(), // create|mode_change|kill_switch|config_change
-		actor: text('actor').notNull(), // qui a promu (user|agent|policy|system…)
-		reason: text('reason'), // cause de la promotion
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [
-		index('idx_policy_promotions_policy').on(table.policyId),
-		index('idx_policy_promotions_project_scope').on(table.projectId, table.scopeKey)
-	]
-);
-
 // ── DATA-008 — Rétention, agrégation & purge (SPEC §7.11) ───────────
 //
 // Politique validée (§7.11) : observations détaillées = 24 mois ; agrégats,
@@ -1572,7 +1182,7 @@ export const observationAggregates = seostats.table(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => projects.id),
-		source: text('source').notNull(), // gsc_query_page|gsc_page|gmb_insight|keyword_rank…
+		source: text('source').notNull(), // gsc_query_page|gsc_page|keyword_rank…
 		grain: text('grain').notNull(), // week|month|year
 		periodStart: text('period_start').notNull(),
 		periodEnd: text('period_end').notNull(),
@@ -1674,7 +1284,7 @@ export const jobAttempts = seostats.table(
 // L'ordre compte — on RÉSERVE la clé d'abord (`pending`), on applique ensuite :
 // appliquer avant de réserver laisserait une fenêtre de double effet.
 // `status='failed'` reste REPRENABLE (l'effet n'a pas abouti, il doit pouvoir l'être).
-// Brique dont IDX-007 (outbox IndexNow) et la publication GMB auront besoin.
+// Brique dont IDX-007 (outbox IndexNow) aura besoin.
 export const jobEffects = seostats.table(
 	'job_effects',
 	{
@@ -1708,9 +1318,8 @@ export const jobEffects = seostats.table(
 //
 // Pourquoi une table plutôt qu'une variable d'environnement : sur Vercel une variable
 // d'env n'est relue qu'au REDÉPLOIEMENT, ce qui ne tient pas l'acceptation « les
-// limites sont configurables sans redéploiement ». Pourquoi pas `gmb_settings`, qui est
-// pourtant déjà un KV (`key`/`value`) et sert déjà à des clés non-GMB : y ranger les
-// quotas GSC ferait mentir son nom à la prochaine lecture.
+// limites sont configurables sans redéploiement ». Pourquoi pas `gmb_settings` (KV retiré
+// avec GMB le 2026-10-24) : y ranger les quotas GSC aurait fait mentir son nom.
 //
 // Les caps PAR PROJET, eux, ne vivent pas ici mais dans `project_projections.payload`
 // (calque exact des `schedules` de JOB-005) : c'est la maison du réglage par projet.
@@ -1948,144 +1557,3 @@ export const weeklyReports = seostats.table(
 	]
 );
 
-// ── GMB-004→007 — réponses aux avis : candidat immuable & livraison auditée ──
-
-/** `gmb_reviews.draft_reply` reste une projection UI ; ce candidat porte l'autorité d'envoi. */
-export const reviewReplyProposals = seostats.table(
-	'review_reply_proposals',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id').notNull().references(() => projects.id),
-		reviewId: text('review_id').notNull(),
-		locationId: text('location_id').notNull(),
-		reviewSnapshotHash: text('review_snapshot_hash').notNull(),
-		reviewRating: integer('review_rating').notNull(),
-		reviewComment: text('review_comment').notNull(),
-		remoteUpdateAt: text('remote_update_at'),
-		proposalHash: text('proposal_hash').notNull(),
-		replyText: text('reply_text').notNull(),
-		language: text('language').notNull(),
-		projectionId: text('projection_id').references(() => projectProjections.id),
-		projectionHash: text('projection_hash').notNull(),
-		policyId: text('policy_id').references(() => reviewAutomationPolicies.id),
-		policyVersion: integer('policy_version').notNull(),
-		policyHash: text('policy_hash').notNull(),
-		idempotencyKey: text('idempotency_key'),
-		requestedBy: text('requested_by'),
-		gateStatus: text('gate_status').notNull(),
-		gateReasonsJson: text('gate_reasons_json').notNull(),
-		state: text('state').notNull().default('drafted'),
-		scheduledAt: text('scheduled_at'),
-		reservationId: text('reservation_id'),
-		reservedAt: text('reserved_at'),
-		sentAt: text('sent_at'),
-		verifiedAt: text('verified_at'),
-		cancelledAt: text('cancelled_at'),
-		cancellationReason: text('cancellation_reason'),
-		createdAt: text('created_at').notNull().default(nowText),
-		updatedAt: text('updated_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('review_reply_proposals_candidate_unique').on(table.projectId, table.reviewId, table.reviewSnapshotHash, table.proposalHash),
-		uniqueIndex('review_reply_proposals_idempotency_unique')
-			.on(table.projectId, table.idempotencyKey)
-			.where(sql`idempotency_key IS NOT NULL`),
-		uniqueIndex('review_reply_proposals_one_live_review').on(table.projectId, table.reviewId).where(sql`state NOT IN ('verified', 'conflict', 'cancelled')`),
-		index('idx_review_reply_proposals_publishable').on(table.state, table.scheduledAt),
-		index('idx_review_reply_proposals_project_review').on(table.projectId, table.reviewId)
-	]
-);
-
-/** Journal append-only : un PUT interrompu reste `write_unknown` jusqu'au GET Google. */
-export const reviewReplyDeliveries = seostats.table(
-	'review_reply_deliveries',
-	{
-		id: text('id').primaryKey(),
-		proposalId: text('proposal_id').notNull().references(() => reviewReplyProposals.id),
-		projectId: text('project_id').notNull().references(() => projects.id),
-		effectKey: text('effect_key').notNull(),
-		attemptNo: integer('attempt_no').notNull().default(1),
-		state: text('state').notNull(),
-		outboundBodyHash: text('outbound_body_hash').notNull(),
-		httpStatus: integer('http_status'),
-		errorClass: text('error_class'),
-		errorMessage: text('error_message'),
-		remoteReplyText: text('remote_reply_text'),
-		remoteReplyAt: text('remote_reply_at'),
-		verifiedAt: text('verified_at'),
-		createdAt: text('created_at').notNull().default(nowText),
-		updatedAt: text('updated_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('review_reply_deliveries_effect_unique').on(table.projectId, table.effectKey),
-		index('idx_review_reply_deliveries_proposal').on(table.proposalId, table.createdAt)
-	]
-);
-
-/** Audit append-only de chaque transition d'une tentative de publication. */
-export const reviewReplyDeliveryEvents = seostats.table(
-	'review_reply_delivery_events',
-	{
-		id: text('id').primaryKey(),
-		deliveryId: text('delivery_id').notNull().references(() => reviewReplyDeliveries.id),
-		proposalId: text('proposal_id').notNull().references(() => reviewReplyProposals.id),
-		projectId: text('project_id').notNull().references(() => projects.id),
-		state: text('state').notNull(),
-		detailJson: text('detail_json'),
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [index('idx_review_reply_delivery_events_delivery').on(table.deliveryId, table.createdAt)]
-);
-
-/**
- * Proposition de mention issue d'Hermes. Elle reste candidate jusqu'a une validation
- * explicite ; aucune colonne ne porte un montant ou un compteur de prime.
- */
-export const reviewMentionCandidates = seostats.table(
-	'review_mention_candidates',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id').notNull().references(() => projects.id),
-		reviewId: text('review_id').notNull(),
-		locationId: text('location_id').notNull(),
-		detectedToken: text('detected_token').notNull(),
-		normalizedToken: text('normalized_token').notNull(),
-		sentiment: text('sentiment').notNull(),
-		evidence: text('evidence').notNull(),
-		confidence: doublePrecision('confidence').notNull(),
-		rosterVersion: text('roster_version'),
-		status: text('status').notNull().default('candidate'),
-		resolutionJson: text('resolution_json'),
-		idempotencyKey: text('idempotency_key').notNull(),
-		createdBy: text('created_by').notNull(),
-		createdAt: text('created_at').notNull().default(nowText),
-		updatedAt: text('updated_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('review_mention_candidates_idempotency_unique').on(table.projectId, table.idempotencyKey),
-		index('idx_review_mention_candidates_review').on(table.projectId, table.reviewId),
-		index('idx_review_mention_candidates_status').on(table.projectId, table.status)
-	]
-);
-
-/** Cloture mensuelle immuable : une correction cree une revision, jamais un UPDATE. */
-export const reviewMonthlyReports = seostats.table(
-	'review_monthly_reports',
-	{
-		id: text('id').primaryKey(),
-		projectId: text('project_id').notNull().references(() => projects.id),
-		periodKey: text('period_key').notNull(),
-		timezone: text('timezone').notNull().default('Europe/Zurich'),
-		revision: integer('revision').notNull().default(1),
-		payloadJson: text('payload_json').notNull(),
-		payloadHash: text('payload_hash').notNull(),
-		supersedesId: text('supersedes_id'),
-		createdBy: text('created_by').notNull(),
-		createdAt: text('created_at').notNull().default(nowText)
-	},
-	(table) => [
-		uniqueIndex('review_monthly_reports_revision_unique').on(table.projectId, table.periodKey, table.revision),
-		uniqueIndex('review_monthly_reports_payload_unique').on(table.projectId, table.periodKey, table.payloadHash),
-		index('idx_review_monthly_reports_period').on(table.projectId, table.periodKey)
-	]
-);

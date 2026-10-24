@@ -7,23 +7,10 @@
 	let { data } = $props();
 
 	const TYPE_LABELS: Record<string, string> = {
-		article: 'Article',
-		linkedin: 'LinkedIn',
-		gmb: 'GMB'
+		article: 'Article'
 	};
 
-	const isGmb = $derived(data.content.type === 'gmb');
-
-	const renderedBody = $derived(() => {
-		if (isGmb) {
-			try {
-				return JSON.stringify(JSON.parse(data.content.body), null, 2);
-			} catch {
-				return data.content.body;
-			}
-		}
-		return renderMarkdown(data.content.body);
-	});
+	const renderedBody = $derived(() => renderMarkdown(data.content.body));
 </script>
 
 <div>
@@ -60,13 +47,9 @@
 
 	<!-- Body -->
 	<div class="mt-8">
-		{#if isGmb}
-			<pre class="overflow-x-auto rounded-lg border border-surface-200 bg-surface-50 p-4 text-sm text-surface-700">{renderedBody()}</pre>
-		{:else}
-			<article class="prose max-w-none">
-				{@html renderedBody()}
-			</article>
-		{/if}
+		<article class="prose max-w-none">
+			{@html renderedBody()}
+		</article>
 	</div>
 
 	<!-- Tags -->

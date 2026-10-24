@@ -99,8 +99,8 @@ export const PATCH: RequestHandler = async (event) => {
 		// vouloir SAVOIR si elle est indexée — souvent l'inverse (même raison qui a écarté
 		// `exclude_patterns` de la sélection au lot 1).
 		//
-		// Limité au type `article` : seul lui a une page sur le site du client. Un post GMB ou
-		// LinkedIn paierait du quota d'inspection pour une URL qui n'existe pas.
+		// Limité au type `article` : seul lui a une page sur le site du client. Un autre type
+		// paierait du quota d'inspection pour une URL qui n'existe pas.
 		//
 		// `await`, contrairement à `publishUrl` : c'est une écriture LOCALE, sans réseau ni
 		// quota — la laisser filer masquerait une erreur de base. Mais sous garde : planifier

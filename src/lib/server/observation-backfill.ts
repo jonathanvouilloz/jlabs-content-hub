@@ -17,7 +17,6 @@
 import type {
 	UpsertGscQueryPageInput,
 	UpsertGscPageInput,
-	UpsertGmbInsightInput,
 	UpsertKeywordRankInput
 } from './observations.js';
 
@@ -37,15 +36,6 @@ export interface GscQueryPageSourceRow {
 	impressions: number;
 	ctr: number;
 	position: number;
-}
-
-/** Ligne `gmb_insights_daily`. */
-export interface GmbInsightSourceRow {
-	projectId: string;
-	date: string;
-	gmbLocationId: string;
-	metric: string;
-	value: number;
 }
 
 /**
@@ -133,19 +123,6 @@ export function rollupPagesFromQueryPage(rows: GscQueryPageSourceRow[]): UpsertG
 		});
 	}
 	return out;
-}
-
-// ── 3. GMB insight (1:1) ────────────────────────────────────────────
-
-export function toGmbInsightInput(row: GmbInsightSourceRow): UpsertGmbInsightInput {
-	return {
-		projectId: row.projectId,
-		observedDate: row.date,
-		locationId: row.gmbLocationId,
-		metric: row.metric,
-		value: row.value,
-		...BACKFILL_DEFAULTS
-	};
 }
 
 // ── 4. Keyword rank (dérivé, watchlist seulement) ───────────────────

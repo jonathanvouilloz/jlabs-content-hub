@@ -12,13 +12,13 @@ import {
 } from './observation-state.js';
 
 describe('vocabulaire SPEC §7.5', () => {
-	it('expose 10 domaines d’observation', () => {
-		expect(OBSERVATION_DOMAINS).toHaveLength(10);
-		expect(new Set(OBSERVATION_DOMAINS).size).toBe(10); // pas de doublon
+	it('expose 8 domaines d’observation (GMB retiré le 2026-10-24)', () => {
+		expect(OBSERVATION_DOMAINS).toHaveLength(8);
+		expect(new Set(OBSERVATION_DOMAINS).size).toBe(8); // pas de doublon
 	});
 	it('les providers couvrent les émetteurs attendus', () => {
 		expect(OBSERVATION_PROVIDERS).toContain('gsc');
-		expect(OBSERVATION_PROVIDERS).toContain('gmb');
+		expect(OBSERVATION_PROVIDERS).not.toContain('gmb');
 		expect(OBSERVATION_PROVIDERS).toContain('indexing');
 	});
 });
@@ -30,14 +30,14 @@ describe('deriveObservationFingerprint', () => {
 		expect(key).toBe(['gsc_query_page', ...dims].join(FINGERPRINT_SEP));
 	});
 	it('est déterministe (mêmes dimensions → même clé) — pas de doublon', () => {
-		const parts = ['proj1', 'loc42', '2026-07-21', 'WEBSITE_CLICKS'];
-		expect(deriveObservationFingerprint('gmb_insight', parts)).toBe(
-			deriveObservationFingerprint('gmb_insight', parts)
+		const parts = ['proj1', 'https://ex.ch/p', '2026-07-21', 'muay thai'];
+		expect(deriveObservationFingerprint('keyword_rank', parts)).toBe(
+			deriveObservationFingerprint('keyword_rank', parts)
 		);
 	});
 	it('deux dimensions différentes → clés différentes', () => {
-		expect(deriveObservationFingerprint('gmb_insight', ['p', 'l', 'd', 'A'])).not.toBe(
-			deriveObservationFingerprint('gmb_insight', ['p', 'l', 'd', 'B'])
+		expect(deriveObservationFingerprint('keyword_rank', ['p', 'l', 'd', 'A'])).not.toBe(
+			deriveObservationFingerprint('keyword_rank', ['p', 'l', 'd', 'B'])
 		);
 	});
 	it('rejette une liste vide', () => {

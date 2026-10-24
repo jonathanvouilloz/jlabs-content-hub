@@ -5,17 +5,13 @@
 	let { data } = $props();
 
 	const TYPE_LABELS: Record<string, string> = {
-		article: 'Article',
-		linkedin: 'LinkedIn',
-		gmb: 'GMB'
+		article: 'Article'
 	};
 
 	// ── Filters ─────────────────────────────────────────────────────
 	const TABS = [
 		{ value: '', label: 'Tous' },
-		{ value: 'article', label: 'Articles' },
-		{ value: 'linkedin', label: 'LinkedIn' },
-		{ value: 'gmb', label: 'GMB' }
+		{ value: 'article', label: 'Articles' }
 	];
 
 	let activeTab = $state('');
@@ -239,21 +235,7 @@
 					</div>
 
 					<div class="max-h-[500px] overflow-y-auto p-4">
-						{#if selectedContent.type === 'gmb' && selectedContent.gmbData}
-							{@const gmb = selectedContent.gmbData}
-							<p class="text-sm leading-relaxed text-surface-700">{gmb.content}</p>
-							{#if gmb.cta}
-								<div class="mt-3 flex items-center gap-2">
-									<span class="rounded bg-primary-50 px-2 py-0.5 text-xs text-primary-700">{gmb.cta.action}</span>
-									<a href={gmb.cta.url} target="_blank" rel="noopener" class="text-xs text-primary-600 hover:underline truncate">{gmb.cta.url}</a>
-								</div>
-							{/if}
-							{#if gmb.event_start_date}
-								<div class="mt-2 text-xs text-surface-400">
-									Evenement : {formatDate(gmb.event_start_date)} — {formatDate(gmb.event_end_date)}
-								</div>
-							{/if}
-						{:else if selectedContent.renderedBody}
+						{#if selectedContent.renderedBody}
 							<div class="prose prose-sm max-w-none">
 								{@html selectedContent.renderedBody}
 							</div>

@@ -1,14 +1,14 @@
 import { error } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { projects, cmsConnections, gmbSettings, linkedinSettings, projectGmbLocations } from '$lib/server/db/schema.js';
+import { projects, cmsConnections } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 
 export const load: LayoutServerLoad = async ({ params }) => {
 	const project = await db.query.projects.findFirst({
 		columns: {
 			id: true, name: true, slug: true, entityId: true, description: true,
-			color: true, image: true, archived: true, gmbLocationId: true,
+			color: true, image: true, archived: true,
 			clientEmail: true, weeklyDigestEnabled: true, createdAt: true, updatedAt: true
 		},
 		where: eq(projects.slug, params.slug)
@@ -23,34 +23,11 @@ export const load: LayoutServerLoad = async ({ params }) => {
 		.where(eq(cmsConnections.projectId, project.id))
 		.then((r) => r[0]);
 
-	// Check GMB connection (global account tokens)
-	const gmbTokens = await db
-		.select()
-		.from(gmbSettings)
-		.where(eq(gmbSettings.key, 'account_tokens'))
-		.then((r) => r[0]);
-
-	// Check GMB locations assigned
-	const gmbLocations = await db
-		.select()
-		.from(projectGmbLocations)
-		.where(eq(projectGmbLocations.projectId, project.id));
-
-	// Check LinkedIn connection (global account tokens)
-	const linkedinTokens = await db
-		.select()
-		.from(linkedinSettings)
-		.where(eq(linkedinSettings.key, 'account_tokens'))
-		.then((r) => r[0]);
-
 	return {
 		project: { ...project },
 		connections: {
 			cms: !!cmsConnection,
-			cmsType: cmsConnection?.cmsType ?? null,
-			gmb: !!gmbTokens && gmbLocations.length > 0,
-			gmbLocation: gmbLocations.length > 0,
-			linkedin: !!linkedinTokens
+			cmsType: cmsConnection?.cmsType ?? null
 		}
 	};
 };

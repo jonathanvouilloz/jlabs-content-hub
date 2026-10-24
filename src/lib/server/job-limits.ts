@@ -52,7 +52,7 @@
  * (détection, production de propositions, expiration de veilles) : il compte dans les
  * plafonds de concurrence, jamais dans un budget provider.
  */
-export const JOB_PROVIDERS = ['gsc', 'dataforseo', 'gmb', 'llm', 'none'] as const;
+export const JOB_PROVIDERS = ['gsc', 'dataforseo', 'llm', 'none'] as const;
 export type JobProvider = (typeof JOB_PROVIDERS)[number];
 
 /**
@@ -85,13 +85,6 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// d'inspection met aussi la collecte GSC au repos, ce qui est exactement voulu sur un compte
 	// que les 6 projets partagent.
 	'collect:url_inspection': 'gsc',
-	// GMB-002 — cohorte SÉPARÉE de `gsc`, et c'est le point : le hub n'a qu'un compte Google
-	// Business Profile (`gmb_settings.account_tokens`), distinct du service account Search
-	// Console. Un 429 sur les avis ne doit pas endormir la collecte GSC, ni l'inverse — ce
-	// sont deux pools de quota qui n'ont rien à voir. `perProviderConcurrency.gmb` et
-	// `providerWindowBudget.gmb` étaient déjà déclarés par JOB-006 : ce type est le premier
-	// à les faire mordre.
-	'collect:gmb_reviews': 'gmb',
 	'detect:keyword_opportunity': 'none',
 	// FIND-005 — le détecteur de baisses relit `gsc_query_page_observations`, déjà payées
 	// par la collecte. Le classer `gsc` le mettrait au repos avec la cohorte au premier
@@ -109,15 +102,6 @@ export const PROVIDER_BY_JOB_TYPE: Readonly<Record<string, JobProvider>> = {
 	// avec la cohorte au premier 429, alors qu'il n'a aucune raison d'attendre : ce qu'il lit est
 	// déjà acquis.
 	'detect:index_transition': 'none',
-	// GMB-002 lot 2 — le détecteur d'avis relit `gmb_reviews` et `project_gmb_locations`, déjà
-	// payées par `collect:gmb_reviews`. Le classer `gmb` le mettrait au repos avec la cohorte au
-	// premier 429 de l'API Business Profile, alors qu'il n'appelle personne. Il n'entre pas non
-	// plus dans `reservedTypes` : la réserve protège la COLLECTE qui coûte du quota, pas la
-	// relecture de ce qu'elle a écrit.
-	'detect:review_pending': 'none',
-	// GMB-009 — cette détection appelle un modèle et doit rejoindre sa cohorte de
-	// capacité/retry ; ce n'est ni une relecture SQL (`none`), ni du quota GBP (`gmb`).
-	'detect:employee_mentions': 'llm',
 	'findings:lifecycle': 'none',
 	'propose:actions': 'none',
 	// Fan-out : un POST HMAC vers le receiver Agent Ops, sans quota Google/LLM. Les retries
@@ -169,7 +153,7 @@ export interface JobLimits {
 	perProjectPerLap: number;
 	/** Places gardées pour `reservedTypes` quand la capacité globale se resserre. */
 	reservedSlots: number;
-	/** Types prioritaires (avis, alertes) — les seuls réclamables sur la réserve. */
+	/** Types prioritaires (alertes) — les seuls réclamables sur la réserve. */
 	reservedTypes: string[];
 	/** Fenêtre glissante du budget provider. */
 	providerWindowMs: number;
@@ -194,20 +178,17 @@ export const QUOTA_LIMITED_CODE = 'QuotaLimited';
 export const LIMIT_DEFAULTS: JobLimits = {
 	globalConcurrency: 4,
 	perProjectConcurrency: 2,
-	perProviderConcurrency: { gsc: 2, dataforseo: 2, gmb: 2, llm: 2, none: 0 },
+	perProviderConcurrency: { gsc: 2, dataforseo: 2, llm: 2, none: 0 },
 	// 25 jobs / 6 projets ≈ 4 : un tour de 5 laisse une marge sans qu'un projet
 	// puisse jamais enchaîner tout un tick.
 	perProjectPerLap: 5,
 	reservedSlots: 1,
-	// SPEC §8.1 — synchronisation des avis et notification d'alerte.
-	//
-	// ⚠️ `reviews:sync` était un type FANTÔME : il n'a jamais existé dans aucun registre de
-	// handlers, donc la réserve armée par JOB-006 ne pouvait mordre sur rien. GMB-002 lui
-	// donne son vrai nom (`collect:gmb_reviews`) — c'est bien pour lui qu'elle avait été
-	// posée. `alerts:notify` reste sans handler (E06/TEL-002 BLOCKED) : armé, pas mordant.
-	reservedTypes: ['collect:gmb_reviews', 'alerts:notify'],
+	// SPEC §8.1 — notification d'alerte. La collecte des avis (`collect:gmb_reviews`) en
+	// faisait partie jusqu'au retrait de GMB (2026-10-24). `alerts:notify` reste sans handler
+	// (E06/TEL-002 BLOCKED) : armé, pas mordant.
+	reservedTypes: ['alerts:notify'],
 	providerWindowMs: 60 * 60 * 1000,
-	providerWindowBudget: { gsc: 200, dataforseo: 100, gmb: 200, llm: 100, none: 0 },
+	providerWindowBudget: { gsc: 200, dataforseo: 100, llm: 100, none: 0 },
 	cooldownMs: 15 * 60 * 1000
 };
 
@@ -380,7 +361,6 @@ export function emptySnapshot(): QueueSnapshot {
 		lastQuotaFailureMsByProvider: {
 			gsc: null,
 			dataforseo: null,
-			gmb: null,
 			llm: null,
 			none: null
 		}
@@ -388,7 +368,7 @@ export function emptySnapshot(): QueueSnapshot {
 }
 
 export function zeroByProvider(): Record<JobProvider, number> {
-	return { gsc: 0, dataforseo: 0, gmb: 0, llm: 0, none: 0 };
+	return { gsc: 0, dataforseo: 0, llm: 0, none: 0 };
 }
 
 // ── Équité : le TOUR ────────────────────────────────────────────────

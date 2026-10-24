@@ -2,11 +2,11 @@
  * DATA-004 — Écriture d'observations (upsert idempotent).
  *
  * Un upsert par domaine ANCRÉ sur une source vivante (gsc_query_page, gsc_page,
- * index, keyword_rank, gmb_insight). Chaque upsert vise l'unique de sa table :
+ * index, keyword_rank). Chaque upsert vise l'unique de sa table :
  * deux collectes identiques ne créent JAMAIS deux lignes (acceptation DATA-004),
  * elles rafraîchissent les métriques + `fetched_at` + `run_id`.
  *
- * Les tables encore spéculatives (plausible, backlink, ai_visibility, gmb_review)
+ * Les tables encore spéculatives (plausible, backlink, ai_visibility)
  * restent SANS write-helper tant que leur collecteur n'existe pas : on n'écrit pas
  * ce qu'on ne collecte pas encore.
  *
@@ -38,7 +38,6 @@ import {
 	gscPageObservations,
 	indexObservations,
 	keywordRankObservations,
-	gmbInsightObservations,
 	sitemapObservations,
 	sitemapUrlObservations
 } from './db/schema.js';
@@ -386,56 +385,6 @@ export async function upsertKeywordRankObservation(
 			set: fields
 		})
 		.returning({ id: keywordRankObservations.id });
-	return { id: rows[0].id };
-}
-
-// ── 10. Métriques Performance GMB ───────────────────────────────────
-
-export interface UpsertGmbInsightInput {
-	projectId: string;
-	observedDate: string;
-	locationId: string;
-	metric: string;
-	value?: number;
-	runId?: string | null;
-	schemaVersion?: number;
-	payloadJson?: string | null;
-}
-
-export async function upsertGmbInsightObservation(
-	input: UpsertGmbInsightInput,
-	client?: AppDb
-): Promise<{ id: string }> {
-	guardPayload(input.payloadJson, 'payload gmb_insight_observations');
-	const db = await resolveDb(client);
-	const id = createId();
-	const fields = {
-		value: input.value ?? 0,
-		runId: input.runId ?? null,
-		payloadJson: input.payloadJson ?? null,
-		fetchedAt: nowDb()
-	};
-	const rows = await db
-		.insert(gmbInsightObservations)
-		.values({
-			id,
-			projectId: input.projectId,
-			observedDate: input.observedDate,
-			locationId: input.locationId,
-			metric: input.metric,
-			schemaVersion: input.schemaVersion ?? 1,
-			...fields
-		})
-		.onConflictDoUpdate({
-			target: [
-				gmbInsightObservations.projectId,
-				gmbInsightObservations.locationId,
-				gmbInsightObservations.observedDate,
-				gmbInsightObservations.metric
-			],
-			set: fields
-		})
-		.returning({ id: gmbInsightObservations.id });
 	return { id: rows[0].id };
 }
 

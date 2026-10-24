@@ -26,11 +26,7 @@ const logger = log('config');
 export type ConfigRole =
 	| 'core' // base de données, socle commun
 	| 'auth' // Better Auth + chiffrement des tokens
-	| 'google' // OAuth Google (GSC + GMB)
-	| 'linkedin' // OAuth LinkedIn
-	| 'llm' // synthèse IA (API OpenAI-compatible)
 	| 'notifications' // emails Resend
-	| 'storage' // Vercel Blob (images GMB)
 	| 'cron' // routes planifiées /api/cron/*
 	| 'platform'; // injecté par la plateforme (Vercel), jamais à définir soi-même
 
@@ -57,27 +53,15 @@ export const CONFIG_SCHEMA: readonly ConfigVar[] = [
 	{ name: 'BETTER_AUTH_SECRET', role: 'auth', requirement: 'boot', secret: true, description: 'Secret de signature des sessions Better Auth.' },
 	{ name: 'BETTER_AUTH_URL', role: 'auth', requirement: 'feature', secret: false, description: 'URL canonique de l’app pour Better Auth.' },
 	{ name: 'BETTER_AUTH_TRUSTED_ORIGINS', role: 'auth', requirement: 'optional', secret: false, description: 'Origines supplémentaires acceptées (CSV).' },
-	{ name: 'ENCRYPTION_KEY', role: 'auth', requirement: 'boot', secret: true, description: 'Clé 32 bytes hex de chiffrement des tokens OAuth stockés.' },
+	{ name: 'ENCRYPTION_KEY', role: 'auth', requirement: 'boot', secret: true, description: 'Clé 32 bytes hex de chiffrement des secrets stockés (CMS, indexation).' },
 	{ name: 'MACHINE_CREDENTIALS_JSON', role: 'auth', requirement: 'feature', secret: true, description: 'Credentials machine hashés, scopés, expirables et révocables (JSON).' },
 	{ name: 'CORE_RECONCILER_URL', role: 'core', requirement: 'feature', secret: false, description: 'Endpoint contrôlé du reconciler core.entities.' },
 	{ name: 'CORE_RECONCILER_TOKEN', role: 'core', requirement: 'feature', secret: true, description: 'Bearer serveur vers le reconciler core.' },
-	// google
-	{ name: 'GOOGLE_CLIENT_ID', role: 'google', requirement: 'feature', secret: false, description: 'Client OAuth Google (GSC + GMB).' },
-	{ name: 'GOOGLE_CLIENT_SECRET', role: 'google', requirement: 'feature', secret: true, description: 'Secret OAuth Google.' },
-	// linkedin
-	{ name: 'LINKEDIN_CLIENT_ID', role: 'linkedin', requirement: 'feature', secret: false, description: 'Client OAuth LinkedIn.' },
-	{ name: 'LINKEDIN_CLIENT_SECRET', role: 'linkedin', requirement: 'feature', secret: true, description: 'Secret OAuth LinkedIn.' },
-	// llm
-	{ name: 'LLM_API_KEY', role: 'llm', requirement: 'feature', secret: true, description: 'Clé API LLM (OpenAI-compatible) pour la synthèse IA.' },
-	{ name: 'LLM_BASE_URL', role: 'llm', requirement: 'optional', secret: false, description: 'Base URL LLM (défaut Moonshot).' },
-	{ name: 'LLM_MODEL', role: 'llm', requirement: 'optional', secret: false, description: 'Modèle LLM (défaut kimi-k2.6).' },
 	// notifications
 	{ name: 'RESEND_API_KEY', role: 'notifications', requirement: 'feature', secret: true, description: 'Clé API Resend pour les emails.' },
 	{ name: 'FROM_EMAIL', role: 'notifications', requirement: 'feature', secret: false, description: 'Expéditeur des emails (domaine vérifié Resend).' },
-	{ name: 'ADMIN_EMAIL', role: 'notifications', requirement: 'feature', secret: false, description: 'Destinataire admin des digests/alertes.' },
+	{ name: 'ADMIN_EMAIL', role: 'notifications', requirement: 'feature', secret: false, description: 'Destinataire admin des alertes.' },
 	{ name: 'PUBLIC_APP_URL', role: 'notifications', requirement: 'optional', secret: false, description: 'Base URL publique pour les liens dans les emails.' },
-	// storage
-	{ name: 'BLOB_READ_WRITE_TOKEN', role: 'storage', requirement: 'feature', secret: true, description: 'Token Vercel Blob (upload images GMB).' },
 	// cron
 	{ name: 'CRON_SECRET', role: 'cron', requirement: 'feature', secret: true, description: 'Bearer attendu par les routes /api/cron/*.' },
 	// platform (injectées par Vercel)

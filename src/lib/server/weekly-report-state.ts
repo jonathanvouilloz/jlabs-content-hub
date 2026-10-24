@@ -233,13 +233,15 @@ export type SectionKey =
 	| 'opportunities'
 	| 'indexation'
 	| 'traffic_conversions'
+	/** Historique : produite jusqu'au retrait de GMB (2026-10-24), relue dans les rapports archivés. */
 	| 'reviews'
 	| 'proposed_actions'
 	| 'approvals_requested'
 	| 'automation_health';
 
 /**
- * Les douze sections de SPEC §14.1, **dans l'ordre de la spec**.
+ * Les sections de SPEC §14.1, **dans l'ordre de la spec**. `reviews` n'est plus produite
+ * depuis le retrait de GMB (2026-10-24) ; son titre reste pour relire les rapports archivés.
  *
  * L'ordre vit dans le tableau `sections` du rapport, pas dans le moteur de rendu : le JSON
  * archivé porte donc son propre plan, et un rapport de 2026 se relira dans son ordre d'origine
@@ -270,7 +272,6 @@ export const SECTION_ORDER: SectionKey[] = [
 	'opportunities',
 	'indexation',
 	'traffic_conversions',
-	'reviews',
 	'proposed_actions',
 	'approvals_requested',
 	'automation_health'
@@ -366,16 +367,6 @@ export interface ReportIndexationInput {
 	wired: boolean;
 }
 
-export interface ReportReviewsInput {
-	projectSlug: string;
-	unanswered: number;
-	/** Avis reçus dans la période. */
-	received: number;
-	/** Avis 1–2 étoiles reçus dans la période (§14.3 : notification immédiate). */
-	negative: number;
-	wired: boolean;
-}
-
 export interface ReportTrafficInput {
 	projectSlug: string;
 	visits: number;
@@ -409,7 +400,6 @@ export interface WeeklyReportInput {
 	/** Propositions en attente de décision AUJOURD'HUI — la file, pas l'activité. */
 	proposalsPending: ReportSet<ReportProposalInput>;
 	indexation: ReportIndexationInput[];
-	reviews: ReportReviewsInput[];
 	traffic: ReportTrafficInput[];
 	costs: CostSummary;
 	runStatusCounts: Record<string, number>;
@@ -859,62 +849,6 @@ function trafficSection(input: WeeklyReportInput): ReportSection {
 	};
 }
 
-function reviewsSection(input: WeeklyReportInput): ReportSection {
-	const rows = input.reviews;
-	const withData = rows.filter((r) => r.unanswered > 0 || r.received > 0);
-	const availability = deriveAvailability({
-		wired: rows.some((r) => r.wired),
-		hasData: withData.length > 0,
-		data: withData,
-		label: 'Avis Google'
-	});
-	if (!availability.available) {
-		return { key: 'reviews', title: SECTION_TITLES.reviews, body: availability };
-	}
-	const unanswered = withData.reduce((a, r) => a + r.unanswered, 0);
-	const negative = withData.reduce((a, r) => a + r.negative, 0);
-	const items: ReportItem[] = withData.map((r) => ({
-		label: r.projectSlug,
-		detail: `${r.received} reçus · ${r.unanswered} sans réponse · ${r.negative} négatifs (1–2★)`,
-		projectSlug: r.projectSlug,
-		// Un avis négatif pèse plus qu'un avis sans réponse : §14.3 en fait une notification
-		// immédiate. Le rang le dit au lieu de le laisser au lecteur.
-		rank: r.negative * 10 + r.unanswered,
-		source: observationSource('gmb_reviews', `/projects/${r.projectSlug}/reviews`)
-	}));
-	const { items: capped, truncated } = capItems(items, input.maxItemsPerSection ?? DEFAULT_MAX_ITEMS_PER_SECTION);
-	return {
-		key: 'reviews',
-		title: SECTION_TITLES.reviews,
-		body: present({
-			metrics: [
-				{
-					key: 'reviews.unanswered',
-					label: 'avis sans réponse',
-					value: unanswered,
-					display: plural(unanswered, 'avis', 'avis'),
-					source: observationSource('gmb_reviews')
-				},
-				{
-					key: 'reviews.negative',
-					label: 'avis négatifs de la période',
-					value: negative,
-					display: plural(negative, 'avis', 'avis'),
-					source: observationSource('gmb_reviews')
-				}
-			],
-			items: capped,
-			truncated,
-			// Volontairement vide, et ce n'est PAS l'oubli que c'est pour le trafic. Un projet
-			// sans fiche Google n'est pas un angle mort : c'est un fait métier (un SaaS B2B n'en
-			// a pas). Déclarer sept angles morts pour un domaine qui ne s'applique pas ferait
-			// crier une section qui n'a rien à dire — l'inverse exact de ce qu'on cherche.
-			blindSpots: [],
-			note: 'les projets sans fiche Google ne sont pas listés : l’absence de fiche est un fait métier, pas un angle mort'
-		})
-	};
-}
-
 function proposalsSection(input: {
 	key: 'proposed_actions' | 'approvals_requested';
 	proposals: ReportSet<ReportProposalInput>;
@@ -1089,7 +1023,6 @@ export function buildWeeklyReport(input: WeeklyReportInput): WeeklyReport {
 		}),
 		indexationSection(input),
 		trafficSection(input),
-		reviewsSection(input),
 		proposalsSection({
 			key: 'proposed_actions',
 			proposals: input.proposalsCreated,

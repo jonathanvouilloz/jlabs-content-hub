@@ -3,7 +3,6 @@ import {
 	weightedPosition,
 	rollupPagesFromQueryPage,
 	toGscQueryPageInput,
-	toGmbInsightInput,
 	pickKeywordRankRow,
 	buildKeywordRankInputs,
 	toKeywordRankInput,
@@ -109,28 +108,6 @@ describe('toGscQueryPageInput', () => {
 			impressions: 50,
 			ctr: 0.04,
 			position: 6.5,
-			runId: null,
-			schemaVersion: 1,
-			payloadJson: null
-		});
-	});
-});
-
-describe('toGmbInsightInput', () => {
-	it('mappe date → observed_date et location_id', () => {
-		const input = toGmbInsightInput({
-			projectId: 'p1',
-			date: '2026-07-20',
-			gmbLocationId: 'loc42',
-			metric: 'WEBSITE_CLICKS',
-			value: 17
-		});
-		expect(input).toMatchObject({
-			projectId: 'p1',
-			observedDate: '2026-07-20',
-			locationId: 'loc42',
-			metric: 'WEBSITE_CLICKS',
-			value: 17,
 			runId: null,
 			schemaVersion: 1,
 			payloadJson: null

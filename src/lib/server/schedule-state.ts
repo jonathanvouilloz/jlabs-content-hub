@@ -436,18 +436,6 @@ export interface CatalogEntry {
  * compilation).
  */
 export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
-	// La synchronisation des avis a désormais un handler (`collect:gmb_reviews`, GMB-002),
-	// mais elle est au catalogue QUOTIDIEN, pas ici — et c'est une décision, pas un oubli.
-	//
-	// SPEC §8.1 prescrit « toutes les heures » et §17.3 pose le SLO « nouvel avis synchronisé
-	// en moins de 2 heures ». La cadence quotidienne CASSE ce SLO par construction (jusqu'à
-	// 24 h d'attente). Le choix est assumé et tracé dans `docs/DECISIONS.md` : le parc mesuré
-	// (4 projets avec fiche, 382 avis, ~1 nouvel avis par jour) ne justifie pas 24 réveils
-	// quotidiens sur un compte Google unique, et le geste de répondre reste humain.
-	//
-	// ⚠️ Repasser en horaire est donc un geste DÉLIBÉRÉ — pas une correction évidente à faire
-	// en lisant la SPEC. Il faudra alors déplacer l'entrée ici ET son détecteur, sans quoi le
-	// détecteur jugerait 24 fois par jour un état qui ne bouge qu'une fois.
 	hourly: [],
 	// Les veilles doivent expirer même une semaine sans détection (FIND-003).
 	//
@@ -464,9 +452,6 @@ export const SCHEDULE_CATALOG: Record<ScheduleCadence, CatalogEntry[]> = {
 	// L'arête vers le détecteur est OBLIGATOIRE, comme en hebdo : détecter sur une inspection
 	// périmée est exactement le bug que GSC-002 a fermé côté Search Analytics. Un « toujours
 	// pas indexé à J+3 » devient donc un finding le jour même, au lieu d'attendre le run hebdo.
-	//
-	// GMB retiré le 2026-10-19 : la collecte des avis, leur détecteur et l'extraction des mentions
-	// sortent du cadran. Le code des handlers reste jusqu'à la migration OpenSEO, plus rien ne le planifie.
 	daily: [
 		{ jobType: 'findings:lifecycle', priority: 5 },
 		{

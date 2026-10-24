@@ -156,7 +156,6 @@ export const CAPACITY_STATE_LABEL: Record<string, string> = {
 export const PROVIDER_LABEL: Record<string, string> = {
 	gsc: 'Search Console',
 	dataforseo: 'DataForSEO',
-	gmb: 'Google Business',
 	llm: 'LLM',
 	none: 'interne (aucun appel externe)'
 };

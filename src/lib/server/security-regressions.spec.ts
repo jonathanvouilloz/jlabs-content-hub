@@ -27,11 +27,6 @@ describe('frontière serveur des credentials', () => {
 		expect(source).not.toMatch(/return\s*\{[\s\S]*project\s*,/);
 	});
 
-	it('ne fabrique jamais un lien email depuis le vérificateur stocké', () => {
-		const path = resolve(process.cwd(), 'src/routes/api/cron/gmb-weekly-digest/+server.ts');
-		const source = readFileSync(path, 'utf8');
-		expect(source).not.toMatch(/project\.accessToken|token=\$\{project/);
-	});
 });
 
 describe('politique transitoire des routes validateApiKey', () => {

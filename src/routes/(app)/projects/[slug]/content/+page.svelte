@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { FileText, MapPin } from 'lucide-svelte';
-	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
+	import { FileText } from 'lucide-svelte';
 	import ContentTable from '$lib/components/ContentTable.svelte';
 	import ContentPreview from '$lib/components/ContentPreview.svelte';
 	import { formatDate } from '$lib/utils/dates.js';
@@ -65,14 +64,6 @@
 			<div class="flex items-center gap-1.5">
 				<FileText size={14} class="text-surface-400" />
 				<span class="text-surface-500">{data.typeCounts.article}</span>
-			</div>
-			<div class="flex items-center gap-1.5">
-				<LinkedinIcon size={14} class="text-surface-400" />
-				<span class="text-surface-500">{data.typeCounts.linkedin}</span>
-			</div>
-			<div class="flex items-center gap-1.5">
-				<MapPin size={14} class="text-surface-400" />
-				<span class="text-surface-500">{data.typeCounts.gmb}</span>
 			</div>
 		</div>
 

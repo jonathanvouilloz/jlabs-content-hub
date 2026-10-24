@@ -5,7 +5,6 @@
  * à partir des sources vivantes. Additif : aucune table source n'est touchée.
  *   A+B. gsc_query_page_data → gsc_query_page_observations (1:1)
  *        + rollup page-level → gsc_page_observations (agrégé par snapshot/semaine)
- *   C.   gmb_insights_daily → gmb_insight_observations (1:1)
  *   D.   tracked_keywords × gsc_query_page_data → keyword_rank_observations (watchlist)
  *
  * Pattern runner (cf. apply-data-004.ts) : Pool propre + drizzle client autonome
@@ -26,10 +25,8 @@ import { createId } from '../src/lib/server/utils.js';
 import {
 	toGscQueryPageInput,
 	rollupPagesFromQueryPage,
-	toGmbInsightInput,
 	buildKeywordRankInputs,
 	type GscQueryPageSourceRow,
-	type GmbInsightSourceRow,
 	type KeywordRankSourceRow
 } from '../src/lib/server/observation-backfill.js';
 
@@ -43,7 +40,7 @@ if (!process.env.DATABASE_URL) {
 const DRY_RUN = process.argv.includes('--dry-run');
 // Limite Postgres = 65535 paramètres bind par requête. La table la plus large
 // (gsc_query_page_observations) insère 16 colonnes/ligne → 4000×16 = 64000 params,
-// sous la limite avec marge. Sert aussi de taille de page keyset (passGmb).
+// sous la limite avec marge.
 const CHUNK = 4000;
 const nowIso = () => new Date().toISOString();
 
@@ -165,47 +162,6 @@ async function upsertGscPage(inputs: ReturnType<typeof rollupPagesFromQueryPage>
 	return inputs.length;
 }
 
-async function upsertGmbInsight(inputs: ReturnType<typeof toGmbInsightInput>[]): Promise<number> {
-	const deduped = dedupBy(inputs, (i) =>
-		[i.projectId, i.locationId, i.observedDate, i.metric].join('\x1f')
-	);
-	if (DRY_RUN || deduped.length === 0) return deduped.length;
-	for (const part of chunk(deduped, CHUNK)) {
-		await db
-			.insert(schema.gmbInsightObservations)
-			.values(
-				part.map((i) => ({
-					id: createId(),
-					projectId: i.projectId,
-					provider: 'gmb',
-					schemaVersion: 1,
-					observedDate: i.observedDate,
-					locationId: i.locationId,
-					metric: i.metric,
-					value: i.value ?? 0,
-					runId: null,
-					payloadJson: null,
-					fetchedAt: nowIso()
-				}))
-			)
-			.onConflictDoUpdate({
-				target: [
-					schema.gmbInsightObservations.projectId,
-					schema.gmbInsightObservations.locationId,
-					schema.gmbInsightObservations.observedDate,
-					schema.gmbInsightObservations.metric
-				],
-				set: {
-					value: sql`excluded.value`,
-					runId: sql`excluded.run_id`,
-					payloadJson: sql`excluded.payload_json`,
-					fetchedAt: sql`excluded.fetched_at`
-				}
-			});
-	}
-	return deduped.length;
-}
-
 async function upsertKeywordRank(inputs: ReturnType<typeof buildKeywordRankInputs>): Promise<number> {
 	// clés uniques par construction (buildKeywordRankInputs groupe déjà) → pas de dédup requise.
 	if (DRY_RUN || inputs.length === 0) return inputs.length;
@@ -304,43 +260,6 @@ async function passGsc(): Promise<void> {
 	console.log(`  B. gsc_page_observations       : ${pageTotal} (rollup page-level)`);
 }
 
-// ── Passe C : GMB insights (keyset par id) ──────────────────────────
-
-async function passGmb(): Promise<void> {
-	let after = '';
-	let total = 0;
-	for (;;) {
-		const { rows } = await pool.query<{
-			id: string;
-			projectId: string;
-			date: string;
-			gmbLocationId: string;
-			metric: string;
-			value: number;
-		}>(
-			`SELECT id, project_id AS "projectId", date, gmb_location_id AS "gmbLocationId", metric, value
-			   FROM seostats.gmb_insights_daily WHERE id > $1 ORDER BY id LIMIT $2`,
-			[after, CHUNK]
-		);
-		if (rows.length === 0) break;
-		after = rows[rows.length - 1].id;
-		const inputs = rows.map((r) =>
-			toGmbInsightInput({
-				projectId: r.projectId,
-				date: r.date,
-				gmbLocationId: r.gmbLocationId,
-				metric: r.metric,
-				value: r.value
-			} satisfies GmbInsightSourceRow)
-		);
-		total += await upsertGmbInsight(inputs);
-		if (rows.length < CHUNK) break;
-	}
-	console.log(`  C. gmb_insight_observations    : ${total}`);
-}
-
-// ── Passe D : keyword rank (tracked × gsc_query_page_data) ───────────
-
 async function passKeywordRank(): Promise<void> {
 	const { rows } = await pool.query<{
 		projectId: string;
@@ -370,7 +289,6 @@ async function passKeywordRank(): Promise<void> {
 async function main() {
 	console.log(`Backfill observations${DRY_RUN ? ' [DRY-RUN — aucune écriture]' : ''} …`);
 	await passGsc();
-	await passGmb();
 	await passKeywordRank();
 	console.log(DRY_RUN ? 'Dry-run terminé (compteurs attendus ci-dessus).' : 'Backfill terminé.');
 	await pool.end();

@@ -26,16 +26,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	// Pre-render bodies server-side (gray-matter needs Node.js Buffer)
 	const contentsWithRendered = projectContents.map((c) => {
-		if (c.type === 'gmb') {
-			try {
-				const gmb = JSON.parse(c.body);
-				return { ...c, renderedBody: null, gmbData: gmb };
-			} catch {
-				return { ...c, renderedBody: null, gmbData: null };
-			}
-		}
 		const { content } = parseFrontmatter(c.body);
-		return { ...c, renderedBody: renderMarkdown(content), gmbData: null };
+		return { ...c, renderedBody: renderMarkdown(content) };
 	});
 
 	return {

@@ -72,7 +72,7 @@ export interface Logger {
 	child(module: string): Logger;
 }
 
-/** Crée un logger attaché à un nom de module (ex: `log('gmb')`). */
+/** Crée un logger attaché à un nom de module (ex: `log('gsc')`). */
 export function log(module: string): Logger {
 	return {
 		debug: (msg, fields) => emit('debug', module, msg, fields),

@@ -107,7 +107,6 @@ function card(over: Partial<ProjectCardInput> = {}): ProjectCardInput {
 		openBySeverity: over.openBySeverity ?? {},
 		activity: over.activity ?? activity(),
 		proposalsPending: over.proposalsPending ?? 0,
-		reviewsUnanswered: over.reviewsUnanswered ?? 0,
 		jobsDead: over.jobsDead ?? 0,
 		gscLastSuccessAt: over.gscLastSuccessAt ?? '2026-07-24 09:00:00',
 		detectors: over.detectors ?? detectors(),
@@ -222,14 +221,6 @@ describe('compteurs : le nombre et son lien viennent du même filtre', () => {
 		const url = new URL(counterHref({ kind: 'proposals_pending', projectSlug: 'alpha' })!, 'https://x');
 		expect(url.pathname).toBe('/inbox');
 		expect(url.searchParams.get('status')).toBe('proposed');
-	});
-
-	it('un compteur sans liste cohérente n’a PAS de lien plutôt qu’un lien qui mentirait', () => {
-		// Aucune vue cross-projet des avis n'existe : sans slug, pas de lien.
-		expect(counterHref({ kind: 'reviews_unanswered', projectSlug: null })).toBeNull();
-		expect(counterHref({ kind: 'reviews_unanswered', projectSlug: 'alpha' })).toBe(
-			'/projects/alpha/reviews'
-		);
 	});
 
 	it('DASH-006 — les runs de la période ouvrent la liste qui applique le MÊME filtre', () => {

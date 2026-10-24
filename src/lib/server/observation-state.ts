@@ -20,9 +20,7 @@ export const OBSERVATION_DOMAINS = [
 	'plausible_page',
 	'keyword_rank',
 	'backlink',
-	'ai_visibility',
-	'gmb_review',
-	'gmb_insight'
+	'ai_visibility'
 ] as const;
 export type ObservationDomain = (typeof OBSERVATION_DOMAINS)[number];
 
@@ -32,8 +30,7 @@ export const OBSERVATION_PROVIDERS = [
 	'indexing',
 	'plausible',
 	'dataforseo',
-	'ai',
-	'gmb'
+	'ai'
 ] as const;
 export type ObservationProvider = (typeof OBSERVATION_PROVIDERS)[number];
 

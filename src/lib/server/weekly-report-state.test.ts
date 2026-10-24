@@ -67,7 +67,6 @@ function card(over: Partial<ProjectCardInput> = {}): ProjectCard {
 		openBySeverity: {},
 		activity: { created: 0, aggravated: 0, improved: 0, resolved: 0 },
 		proposalsPending: 0,
-		reviewsUnanswered: 0,
 		jobsDead: 0,
 		gscLastSuccessAt: '2026-07-26 09:00:00',
 		detectors: detectors(3),
@@ -148,7 +147,6 @@ function input(over: Partial<WeeklyReportInput> = {}): WeeklyReportInput {
 				wired: true
 			}
 		],
-		reviews: [{ projectSlug: 'alpha', unanswered: 2, received: 4, negative: 1, wired: true }],
 		traffic: [{ projectSlug: 'alpha', visits: 0, conversions: 0, wired: false }],
 		costs: {
 			instrumented: false,
@@ -492,15 +490,17 @@ describe('buildWeeklyReport — JSON versionné, déterministe', () => {
 		);
 	});
 
-	it('les douze sections de §14.1 sont là, dans l’ordre de la spec', () => {
+	it('les sections de §14.1 sont là, dans l’ordre de la spec', () => {
 		expect(buildWeeklyReport(input()).sections.map((s) => s.key)).toEqual(SECTION_ORDER);
 	});
 
 	it('l’ordre vit dans le JSON, donc un rapport archivé garde son plan', () => {
 		const report = buildWeeklyReport(input());
-		expect(report.sections).toHaveLength(12);
+		expect(report.sections).toHaveLength(11);
 		expect(report.sections[0].key).toBe('executive_summary');
-		expect(report.sections[11].key).toBe('automation_health');
+		expect(report.sections[10].key).toBe('automation_health');
+		// Retrait de GMB (2026-10-24) : la section avis n'est plus produite.
+		expect(report.sections.map((x) => x.key)).not.toContain('reviews');
 	});
 });
 
@@ -549,7 +549,7 @@ describe('renderWeeklyReportText', () => {
 		expect(renderWeeklyReportText(report)).toBe(text);
 	});
 
-	it('numérote les douze sections dans l’ordre du JSON', () => {
+	it('numérote les sections dans l’ordre du JSON', () => {
 		report.sections.forEach((s, i) => {
 			expect(text).toContain(`## ${i + 1}. ${s.title}`);
 		});
@@ -618,9 +618,9 @@ describe('renderWeeklyReportText', () => {
 	});
 
 	it('ne bégaie pas quand le libellé EST le projet', () => {
-		// La section avis liste des projets : « [alpha] alpha » ne dit pas deux fois, il bégaie.
+		// La section indexation liste des projets : « [alpha] alpha » ne dit pas deux fois, il bégaie.
 		expect(text).not.toMatch(/\[alpha\] alpha/);
-		expect(textBlock(text, 'Avis Google')).toMatch(/- alpha — 4 reçus/);
+		expect(textBlock(text, 'Indexation')).toMatch(/- alpha — 8\/10 indexées/);
 	});
 
 	it('porte la période et la version en tête', () => {
@@ -711,41 +711,6 @@ describe('section indexation', () => {
 		);
 		const s = sectionOf(report, 'indexation');
 		expect(s.body.available).toBe(false);
-	});
-});
-
-// ── Avis : l'absence de fiche n'est pas un angle mort ───────────────
-
-describe('section avis', () => {
-	it('ne déclare AUCUN angle mort pour un projet sans fiche — et le dit', () => {
-		const report = buildWeeklyReport(
-			input({
-				projects: [card({ slug: 'alpha' }), card({ slug: 'beta' })],
-				reviews: [
-					{ projectSlug: 'alpha', unanswered: 1, received: 2, negative: 0, wired: true },
-					{ projectSlug: 'beta', unanswered: 0, received: 0, negative: 0, wired: false }
-				]
-			})
-		);
-		const s = sectionOf(report, 'reviews');
-		if (!s.body.available) throw new Error('section attendue disponible');
-		expect(s.body.data.blindSpots).toEqual([]);
-		expect(s.body.data.note).toMatch(/fait métier, pas un angle mort/);
-	});
-
-	it('un avis négatif pèse plus qu’un avis sans réponse', () => {
-		const report = buildWeeklyReport(
-			input({
-				projects: [card({ slug: 'alpha' }), card({ slug: 'beta' })],
-				reviews: [
-					{ projectSlug: 'alpha', unanswered: 9, received: 9, negative: 0, wired: true },
-					{ projectSlug: 'beta', unanswered: 1, received: 1, negative: 1, wired: true }
-				]
-			})
-		);
-		const s = sectionOf(report, 'reviews');
-		if (!s.body.available) throw new Error('section attendue disponible');
-		expect(s.body.data.items[0].projectSlug).toBe('beta');
 	});
 });
 

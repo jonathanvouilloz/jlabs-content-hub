@@ -15,7 +15,7 @@
  * sur un pooler serverless où chaque aller-retour se paie.
  *
  * Ce que ce module ne fait PAS : recopier un chiffre. Il lit le CANON de chaque domaine
- * (findings, finding_events, action_proposals, gmb_reviews, project_integrations,
+ * (findings, finding_events, action_proposals, project_integrations,
  * monitoring_runs, jobs) et la capacité DÉRIVÉE de JOB-006. L'accueil ne peut donc pas
  * diverger de l'inbox, de `/jobs` ou du détecteur : il n'a pas de source à lui.
  *
@@ -27,7 +27,6 @@ import {
 	actionProposals,
 	findingEvents,
 	findings,
-	gmbReviews,
 	jobs,
 	monitoringRuns,
 	projectIntegrations,
@@ -60,7 +59,6 @@ import {
 	type ProjectCard
 } from './home-state.js';
 import { loadPauseStates } from './pauses.js';
-import { pendingReviewFilter } from './reviews/pending-filter.js';
 import {
 	SCHEDULE_CADENCES,
 	catalogFor,
@@ -171,22 +169,6 @@ async function loadProposalsPending(db: AppDb): Promise<Map<string, number>> {
 		.from(actionProposals)
 		.where(eq(actionProposals.status, 'proposed'))
 		.groupBy(actionProposals.projectId);
-	return new Map(rows.map((r) => [r.projectId, r.n]));
-}
-
-/**
- * Avis Google sans réponse, par projet.
- *
- * GMB-002 — le prédicat vient de `pendingReviewFilter()` et de nulle part ailleurs : il
- * interroge le marqueur local ET la réponse distante. Compter sur `replied_at` seul faisait
- * remonter ici des avis déjà répondus dans l'application Google.
- */
-async function loadReviewsUnanswered(db: AppDb): Promise<Map<string, number>> {
-	const rows = await db
-		.select({ projectId: gmbReviews.projectId, n: sql<number>`count(*)::int` })
-		.from(gmbReviews)
-		.where(pendingReviewFilter())
-		.groupBy(gmbReviews.projectId);
 	return new Map(rows.map((r) => [r.projectId, r.n]));
 }
 
@@ -446,7 +428,6 @@ export async function loadHomeCockpit(input: {
 		openBySeverity,
 		activityByProject,
 		proposalsPending,
-		reviewsUnanswered,
 		jobsDead,
 		integrations,
 		recentRuns,
@@ -461,7 +442,6 @@ export async function loadHomeCockpit(input: {
 		loadOpenBySeverity(input.db),
 		loadActivity(input.db, sinceDb),
 		loadProposalsPending(input.db),
-		loadReviewsUnanswered(input.db),
 		loadJobsDead(input.db),
 		loadIntegrations(input.db),
 		loadRecentRuns(input.db, RECENT_RUNS_LIMIT),
@@ -481,8 +461,8 @@ export async function loadHomeCockpit(input: {
 		const projectIntegrationList = integrations.get(p.id) ?? [];
 		// La fraîcheur du PIPELINE est celle de la collecte GSC : c'est elle qui nourrit le
 		// canon d'observations dont dépend tout le reste. Prendre le dernier succès de
-		// n'importe quel provider ferait passer un projet pour frais parce que LinkedIn a
-		// publié un post.
+		// n'importe quel provider ferait passer un projet pour frais sur un signal qui ne
+		// nourrit pas le canon.
 		const gsc = projectIntegrationList.find((i) => i.provider === FRESHNESS_PROVIDER);
 		// Ce que le catalogue prévoit pour CE projet, croisé au dernier succès réel. Un
 		// détecteur attendu mais jamais exécuté entre ici avec `lastSuccessAt: null` — c'est
@@ -514,7 +494,6 @@ export async function loadHomeCockpit(input: {
 			openBySeverity: openBySeverity.get(p.id) ?? {},
 			activity: activityByProject.get(p.id) ?? emptyActivity(),
 			proposalsPending: proposalsPending.get(p.id) ?? 0,
-			reviewsUnanswered: reviewsUnanswered.get(p.id) ?? 0,
 			jobsDead: jobsDead.get(p.id) ?? 0,
 			gscLastSuccessAt: gsc?.lastSuccessAt ?? null,
 			detectors,
@@ -553,7 +532,6 @@ export async function loadHomeCockpit(input: {
 			sinceDb
 		}),
 		buildCounter('à valider', sum((c) => c.proposalsPending), { kind: 'proposals_pending' }),
-		buildCounter('avis sans réponse', sum((c) => c.reviewsUnanswered), { kind: 'reviews_unanswered' }),
 		buildCounter('dead-letter', sum((c) => c.jobsDead), { kind: 'jobs_failed' })
 	];
 

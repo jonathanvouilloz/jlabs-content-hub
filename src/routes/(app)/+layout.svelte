@@ -21,7 +21,6 @@
 		Inbox,
 		CalendarClock
 	} from 'lucide-svelte';
-	import LinkedinIcon from '$lib/components/ui/LinkedinIcon.svelte';
 	import SyncToast from '$lib/components/SyncToast.svelte';
 
 	let { data, children } = $props();
@@ -63,17 +62,16 @@
 
 	// Project sub-nav items
 	function projectNav(slug: string) {
-		// GMB et LinkedIn retirés de la navigation le 2026-10-19 (routes conservées jusqu'à la migration OpenSEO).
 		return [
-			{ href: `/projects/${slug}`, label: 'Vue d\'ensemble', icon: BarChart3, exact: true, linkedin: false },
+			{ href: `/projects/${slug}`, label: 'Vue d\'ensemble', icon: BarChart3, exact: true },
 			// DASH-003 — « Vue d'ensemble » pointe désormais le cockpit ; le calendrier de
 			// contenus qui occupait cette route a son entrée à lui, au même endroit qu'avant.
-			{ href: `/projects/${slug}/content`, label: 'Contenus', icon: CalendarRange, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/articles`, label: 'Articles', icon: FileText, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/seo-data`, label: 'SEO data', icon: TrendingUp, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/windows`, label: 'Fenêtres', icon: CalendarRange, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/positions`, label: 'Positions', icon: LineChart, exact: false, linkedin: false },
-			{ href: `/projects/${slug}/settings`, label: 'Paramètres', icon: Settings, exact: false, linkedin: false }
+			{ href: `/projects/${slug}/content`, label: 'Contenus', icon: CalendarRange, exact: false },
+			{ href: `/projects/${slug}/articles`, label: 'Articles', icon: FileText, exact: false },
+			{ href: `/projects/${slug}/seo-data`, label: 'SEO data', icon: TrendingUp, exact: false },
+			{ href: `/projects/${slug}/windows`, label: 'Fenêtres', icon: CalendarRange, exact: false },
+			{ href: `/projects/${slug}/positions`, label: 'Positions', icon: LineChart, exact: false },
+			{ href: `/projects/${slug}/settings`, label: 'Paramètres', icon: Settings, exact: false }
 		];
 	}
 </script>
@@ -258,11 +256,7 @@
 									class="mb-px flex items-center gap-2 rounded-md px-2 py-1 text-[13px] transition-colors
 										{active ? 'bg-surface-100 font-medium text-surface-900' : 'text-surface-500 hover:bg-surface-50 hover:text-surface-800'}"
 								>
-									{#if item.linkedin}
-									<LinkedinIcon size={14} />
-								{:else if item.icon}
 									<item.icon size={14} class="flex-shrink-0" />
-								{/if}
 									<span class="truncate">{item.label}</span>
 								</a>
 							{/each}

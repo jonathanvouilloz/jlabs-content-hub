@@ -22,7 +22,6 @@ import { and, eq } from 'drizzle-orm';
 import { projectProjections } from '../db/schema.js';
 import type { AppDb } from '../db/types.js';
 import { listFindings, recordFindingEvent } from '../findings.js';
-import { getCurrentPolicy } from '../policies.js';
 import {
 	computePayloadHash,
 	createProposal,
@@ -162,21 +161,16 @@ export async function loadProjectProposerOverrides(
 }
 
 /**
- * Mode de la policy projet-wide, ou `null` si aucune n'existe. Lu une seule fois
- * par run : la décision d'auto-approbation est la même pour toutes les
- * propositions d'un projet, et `decideAutoApproval` refuse par défaut sans elle.
+ * Mode de la policy projet-wide. Le seul magasin de policies était celui des avis GMB
+ * (`review_automation_policies`, retiré le 2026-10-24) : sans policy, `decideAutoApproval`
+ * refuse par défaut, donc aucune proposition n'est auto-approuvée. C'était déjà le cas en
+ * pratique — `proposal_approvals` n'a jamais reçu de ligne `method = 'policy'`.
  */
 async function loadProjectPolicyGate(
-	db: AppDb,
-	projectId: string
+	_db: AppDb,
+	_projectId: string
 ): Promise<{ mode: string | null; killSwitch: boolean }> {
-	try {
-		const policy = await getCurrentPolicy(projectId, null, db);
-		return { mode: policy?.mode ?? null, killSwitch: Boolean(policy?.killSwitch) };
-	} catch {
-		// Une policy illisible ne doit pas OUVRIR de droits : refus par défaut.
-		return { mode: null, killSwitch: true };
-	}
+	return { mode: null, killSwitch: false };
 }
 
 /** Plafond d'ids embarqués dans `findings_read_json` : un pointeur, pas un dump. */

@@ -21,7 +21,6 @@ export const PUT: RequestHandler = async (event) => {
 	if (body.description !== undefined) updates.description = body.description;
 	if (body.color !== undefined) updates.color = body.color;
 	if (body.archived !== undefined) updates.archived = body.archived;
-	if (body.gmbLocationId !== undefined) updates.gmbLocationId = body.gmbLocationId;
 	if (body.image !== undefined) updates.image = body.image;
 	if (body.clientEmail !== undefined) updates.clientEmail = body.clientEmail || null;
 	if (body.weeklyDigestEnabled !== undefined) updates.weeklyDigestEnabled = !!body.weeklyDigestEnabled;

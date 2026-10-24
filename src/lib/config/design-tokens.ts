@@ -42,9 +42,7 @@ export function statusConfig(status: string) {
 // ─── Content types ───────────────────────────────────────────
 
 export const CONTENT_TYPE = {
-	article: { label: 'Article', icon: 'file-text' as const },
-	linkedin: { label: 'LinkedIn', icon: 'linkedin' as const },
-	gmb: { label: 'GMB', icon: 'map-pin' as const }
+	article: { label: 'Article', icon: 'file-text' as const }
 } as const;
 
 export type ContentType = keyof typeof CONTENT_TYPE;

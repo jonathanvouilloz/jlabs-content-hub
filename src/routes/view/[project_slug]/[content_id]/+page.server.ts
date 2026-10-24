@@ -30,9 +30,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		.orderBy(desc(comments.createdAt));
 
 	// Strip frontmatter server-side (gray-matter needs Node.js Buffer)
-	const strippedBody = content.type !== 'gmb'
-		? parseFrontmatter(content.body).content
-		: content.body;
+	const strippedBody = parseFrontmatter(content.body).content;
 
 	return {
 		content: { ...content, body: strippedBody },

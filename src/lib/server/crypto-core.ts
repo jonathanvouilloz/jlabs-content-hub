@@ -15,7 +15,7 @@
  * Format inchangé — `iv:authTag:ciphertext` en hexadécimal, AES-256-GCM, clé
  * dérivée par scrypt avec le sel historique `'salt'`. Toute modification de la
  * dérivation rendrait ILLISIBLES les secrets déjà en base (6 service accounts,
- * les jetons GMB et LinkedIn) : ce module reproduit l'existant au bit près.
+ * les jetons CMS) : ce module reproduit l'existant au bit près.
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 

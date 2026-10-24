@@ -31,9 +31,7 @@ const OBS_TABLES = [
 	'plausible_page_observations',
 	'keyword_rank_observations',
 	'backlink_observations',
-	'ai_visibility_observations',
-	'gmb_review_observations',
-	'gmb_insight_observations'
+	'ai_visibility_observations'
 ];
 
 async function main() {
@@ -46,7 +44,7 @@ async function main() {
 	await pool.query(sql);
 	console.log('DDL DATA-004 appliqué (idempotent).');
 
-	// Contrôle rapide : les dix tables existent bien.
+	// Contrôle rapide : les tables existent bien.
 	const { rows } = await pool.query<{ table_name: string }>(
 		`SELECT table_name FROM information_schema.tables
 		  WHERE table_schema = 'seostats'
@@ -55,7 +53,7 @@ async function main() {
 		[OBS_TABLES]
 	);
 	const present = rows.map((r) => r.table_name);
-	console.log(`Tables présentes (${present.length}/10) :`, present.join(', ') || '∅');
+	console.log(`Tables présentes (${present.length}/${OBS_TABLES.length}) :`, present.join(', ') || '∅');
 	if (present.length !== OBS_TABLES.length) {
 		const missing = OBS_TABLES.filter((t) => !present.includes(t));
 		console.error('Manquantes :', missing.join(', '));

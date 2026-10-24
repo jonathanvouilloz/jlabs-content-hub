@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
-import { contents, statusHistory, comments, publishLogs } from '$lib/server/db/schema.js';
+import { contents, statusHistory, comments } from '$lib/server/db/schema.js';
 import { validateApiKey, errorResponse, jsonResponse } from '$lib/server/api-auth.js';
 import { eq } from 'drizzle-orm';
 
@@ -51,12 +51,11 @@ export const DELETE: RequestHandler = async (event) => {
 	});
 	if (!content) return errorResponse('Content not found', 404);
 
-	// Cascade: contents has 3 FKs pointing to it (status_history, comments, publish_logs).
+	// Cascade: contents has 2 FKs pointing to it (status_history, comments).
 	// Delete dependents first to avoid FOREIGN KEY constraint failures.
 	try {
 		await db.delete(statusHistory).where(eq(statusHistory.contentId, event.params.id));
 		await db.delete(comments).where(eq(comments.contentId, event.params.id));
-		await db.delete(publishLogs).where(eq(publishLogs.contentId, event.params.id));
 		await db.delete(contents).where(eq(contents.id, event.params.id));
 	} catch (e) {
 		return errorResponse(`Delete failed: ${(e as Error).message}`, 500);
