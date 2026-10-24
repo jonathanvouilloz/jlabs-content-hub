@@ -1,8 +1,7 @@
 # HANDOFF — 2026-10-01
 
 ## Reprendre ici
-**2026-10-25** — Code GMB/LinkedIn supprimé sur la branche `chore/retrait-gmb-linkedin` (`5d92198`, [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md)). Reste : fusionner et déployer, PUIS dry-run et `apply-drop-gmb-linkedin.ts --apply --backup-branch=<branche Neon>`. Ne pas lancer `npm run db:push` d'ici là. Prochain chantier : migration vers OpenSEO.
-
+**2026-10-25** — Retrait GMB/LinkedIn terminé : code fusionné dans `main`, déployé, DROP base appliqué ([features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md)). Prochain chantier : migration vers OpenSEO. Dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate`. À la main (Jonathan) : scopes `review:*` Vercel, accès Google OAuth.
 ---
 
 ## Historique (2026-07-31)

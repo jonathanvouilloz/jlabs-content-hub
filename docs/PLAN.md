@@ -505,7 +505,7 @@ refonte « cockpit agentique de monitoring » du 2026-07-21 :
   fiches de production au lot 1 (restaurées).
   ⚠️ **E08 reste à 1 ticket sur 8** : GMB-003 à GMB-008 sont intouchés.
   Détail → `features/gmb-002-reviews.md` *(supprimé le 2026-10-19)*.
-- **GMB / LinkedIn — retrait** · coupure 2026-10-19 (`62dfe48`) DONE ; suppression du code 2026-10-24 (`5d92198`, branche `chore/retrait-gmb-linkedin`) DONE côté code ; **EN COURS** : DROP base à appliquer après déploiement (`scripts/apply-drop-gmb-linkedin.ts`).
+- **GMB / LinkedIn — retrait** · coupure 2026-10-19 (`62dfe48`) DONE ; suppression du code 2026-10-24 (`5d92198`, branche `chore/retrait-gmb-linkedin`) DONE ; fusionné dans `main` et déployé 2026-10-25, DROP des 19 tables appliqué (branche Neon `backup-2026-10-25-pre-drop-gmb`). Reste à la main : scopes `review:*` Vercel, accès Google OAuth.
   E08 (GMB-003 à GMB-008) n'est plus poursuivi.
   Détail → [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md).
 - **Correspondances** : les douleurs jokiSEO (avis full-auto, rang réel, cannibalisation, indexation) sont

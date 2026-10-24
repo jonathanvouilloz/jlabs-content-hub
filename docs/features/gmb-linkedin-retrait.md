@@ -1,9 +1,17 @@
 # Retrait GMB et LinkedIn
 
-> **Statut** : DONE côté code (branche `chore/retrait-gmb-linkedin`, non fusionnée ni déployée) · **EN ATTENTE** : DROP base · **Livré** : 2026-10-24 · **Commits** : `62dfe48` (coupure, 2026-10-19) puis `5d92198` (suppression du code)
+> **Statut** : DONE · **Livré** : 2026-10-25 · **Commits** : `62dfe48` (coupure, 2026-10-19) puis `5d92198` (suppression du code), tête `00de7c5`
 
 
-## Etat session 2026-10-25
+## Etat session 2026-10-25 (clôture)
+
+**Fait :** branche `chore/retrait-gmb-linkedin` fusionnée en fast-forward dans `main` et poussée (`00de7c5`) · déploiement Vercel prod `jlabs-content-7h7813r45` Ready · branche Neon `backup-2026-10-25-pre-drop-gmb` créée par Jonathan · dry-run relancé (19/19, résidus identiques au 24/10) · `--apply --backup-branch=backup-2026-10-25-pre-drop-gmb` exécuté : « Retrait appliqué : 19 tables et 2 colonnes supprimées. »
+**Prochain :** migration vers OpenSEO. À la main (Jonathan) : scopes machine `review:*` côté Vercel, révocation de l'accès Google OAuth.
+**Pieges :** aucun dry-run de contrôle relancé après le DROP (état post-DROP non vérifié) · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer. Le piège `db:push` est levé : schéma et base sont alignés.
+
+---
+
+## Etat session 2026-10-25 (avant déploiement)
 
 **Fait :** code GMB/LinkedIn supprimé (294 fichiers) · section avis du rapport hebdo et compteur d'accueil retirés · dédup des alertes critiques déplacée vers `system_settings` · migration DROP écrite + dry-run constaté (19/19 tables) · docs mises à jour par doc-keeper.
 **Prochain :** Jonathan relit et autorise le merge/déploiement de `chore/retrait-gmb-linkedin` ; ensuite seulement, branche Neon de sauvegarde puis `npx tsx scripts/apply-drop-gmb-linkedin.ts --apply --backup-branch=<nom>`.
@@ -13,7 +21,7 @@
 ---
 
 ## Ce que ça fait
-Le hub ne gère plus Google Business Profile ni la publication LinkedIn. La coupure du 2026-10-19 (`62dfe48`) a retiré crons, jobs planifiés et onglets ; `5d92198` supprime ensuite tout le code (294 fichiers, -35 026 lignes). Le DROP des tables en base n'est PAS appliqué : il passe par un script dédié.
+Le hub ne gère plus Google Business Profile ni la publication LinkedIn. La coupure du 2026-10-19 (`62dfe48`) a retiré crons, jobs planifiés et onglets ; `5d92198` supprime ensuite tout le code (294 fichiers, -35 026 lignes). Le DROP des 19 tables a été appliqué le 2026-10-25 via un script dédié, après déploiement.
 
 ## Comment ça marche
 Code supprimé : routes UI/API avis, fiches, publications, OAuth Google/LinkedIn, API agent v1 des avis, rapport mensuel d'avis, handlers `collect:gmb_reviews` / `detect:review_pending` / `detect:employee_mentions`, policies d'avis, upload Blob (`@vercel/blob` et `openai` retirés de `package.json`), digests GMB, scripts one-off.
@@ -57,22 +65,25 @@ déployer le code -> branche Neon de sauvegarde -> dry-run -> --apply --backup-b
 - **Par où entrer** : `scripts/apply-drop-gmb-linkedin.ts` (dry-run) pour l'état base ; `notifications.ts` pour les alertes.
 - **Ce qu'on observe** : le dry-run liste tables présentes, lignes et résidus. Après DROP, `Tables encore présentes` doit être absent. Alertes : lignes `system_settings` dont la clé commence par `notify.critical_sent.`.
 - **Pannes connues** : `--apply` sans `--backup-branch` est refusé (voulu) ; une erreur SQL annule toute la transaction ; un `DROP TABLE` qui échoue signale une dépendance inconnue (pas de CASCADE).
-- **Pièges** : ordre obligatoire, code puis migration, sinon l'accueil et le rapport de la prod actuelle plantent sur `gmb_reviews`. `npm run db:push` proposerait les mêmes DROP sans garde-fou : ne pas l'utiliser avant le DROP contrôlé. Le script ne vérifie pas que la branche de sauvegarde existe, il n'en garde que le nom.
+- **Pièges** : ordre obligatoire, code puis migration, sinon l'accueil et le rapport de la prod actuelle plantent sur `gmb_reviews`. `npm run db:push` : plus de risque depuis le DROP du 2026-10-25 (schéma et base alignés). Le script ne vérifie pas que la branche de sauvegarde existe, il n'en garde que le nom.
 
 ## Configuration
-Aucune variable ajoutée. `.env.example` allégé (variables GMB/LinkedIn/Blob retirées). Reste à la main : scopes machine `review:*` côté Vercel, accès Google OAuth à révoquer.
+Aucune variable ajoutée. `.env.example` allégé (variables GMB/LinkedIn/Blob retirées). Reste à la main (non fait) : scopes machine `review:*` côté Vercel, accès Google OAuth à révoquer.
 
 ## Tests et vérifications
 | Vérif | Commande | Résultat réel |
 |---|---|---|
-| Types | `npm run check` | 0 erreur (rapporté, non relancé) |
-| Tests | `npm test` | 1469 verts, 59 fichiers (rapporté, non relancé) |
+| Types | `npm run check` | 0 erreur, 31 warnings a11y préexistants (relancé 2026-10-25) |
+| Tests | `npm test` | 1469 verts, 59 fichiers (relancé 2026-10-25) |
 | Build | `npm run build` | bundling OK ; adaptateur Vercel en échec EPERM symlink Windows (environnement, antérieur) |
-| Dry-run DROP | `npx tsx scripts/apply-drop-gmb-linkedin.ts` | 2026-10-24 : 19/19 tables ; 2055 jobs + 2055 `monitoring_steps` GMB ; 69 findings d'avis ; 73 contenus gmb/linkedin (rapporté, non relancé) |
-| `--apply` | — | NON FAIT |
+| Dry-run DROP | `npx tsx scripts/apply-drop-gmb-linkedin.ts` | 2026-10-24 puis 2026-10-25 : 19/19 tables ; résidus identiques : 2055 jobs + 2055 `monitoring_steps` GMB, 69 findings d'avis, 73 contenus gmb/linkedin. Volumes : `gmb_reviews` 3466, `review_reply_delivery_events` 332, `review_mention_candidates` 288, `publish_logs` 209 (relancé 2026-10-25) |
+| `--apply` | `npx tsx scripts/apply-drop-gmb-linkedin.ts --apply --backup-branch=backup-2026-10-25-pre-drop-gmb` | 2026-10-25 : « Retrait appliqué : 19 tables et 2 colonnes supprimées. » |
+| Dry-run post-DROP | idem sans `--apply` | NON RELANCÉ : absence des tables non vérifiée par le script |
+| Déploiement | Vercel prod | `jlabs-content-7h7813r45` Ready (rapporté) |
 
 ## Limites et dettes
-- DROP base non appliqué : feature non terminée tant qu'il n'est pas passé après déploiement.
+- Pas de dry-run de contrôle après le DROP : l'état final de la base est déduit du message de succès, non revérifié.
+- Reste à la main (Jonathan) : scopes machine `review:*` côté Vercel, révocation de l'accès Google OAuth.
 - `projects.weekly_digest_enabled` (schema, API projet, layout) n'a plus de lecteur apparent depuis le retrait des digests GMB : colonne et champ orphelins.
 - `loadProjectPolicyGate` garde des paramètres inutilisés (`_db`, `_projectId`) : stub à supprimer au prochain passage sur le proposeur.
 - Écart avec la coupure du 2026-10-19 : « code conservé jusqu'à OpenSEO » est remplacé par la suppression immédiate.
