@@ -1,56 +1,70 @@
-# Retrait GMB et LinkedIn (coupure)
+# Retrait GMB et LinkedIn
 
-> **Statut** : DONE (coupure ; code conservé) · **Livré** : 2026-10-19 · **Commits** : `62dfe48` (unique) · **Non déployé** : attend l'accord de Jonathan
+> **Statut** : DONE côté code (branche `chore/retrait-gmb-linkedin`, non fusionnée ni déployée) · **EN ATTENTE** : DROP base · **Livré** : 2026-10-24 · **Commits** : `62dfe48` (coupure, 2026-10-19) puis `5d92198` (suppression du code)
 
 ## Ce que ça fait
-Le hub ne gère plus Google Business Profile ni la publication LinkedIn : plus de cron, plus de job planifié, plus d'onglet. Barber Concept gère ses avis sur son propre VPS. Le code reste en place (sans rien qui l'exécute) jusqu'à la migration de seo-stats vers OpenSEO.
+Le hub ne gère plus Google Business Profile ni la publication LinkedIn. La coupure du 2026-10-19 (`62dfe48`) a retiré crons, jobs planifiés et onglets ; `5d92198` supprime ensuite tout le code (294 fichiers, -35 026 lignes). Le DROP des tables en base n'est PAS appliqué : il passe par un script dédié.
 
 ## Comment ça marche
-Coupure à trois endroits, rien n'est supprimé :
-1. **Crons** : `vercel.json` ne garde que `/api/cron/tick` (horaire). `gmb-publish`, `gmb-weekly-digest`, `linkedin-publish` sont retirés. `gmb-reviews` n'était déjà plus planifié.
-2. **Cadran quotidien** (`SCHEDULE_CATALOG.daily` dans `schedule-state.ts`) : `collect:gmb_reviews`, `detect:review_pending`, `detect:employee_mentions` retirés. Restent `findings:lifecycle`, la collecte d'inspection d'URLs et `detect:index_transition`. Le tick ne planifie donc plus aucun job GMB.
-3. **Navigation** : onglets LinkedIn, GMB, Fiche Google, Logs GMB, Avis Google retirés de `projectNav` (layout `(app)`) ; Avis et Présence locale retirés du layout `projects/[slug]`.
+Code supprimé : routes UI/API avis, fiches, publications, OAuth Google/LinkedIn, API agent v1 des avis, rapport mensuel d'avis, handlers `collect:gmb_reviews` / `detect:review_pending` / `detect:employee_mentions`, policies d'avis, upload Blob (`@vercel/blob` et `openai` retirés de `package.json`), digests GMB, scripts one-off.
 
-Conservés tels quels : dossiers `src/routes/api/cron/{gmb-publish,gmb-reviews,gmb-weekly-digest,linkedin-publish}`, routes de pages et API agent, handlers de jobs, tables. Les URLs restent joignables à la main.
+Ce qui change dans ce qui reste :
+- **Rapport hebdo** : la section `reviews` n'est plus produite ; son titre reste dans `weekly-report-state.ts` pour relire les rapports archivés.
+- **Accueil** : compteur « avis sans réponse » retiré (`home.ts`, `home-state.ts`).
+- **Contenus** : types `gmb` et `linkedin` retirés (UI, API `content`, vue client).
+- **Jobs** : provider `gmb` retiré de `job-limits.ts`.
+- **Findings** : 3 types retirés (`review_pending_sla`, `negative_review`, `unknown_employee_mention`).
+- **Alertes critiques** : `sendCriticalError` (`notifications.ts`) dédoublonne via `system_settings`, clé `notify.critical_sent.{hash}` (1 h), au lieu de `gmb_settings`.
+- **Proposeur de findings** : `loadProjectPolicyGate` ne lit plus de policy. Plus de magasin donc refus d'auto-approbation par défaut ; `proposal_approvals` n'a jamais reçu de ligne `method = 'policy'`.
 
-Archive : tables seostats `gmb_*`, `review_*`, `employee_mentions`, `linkedin_settings` (4 364 lignes) en JSON chiffré, hors repo : `noyau/backups/neon/seo-stats-gmb-linkedin-2026-10-19.json.enc` (lignes de tokens masquées).
+DROP base (à part) :
+```
+déployer le code -> branche Neon de sauvegarde -> dry-run -> --apply --backup-branch=<nom>
+```
+`drizzle/manual-drop-gmb-linkedin.sql` : une transaction, sans CASCADE. Supprime les résidus GMB (jobs + attempts + effects, `monitoring_steps`, findings d'avis + events), 19 tables, les contenus gmb/linkedin (+ `status_history`, `comments`, `seo_reports.content_id` mis à NULL, `content_types`) et les colonnes `projects.gmb_location_id` et `contents.gmb_post_id`.
 
 ## Carte du code
-> Mise à jour : 2026-10-19
+> Mise à jour : 2026-10-25
 
 | Fichier | Rôle |
 |---|---|
-| `vercel.json` | Ne garde que le cron `tick`. |
-| `src/lib/server/schedule-state.ts` | `SCHEDULE_CATALOG.daily` sans job GMB. |
-| `src/lib/server/schedule-state.test.ts` | Verrou : aucun job d'avis/mentions dans `hourly` ni `daily`. |
-| `src/routes/(app)/+layout.svelte` | `projectNav` sans entrées GMB/LinkedIn. |
-| `src/routes/(app)/projects/[slug]/+layout.svelte` | Onglets Avis et Présence locale retirés. |
-| `CLAUDE.md` | Bandeau de retrait ; sections GMB plus bas marquées historiques. |
-| `src/lib/server/job-limits.ts` | Garde encore le provider `gmb` (voir dettes). |
+| `drizzle/manual-drop-gmb-linkedin.sql` | DROP transactionnel des 19 tables, résidus et 2 colonnes. |
+| `scripts/apply-drop-gmb-linkedin.ts` | Applique le SQL ; dry-run par défaut ; `--apply` exige `--backup-branch=`. |
+| `src/lib/server/notifications.ts` | Dédup des alertes critiques via `system_settings`. |
+| `src/lib/server/proposers/finding-proposer.ts` | `loadProjectPolicyGate` : plus de policy, refus d'auto-approbation. |
+| `src/lib/server/weekly-report-state.ts` | Section `reviews` non produite, titre conservé pour l'archive. |
+| `src/lib/server/schedule-state.ts` | `SCHEDULE_CATALOG.daily` sans job GMB (depuis `62dfe48`). |
+| `src/lib/server/db/schema.ts` | Tables et colonnes GMB retirées : le schéma ne les connaît plus. |
+| `src/lib/server/job-limits.ts` | Provider `gmb` retiré. |
+| `vercel.json` | Seul cron : `/api/cron/tick`. |
 
 ### Décisions clés
-- Coupure sans suppression — réversible tant que la migration OpenSEO n'a pas eu lieu (détail daté → DECISIONS.md, 2026-10-19).
-- Archive chiffrée hors repo avant toute suppression future de table.
+- Suppression du code, DROP base découplé et gardé — la prod déployée lit encore `gmb_reviews` tant que le nouveau code n'est pas déployé (DECISIONS.md, 2026-10-24).
+- Dédup des alertes dans `system_settings`, pas dans une table dédiée — KV d'exploitation déjà là (DECISIONS.md, 2026-10-24).
+- Archive chiffrée hors repo avant tout DROP : `noyau/backups/neon/seo-stats-gmb-linkedin-2026-10-19.json.enc`.
 
 ## Comment débuguer
-- **Par où entrer** : `SCHEDULE_CATALOG` dans `src/lib/server/schedule-state.ts`.
-- **Ce qu'on observe** : `/jobs` ne doit plus montrer de `collect:gmb_reviews`, `detect:review_pending`, `detect:employee_mentions` pour les nouveaux créneaux ; le dashboard Vercel ne liste que `tick`.
-- **Pannes connues** : un job GMB encore en file d'avant le déploiement peut être drainé une dernière fois (non vérifié) ; une page GMB ouverte par URL directe fonctionne encore mais ses données sont figées.
-- **Pièges** : ne rien réactiver (consigne dans `CLAUDE.md`). Les tests GMB-002/009/010/011 anciens décrivent un comportement coupé.
+- **Par où entrer** : `scripts/apply-drop-gmb-linkedin.ts` (dry-run) pour l'état base ; `notifications.ts` pour les alertes.
+- **Ce qu'on observe** : le dry-run liste tables présentes, lignes et résidus. Après DROP, `Tables encore présentes` doit être absent. Alertes : lignes `system_settings` dont la clé commence par `notify.critical_sent.`.
+- **Pannes connues** : `--apply` sans `--backup-branch` est refusé (voulu) ; une erreur SQL annule toute la transaction ; un `DROP TABLE` qui échoue signale une dépendance inconnue (pas de CASCADE).
+- **Pièges** : ordre obligatoire, code puis migration, sinon l'accueil et le rapport de la prod actuelle plantent sur `gmb_reviews`. `npm run db:push` proposerait les mêmes DROP sans garde-fou : ne pas l'utiliser avant le DROP contrôlé. Le script ne vérifie pas que la branche de sauvegarde existe, il n'en garde que le nom.
 
 ## Configuration
-Aucun ajout. À retirer à la main (tâches humaines) : scopes machine `review:*` côté Vercel ; accès Google (OAuth Business Profile) à révoquer.
+Aucune variable ajoutée. `.env.example` allégé (variables GMB/LinkedIn/Blob retirées). Reste à la main : scopes machine `review:*` côté Vercel, accès Google OAuth à révoquer.
 
 ## Tests et vérifications
 | Vérif | Commande | Résultat réel |
 |---|---|---|
 | Types | `npm run check` | 0 erreur (rapporté, non relancé) |
-| Tests | `npm test` | 1717/1717 verts (rapporté, non relancé) |
-| Déploiement | — | non fait |
+| Tests | `npm test` | 1469 verts, 59 fichiers (rapporté, non relancé) |
+| Build | `npm run build` | bundling OK ; adaptateur Vercel en échec EPERM symlink Windows (environnement, antérieur) |
+| Dry-run DROP | `npx tsx scripts/apply-drop-gmb-linkedin.ts` | 2026-10-24 : 19/19 tables ; 2055 jobs + 2055 `monitoring_steps` GMB ; 69 findings d'avis ; 73 contenus gmb/linkedin (rapporté, non relancé) |
+| `--apply` | — | NON FAIT |
 
 ## Limites et dettes
-- `job-limits.ts` garde le provider `gmb` et `reservedTypes: ['collect:gmb_reviews', …]` : inoffensif, plus rien ne planifie ce job.
-- `LinkedinIcon` et le champ `linkedin` de la nav sont morts.
-- Scopes machine `review:*` à retirer côté Vercel, accès Google à révoquer : tâches humaines.
-- Les feature files `gmb-002/009/010/011` et `docs/HANDOFF.md` (« Reprendre ici » GMB-010/011) décrivent un état coupé ; non réécrits.
-- Routes, handlers et tables supprimables après la migration OpenSEO.
+- DROP base non appliqué : feature non terminée tant qu'il n'est pas passé après déploiement.
+- `projects.weekly_digest_enabled` (schema, API projet, layout) n'a plus de lecteur apparent depuis le retrait des digests GMB : colonne et champ orphelins.
+- `loadProjectPolicyGate` garde des paramètres inutilisés (`_db`, `_projectId`) : stub à supprimer au prochain passage sur le proposeur.
+- Écart avec la coupure du 2026-10-19 : « code conservé jusqu'à OpenSEO » est remplacé par la suppression immédiate.
+- Tests : 1717 rapportés le 2026-10-19, 1469 maintenant ; baisse attendue (tests GMB supprimés), non auditée test par test.
+- `e00-fondations-cockpit.md`, `PLAN.md` et `DECISIONS.md` décrivent encore GMB comme existant : historique, non réécrit.

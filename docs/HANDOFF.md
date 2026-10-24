@@ -1,7 +1,7 @@
 # HANDOFF — 2026-10-01
 
 ## Reprendre ici
-**2026-10-19** — GMB et LinkedIn coupés (`62dfe48`, [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md)) ; anciennes docs GMB (gmb-002/009/010/011, runbooks Hermes Barber, contrat agent-api-gmb) supprimées. GMB-010/011 caducs. Prochain chantier : migration vers OpenSEO.
+**2026-10-25** — Code GMB/LinkedIn supprimé sur la branche `chore/retrait-gmb-linkedin` (`5d92198`, [features/gmb-linkedin-retrait.md](features/gmb-linkedin-retrait.md)). Reste : fusionner et déployer, PUIS dry-run et `apply-drop-gmb-linkedin.ts --apply --backup-branch=<branche Neon>`. Ne pas lancer `npm run db:push` d'ici là. Prochain chantier : migration vers OpenSEO.
 
 ---
 
