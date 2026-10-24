@@ -7,7 +7,7 @@
 
 **Fait :** branche `chore/retrait-gmb-linkedin` fusionnée en fast-forward dans `main` et poussée (`00de7c5`) · déploiement Vercel prod `jlabs-content-7h7813r45` Ready · branche Neon `backup-2026-10-25-pre-drop-gmb` créée par Jonathan · dry-run relancé (19/19, résidus identiques au 24/10) · `--apply --backup-branch=backup-2026-10-25-pre-drop-gmb` exécuté : « Retrait appliqué : 19 tables et 2 colonnes supprimées. »
 **Prochain :** migration vers OpenSEO. À la main (Jonathan) : scopes machine `review:*` côté Vercel, révocation de l'accès Google OAuth.
-**Pieges :** aucun dry-run de contrôle relancé après le DROP (état post-DROP non vérifié) · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer. Le piège `db:push` est levé : schéma et base sont alignés.
+**Pieges :** aucun dry-run de contrôle relancé après le DROP (état post-DROP non vérifié) · dry-run post-DROP fait : 0/19 tables, 0 résidu · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer. Le piège `db:push` est levé : schéma et base sont alignés.
 
 ---
 
@@ -15,7 +15,7 @@
 
 **Fait :** code GMB/LinkedIn supprimé (294 fichiers) · section avis du rapport hebdo et compteur d'accueil retirés · dédup des alertes critiques déplacée vers `system_settings` · migration DROP écrite + dry-run constaté (19/19 tables) · docs mises à jour par doc-keeper.
 **Prochain :** Jonathan relit et autorise le merge/déploiement de `chore/retrait-gmb-linkedin` ; ensuite seulement, branche Neon de sauvegarde puis `npx tsx scripts/apply-drop-gmb-linkedin.ts --apply --backup-branch=<nom>`.
-**Pieges :** ne pas migrer avant le déploiement (la prod lit encore `gmb_reviews`) · `npm run db:push` proposerait les mêmes DROP sans garde-fou · le script ne vérifie pas l'existence de la branche de sauvegarde · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer.
+**Pieges :** ne pas migrer avant le déploiement (la prod lit encore `gmb_reviews`) · `npm run db:push` proposerait les mêmes DROP sans garde-fou · le script ne vérifie pas l'existence de la branche de sauvegarde · dry-run post-DROP fait : 0/19 tables, 0 résidu · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer.
 **Commit :** bc4f7ae docs(gmb-linkedin-retrait): documente la suppression du code et le DROP base en attente
 
 ---
@@ -78,11 +78,10 @@ Aucune variable ajoutée. `.env.example` allégé (variables GMB/LinkedIn/Blob r
 | Build | `npm run build` | bundling OK ; adaptateur Vercel en échec EPERM symlink Windows (environnement, antérieur) |
 | Dry-run DROP | `npx tsx scripts/apply-drop-gmb-linkedin.ts` | 2026-10-24 puis 2026-10-25 : 19/19 tables ; résidus identiques : 2055 jobs + 2055 `monitoring_steps` GMB, 69 findings d'avis, 73 contenus gmb/linkedin. Volumes : `gmb_reviews` 3466, `review_reply_delivery_events` 332, `review_mention_candidates` 288, `publish_logs` 209 (relancé 2026-10-25) |
 | `--apply` | `npx tsx scripts/apply-drop-gmb-linkedin.ts --apply --backup-branch=backup-2026-10-25-pre-drop-gmb` | 2026-10-25 : « Retrait appliqué : 19 tables et 2 colonnes supprimées. » |
-| Dry-run post-DROP | idem sans `--apply` | NON RELANCÉ : absence des tables non vérifiée par le script |
+| Dry-run post-DROP | `npx tsx scripts/apply-drop-gmb-linkedin.ts` | 2026-10-25 : « Tables GMB/LinkedIn présentes : 0/19 » ; résidus : jobs GMB 0, `monitoring_steps` GMB 0, findings d'avis 0, contenus gmb/linkedin 0 (rapporté par Jonathan, non relancé par doc-keeper) |
 | Déploiement | Vercel prod | `jlabs-content-7h7813r45` Ready (rapporté) |
 
 ## Limites et dettes
-- Pas de dry-run de contrôle après le DROP : l'état final de la base est déduit du message de succès, non revérifié.
 - Reste à la main (Jonathan) : scopes machine `review:*` côté Vercel, révocation de l'accès Google OAuth.
 - `projects.weekly_digest_enabled` (schema, API projet, layout) n'a plus de lecteur apparent depuis le retrait des digests GMB : colonne et champ orphelins.
 - `loadProjectPolicyGate` garde des paramètres inutilisés (`_db`, `_projectId`) : stub à supprimer au prochain passage sur le proposeur.
