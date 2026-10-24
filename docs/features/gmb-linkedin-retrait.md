@@ -2,6 +2,16 @@
 
 > **Statut** : DONE côté code (branche `chore/retrait-gmb-linkedin`, non fusionnée ni déployée) · **EN ATTENTE** : DROP base · **Livré** : 2026-10-24 · **Commits** : `62dfe48` (coupure, 2026-10-19) puis `5d92198` (suppression du code)
 
+
+## Etat session 2026-10-25
+
+**Fait :** code GMB/LinkedIn supprimé (294 fichiers) · section avis du rapport hebdo et compteur d'accueil retirés · dédup des alertes critiques déplacée vers `system_settings` · migration DROP écrite + dry-run constaté (19/19 tables) · docs mises à jour par doc-keeper.
+**Prochain :** Jonathan relit et autorise le merge/déploiement de `chore/retrait-gmb-linkedin` ; ensuite seulement, branche Neon de sauvegarde puis `npx tsx scripts/apply-drop-gmb-linkedin.ts --apply --backup-branch=<nom>`.
+**Pieges :** ne pas migrer avant le déploiement (la prod lit encore `gmb_reviews`) · `npm run db:push` proposerait les mêmes DROP sans garde-fou · le script ne vérifie pas l'existence de la branche de sauvegarde · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer.
+**Commit :** bc4f7ae docs(gmb-linkedin-retrait): documente la suppression du code et le DROP base en attente
+
+---
+
 ## Ce que ça fait
 Le hub ne gère plus Google Business Profile ni la publication LinkedIn. La coupure du 2026-10-19 (`62dfe48`) a retiré crons, jobs planifiés et onglets ; `5d92198` supprime ensuite tout le code (294 fichiers, -35 026 lignes). Le DROP des tables en base n'est PAS appliqué : il passe par un script dédié.
 
