@@ -7,7 +7,7 @@
 
 **Fait :** branche `chore/retrait-gmb-linkedin` fusionnée en fast-forward dans `main` et poussée (`00de7c5`) · déploiement Vercel prod `jlabs-content-7h7813r45` Ready · branche Neon `backup-2026-10-25-pre-drop-gmb` créée par Jonathan · dry-run relancé (19/19, résidus identiques au 24/10) · `--apply --backup-branch=backup-2026-10-25-pre-drop-gmb` exécuté : « Retrait appliqué : 19 tables et 2 colonnes supprimées. »
 **Prochain :** migration vers OpenSEO. À la main (Jonathan) : scopes machine `review:*` côté Vercel, révocation de l'accès Google OAuth.
-**Pieges :** aucun dry-run de contrôle relancé après le DROP (état post-DROP non vérifié) · dry-run post-DROP fait : 0/19 tables, 0 résidu · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer. Le piège `db:push` est levé : schéma et base sont alignés.
+**Pieges :** dry-run post-DROP fait : 0/19 tables, 0 résidu · dettes : `projects.weekly_digest_enabled` orpheline, stub `loadProjectPolicyGate` à supprimer. Le piège `db:push` est levé : schéma et base sont alignés.
 
 ---
 
