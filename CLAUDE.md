@@ -222,7 +222,7 @@ Compléments : `/programmatic-seo` (pages à l'échelle) · `/seo-audit` (audit 
 | `@article-producer` | Worker : 1 slug → 1 article complet (write→humanizer→sources→enrich→review→cover→publish) | l'exécution manuelle §3 |
 | `@brief-critic` | Relecteur adversarial d'un brief (`/seo-brief`), verdict PASS/FAIL | le checkpoint humain de validation de brief |
 
-`@content-creator` spawn les deux autres en boucle (brief-critic valide, article-producer produit en parallèle). Le dev passe par Superpowers + `@doc-keeper`, hors domaine SEO.
+`@content-creator` spawn les deux autres en boucle (brief-critic valide, article-producer produit en parallèle). Le dev passe par la chaîne du harnais (`kickoff-project`, `deliver-plan`, `wrap-session`), hors domaine SEO.
 
 ### 4. ~~Présence locale (GMB)~~ — retirée le 2026-10-19
 
@@ -234,5 +234,3 @@ Plus de skill GMB ni LinkedIn. Le VPS de Barber Concept gère ses avis lui-même
 - **Lit ici** : tous les skills du bloc 1 (KPI/GSC) — jamais de copie markdown (loi n°4).
 - **Monte au cerveau** : `/seo-archive` (snapshots → `cerveau/20-Knowledge/`), puis distillation wiki **consciente** (`/brain-sync` / INGEST), jamais auto (loi n°5).
 
-## Fin d'epic
-Quand le dernier commit d'un epic est fait, propose a Jonathan de lancer `/epic-recap` pour generer le rapport dans Obsidian. Ne le lance pas automatiquement — demande d'abord.
